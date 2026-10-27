@@ -295,7 +295,7 @@ impl Viziwiz {
     }
 
     fn inbox() -> Result<PathBuf, String> {
-        let dir = dpl_roots::content_root().join("inbox");
+        let dir = dpl_roots::writable(&dpl_roots::content_root())?.join("inbox");
         std::fs::create_dir_all(&dir).map_err(|e| format!("inbox: {e}"))?;
         Ok(dir)
     }
@@ -1463,7 +1463,8 @@ impl Viziwiz {
                 LandingMode::Auto => LandingMode::Ask,
                 LandingMode::Ask => LandingMode::Auto,
             };
-            let _ = self.landing.save(&dpl_roots::userdata_root());
+            let _ = dpl_roots::writable(&dpl_roots::userdata_root())
+                .map(|userdata| self.landing.save(&userdata));
             self.status = format!(
                 "landing: {}",
                 match self.landing.mode {
@@ -1474,7 +1475,8 @@ impl Viziwiz {
         }
         if actions.cycle_bucket {
             Self::cycle_bucket(&mut self.landing);
-            let _ = self.landing.save(&dpl_roots::userdata_root());
+            let _ = dpl_roots::writable(&dpl_roots::userdata_root())
+                .map(|userdata| self.landing.save(&userdata));
             if let Some(b) = self.landing.pattern.destination.bucket() {
                 self.status = format!("bucket: {b}");
             }

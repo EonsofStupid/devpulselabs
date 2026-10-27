@@ -104,9 +104,12 @@ impl Index {
     /// The app's index: `.userdata/index.db` (ADR-014 Ring 0), adopting
     /// a legacy `content/artifacts.db` if one is still in place.
     pub fn open_default() -> Result<Self, String> {
+        // ST2b: never opened (and so never created) while the library is
+        // unplugged or another drive holds its place.
+        let userdata = dpl_roots::writable(&dpl_roots::userdata_root())?;
         let root = dpl_roots::content_root();
         Self::open_adopting(
-            &dpl_roots::userdata_root().join("index.db"),
+            &userdata.join("index.db"),
             &root.join("artifacts.db"),
         )
     }

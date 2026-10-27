@@ -91,6 +91,11 @@ fn main() -> eframe::Result {
     // without a library, the window opens on the library pages (ST2a).
     // `--bring-in` opens the move page there, for proof shots.
     let bring_in = std::env::args().any(|arg| arg == "--bring-in");
+    // ST2b: every document write asks the library first, so nothing is
+    // written while it is unplugged or onto a drive that took its letter.
+    dpl_doc::set_write_guard(dpl_roots::writable);
+    dpl_comp::set_write_guard(dpl_roots::writable);
+    dpl_ledger::set_write_guard(dpl_roots::writable);
     let library = storage_startup::ready();
     match &library {
         Ok(()) => open_library(),
@@ -1832,6 +1837,7 @@ impl ChromeChoices {
     }
 
     fn save(&self, userdata: &std::path::Path) -> std::io::Result<()> {
+        let userdata = &dpl_roots::writable(userdata).map_err(std::io::Error::other)?;
         let bytes = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
         let temporary = userdata.join(format!("{CHROME_CHOICES_FILE}.tmp"));
         std::fs::write(&temporary, bytes)?;

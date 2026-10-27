@@ -304,8 +304,10 @@ pub fn add_library(path: PathBuf) -> bool {
     if libs.contains(&path) {
         return false;
     }
+    let Ok(file) = dpl_roots::writable(&libraries_file()) else {
+        return false;
+    };
     libs.push(path);
-    let file = libraries_file();
     if let Some(dir) = file.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -318,8 +320,11 @@ pub fn add_library(path: PathBuf) -> bool {
 /// Drop a library folder from the persistent list.
 pub fn remove_library(path: &Path) {
     let libs: Vec<PathBuf> = read_libraries().into_iter().filter(|p| p != path).collect();
-    if let Ok(json) = serde_json::to_string_pretty(&libs) {
-        let _ = std::fs::write(libraries_file(), json);
+    if let (Ok(file), Ok(json)) = (
+        dpl_roots::writable(&libraries_file()),
+        serde_json::to_string_pretty(&libs),
+    ) {
+        let _ = std::fs::write(file, json);
     }
 }
 

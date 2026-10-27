@@ -181,6 +181,7 @@ pub fn load_script(slide_dir: &Path) -> Result<Option<Script>, String> {
 /// names the card, never the folder it came from. `Ok(false)` when there
 /// is no script, or it already names `id`.
 pub fn rekey(slide_dir: &Path, id: &str) -> Result<bool, String> {
+    let slide_dir = &crate::writable(slide_dir).map_err(|e| e.to_string())?;
     let path = slide_dir.join(SCRIPT_FILE);
     if !path.is_file() {
         return Ok(false);
@@ -239,6 +240,7 @@ pub fn render_script(script: &Script) -> String {
 
 /// Write `<slide-folder>/script.mdx`.
 pub fn save_script(slide_dir: &Path, script: &Script) -> Result<(), String> {
+    let slide_dir = crate::writable(slide_dir).map_err(|e| e.to_string())?;
     std::fs::write(slide_dir.join(SCRIPT_FILE), render_script(script))
         .map_err(|e| format!("write {SCRIPT_FILE}: {e}"))
 }

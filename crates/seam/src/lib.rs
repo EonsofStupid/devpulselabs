@@ -643,6 +643,8 @@ fn start_render(s: &Shared, body: &Value) -> Result<(StatusCode, Value), Vec<Str
         return Err(vec!["render needs a \"dir\" string".into()]);
     };
     let dir = jail(&s.root, rel).map_err(|e| vec![e])?;
+    // ST2b: no render into a library that is unplugged.
+    let dir = dpl_comp::writable(&dir).map_err(|e| vec![e.to_string()])?;
     let comp = dpl_comp::load(&dir).map_err(|e| vec![format!("load {rel}: {e}")])?;
     let issues = dpl_comp::validate(&comp);
     if !issues.is_empty() {

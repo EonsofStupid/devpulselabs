@@ -72,6 +72,7 @@ impl BackfillManifest {
     /// Crash-safe write: tmp → rename, so an interrupted save cannot
     /// leave a truncated manifest that would re-ingest everything.
     pub fn save(&self, path: &Path) -> Result<(), String> {
+        let path = &dpl_roots::writable(path)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("backfill manifest dir: {e}"))?;
         }

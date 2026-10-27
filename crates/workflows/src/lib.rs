@@ -1457,6 +1457,8 @@ pub fn validate_board(board: &StoryboardDoc) -> Vec<Issue> {
 #[derive(Debug)]
 pub enum DocError {
     Io(std::io::Error),
+    /// The write guard refused: the library is unplugged (ST2b).
+    Unplugged(String),
     Parse(serde_json::Error),
     /// The file's `v` is newer than this build understands.
     Version(u32),
@@ -1466,6 +1468,7 @@ impl std::fmt::Display for DocError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DocError::Io(e) => write!(f, "io: {e}"),
+            DocError::Unplugged(why) => f.write_str(why),
             DocError::Parse(e) => write!(f, "parse: {e}"),
             DocError::Version(v) => {
                 write!(f, "document is schema v{v}; this build reads v{SCHEMA_V}")
@@ -1567,6 +1570,7 @@ pub fn save_intake_prefill(dir: &Path, answers: &[IntakePrefill]) -> Result<(), 
 /// The ONE crash-safe pretty-JSON+LF writer (tmp → bak-step-aside →
 /// swap) all four run documents share.
 fn save_json<T: Serialize>(dir: &Path, file: &str, value: &T) -> Result<(), DocError> {
+    let dir = &dpl_doc::writable(dir).map_err(|e| DocError::Unplugged(e.to_string()))?;
     std::fs::create_dir_all(dir).map_err(DocError::Io)?;
     let target = dir.join(file);
     let tmp = dir.join(format!("{file}.tmp"));

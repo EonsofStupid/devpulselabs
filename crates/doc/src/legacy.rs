@@ -173,6 +173,7 @@ pub fn is_old(dir: &Path) -> bool {
 /// it as [`BACKUP_FILE`] FIRST (an existing backup is never overwritten),
 /// then the v3 slide is saved over `slide.json`.
 pub fn upgrade_dir(dir: &Path) -> Result<Slide, String> {
+    let dir = &crate::writable(dir).map_err(|e| e.to_string())?;
     let raw = std::fs::read_to_string(dir.join(FILE)).map_err(|e| format!("read: {e}"))?;
     let slide = upgrade(&raw)?;
     let backup = dir.join(BACKUP_FILE);
@@ -429,6 +430,8 @@ fn plan_slide(
 /// `dpl.episode/2` last. A plan with refusals moves nothing; a failure part
 /// way puts every folder and file back and leaves the episode as it was.
 pub fn move_episode(dir: &Path, content_root: &Path) -> Result<MovePlan, String> {
+    let content_root = &crate::writable(content_root).map_err(|e| e.to_string())?;
+    let dir = &crate::writable(dir).map_err(|e| e.to_string())?;
     let plan = plan_move(dir, content_root)?;
     if !plan.refused.is_empty() {
         return Err(format!("not moved: {}", plan.refused.join("; ")));

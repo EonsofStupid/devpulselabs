@@ -23,7 +23,7 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender, TrySendError};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -43,6 +43,33 @@ const FLUSH_IDLE: Duration = Duration::from_millis(500);
 /// (across flushes of the same open buffer — we roll per flush file; this
 /// caps a single flush's size).
 const SEGMENT_MAX_ROWS: usize = 10_000;
+
+/// Where a segment may go, installed once by the app as `dpl_roots::writable`
+/// (ST2b): while the library is unplugged nothing is written and the rows
+/// wait, up to one segment per domain. Unset, every folder is written as
+/// given.
+static WRITE_GUARD: OnceLock<fn(&Path) -> Result<PathBuf, String>> = OnceLock::new();
+
+/// Install the write guard; the first call wins.
+pub fn set_write_guard(guard: fn(&Path) -> Result<PathBuf, String>) {
+    let _ = WRITE_GUARD.set(guard);
+}
+
+/// Rows that couldn't be written go back to wait for the next flush. Past one
+/// segment's worth, the oldest are dropped and counted.
+fn hold(
+    buffers: &mut HashMap<String, Vec<LedgerRow>>,
+    domain: String,
+    mut rows: Vec<LedgerRow>,
+    dropped: &AtomicU64,
+) {
+    if rows.len() > SEGMENT_MAX_ROWS {
+        let excess = rows.len() - SEGMENT_MAX_ROWS;
+        rows.drain(..excess);
+        dropped.fetch_add(excess as u64, Ordering::Relaxed);
+    }
+    buffers.insert(domain, rows);
+}
 
 /// One ledger row — the fixed column contract (schema v1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,31 +290,37 @@ fn writer_loop(root: PathBuf, rx: mpsc::Receiver<WriterMsg>, dropped: Arc<Atomic
                 buf.push(row);
                 if buf.len() >= BATCH_ROWS {
                     let rows = buffers.remove(&domain).unwrap_or_default();
-                    let _ = flush_segment(&root, &domain, &rows, dropped.load(Ordering::Relaxed));
+                    if flush_segment(&root, &domain, &rows, dropped.load(Ordering::Relaxed))
+                        .is_err()
+                    {
+                        hold(&mut buffers, domain, rows, &dropped);
+                    }
                 }
             }
             Ok(WriterMsg::Flush) | Err(RecvTimeoutError::Timeout) => {
-                flush_all(&root, &mut buffers, dropped.load(Ordering::Relaxed));
+                flush_all(&root, &mut buffers, &dropped);
                 last_activity = Instant::now();
             }
             Ok(WriterMsg::Shutdown) => {
-                flush_all(&root, &mut buffers, dropped.load(Ordering::Relaxed));
+                flush_all(&root, &mut buffers, &dropped);
                 break;
             }
             Err(RecvTimeoutError::Disconnected) => {
-                flush_all(&root, &mut buffers, dropped.load(Ordering::Relaxed));
+                flush_all(&root, &mut buffers, &dropped);
                 break;
             }
         }
     }
 }
 
-fn flush_all(root: &Path, buffers: &mut HashMap<String, Vec<LedgerRow>>, dropped: u64) {
+fn flush_all(root: &Path, buffers: &mut HashMap<String, Vec<LedgerRow>>, dropped: &AtomicU64) {
     let domains: Vec<String> = buffers.keys().cloned().collect();
     for domain in domains {
         if let Some(rows) = buffers.remove(&domain) {
-            if !rows.is_empty() {
-                let _ = flush_segment(root, &domain, &rows, dropped);
+            if !rows.is_empty()
+                && flush_segment(root, &domain, &rows, dropped.load(Ordering::Relaxed)).is_err()
+            {
+                hold(buffers, domain, rows, dropped);
             }
         }
     }
@@ -302,6 +335,10 @@ fn flush_segment(
     if rows.is_empty() {
         return Ok(());
     }
+    let root = &match WRITE_GUARD.get() {
+        Some(guard) => guard(root)?,
+        None => root.to_path_buf(),
+    };
     let date = utc_date_today();
     let dir = root.join("events").join(format!("date={date}"));
     fs::create_dir_all(&dir).map_err(|e| format!("ledger: mkdir {}: {e}", dir.display()))?;

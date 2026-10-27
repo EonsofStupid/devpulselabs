@@ -475,6 +475,7 @@ pub fn push_back(slide: &mut Slide, look: &Look) -> Look {
 /// `<look>/replaced/<rev>.json` — kept, never deleted — so the built-in
 /// shows again. Returns where it went.
 pub fn retire_look(content_root: &Path, id: &str) -> Result<PathBuf, DocError> {
+    let content_root = &crate::writable(content_root)?;
     let dir = look_dir(content_root, id);
     let look = load_look(&dir)?;
     let replaced = dir.join("replaced");

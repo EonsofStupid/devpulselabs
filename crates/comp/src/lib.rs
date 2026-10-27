@@ -450,6 +450,8 @@ pub struct Issue {
 #[derive(Debug)]
 pub enum CompError {
     Io(std::io::Error),
+    /// The write guard refused: the library is unplugged (ST2b).
+    Unplugged(String),
     Parse(serde_json::Error),
     /// The file's `v` is newer than this build understands.
     Version(u32),
@@ -459,6 +461,7 @@ impl std::fmt::Display for CompError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CompError::Io(e) => write!(f, "io: {e}"),
+            CompError::Unplugged(why) => f.write_str(why),
             CompError::Parse(e) => write!(f, "parse: {e}"),
             CompError::Version(v) => {
                 write!(f, "comp.json is schema v{v}; this build reads v{SCHEMA_V}")
@@ -481,12 +484,32 @@ pub fn load(dir: &Path) -> Result<Composition, CompError> {
     Ok(comp)
 }
 
+/// Where a write may go, installed once by the app as `dpl_roots::writable`
+/// (ST2b), like `dpl_doc::set_write_guard`. Unset, every folder is written
+/// as given.
+static WRITE_GUARD: std::sync::OnceLock<fn(&Path) -> Result<PathBuf, String>> =
+    std::sync::OnceLock::new();
+
+/// Install the write guard; the first call wins.
+pub fn set_write_guard(guard: fn(&Path) -> Result<PathBuf, String>) {
+    let _ = WRITE_GUARD.set(guard);
+}
+
+/// `dir` as the write guard allows it. The seam asks before it renders.
+pub fn writable(dir: &Path) -> Result<PathBuf, CompError> {
+    match WRITE_GUARD.get() {
+        Some(guard) => guard(dir).map_err(CompError::Unplugged),
+        None => Ok(dir.to_path_buf()),
+    }
+}
+
 /// Crash-safe pretty-JSON+LF write: content lands in a sibling tmp first,
 /// then swaps in (Windows cannot rename over an existing file, so the old
 /// file steps aside as `.bak` for the swap and the bak is removed on
 /// success). The `dpl-doc` writer, replicated — the document layer depends on
 /// no other crate for a file swap.
 pub fn save(dir: &Path, comp: &Composition) -> Result<(), CompError> {
+    let dir = &writable(dir)?;
     std::fs::create_dir_all(dir).map_err(CompError::Io)?;
     let target = dir.join(FILE);
     let tmp = dir.join(format!("{FILE}.tmp"));

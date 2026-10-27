@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// The version of `episode.json` and `theme.json`. Bump on breaking shape
 /// changes; their loaders refuse newer versions honestly instead of
@@ -613,6 +614,8 @@ pub struct Issue {
 #[derive(Debug)]
 pub enum DocError {
     Io(std::io::Error),
+    /// The write guard refused: the library is unplugged (ST2b).
+    Unplugged(String),
     Parse(serde_json::Error),
     /// An episode or theme whose `v` is newer than this build understands.
     Version(u32),
@@ -628,6 +631,7 @@ impl std::fmt::Display for DocError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DocError::Io(e) => write!(f, "io: {e}"),
+            DocError::Unplugged(why) => f.write_str(why),
             DocError::Parse(e) => write!(f, "parse: {e}"),
             DocError::Version(v) => {
                 write!(f, "document is v{v}; this build reads up to v{SCHEMA_V}")
@@ -675,11 +679,32 @@ pub fn parse_slide(raw: &str) -> Result<Slide, DocError> {
     }
 }
 
+/// Where a write may go, installed once by the app as `dpl_roots::writable`
+/// (ST2b). While the library is unplugged, or another drive holds its place,
+/// writes are refused and the edit stays in memory; a folder cached before
+/// a reconnect on another drive letter comes back moved onto the library.
+/// Unset (tests, tools), every folder is written as given.
+static WRITE_GUARD: OnceLock<fn(&Path) -> Result<PathBuf, String>> = OnceLock::new();
+
+/// Install the write guard; the first call wins.
+pub fn set_write_guard(guard: fn(&Path) -> Result<PathBuf, String>) {
+    let _ = WRITE_GUARD.set(guard);
+}
+
+/// `dir` as the write guard allows it. `dpl-workflows` writes through it too.
+pub fn writable(dir: &Path) -> Result<PathBuf, DocError> {
+    match WRITE_GUARD.get() {
+        Some(guard) => guard(dir).map_err(DocError::Unplugged),
+        None => Ok(dir.to_path_buf()),
+    }
+}
+
 /// Crash-safe pretty-JSON+LF write: the full content lands in a sibling
 /// tmp first, then swaps in (Windows cannot rename over an existing file,
 /// so the old file steps aside as `.bak` for the swap and the bak is
 /// removed on success). One writer for every document kind.
 fn save_json<T: serde::Serialize>(dir: &Path, file: &str, value: &T) -> Result<(), DocError> {
+    let dir = &writable(dir)?;
     std::fs::create_dir_all(dir).map_err(DocError::Io)?;
     let target = dir.join(file);
     let tmp = dir.join(format!("{file}.tmp"));
@@ -714,6 +739,7 @@ pub const REVS: &str = "revs";
 /// written over its source's copy) or no file at all keeps nothing; a kept
 /// revision is never overwritten.
 fn keep_superseded(dir: &Path, file: &str, id: &str, rev: u32) -> Result<(), DocError> {
+    let dir = &writable(dir)?;
     let Ok(raw) = std::fs::read_to_string(dir.join(file)) else {
         return Ok(());
     };
@@ -2008,6 +2034,7 @@ pub fn clone_episode(
     show: &str,
     episode: &str,
 ) -> Result<PathBuf, String> {
+    let content_root = &writable(content_root).map_err(|e| e.to_string())?;
     if !kebab_ok(show) || !kebab_ok(episode) {
         return Err("show and episode names are kebab-case (a-z, 0-9, -, _)".into());
     }
@@ -2093,6 +2120,7 @@ pub fn place_slide(
     chapter_id: &str,
     slot: Option<usize>,
 ) -> Result<PlacedSlide, String> {
+    let content_root = &writable(content_root).map_err(|e| e.to_string())?;
     if !kebab_ok(show) || !kebab_ok(episode) {
         return Err("show and episode names are kebab-case (a-z, 0-9, -, _)".into());
     }

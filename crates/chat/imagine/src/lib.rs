@@ -107,7 +107,7 @@ impl ImagineCache {
         let id = format!("draft-{now_ms}-{}", self.next_discriminator);
         self.next_discriminator += 1;
         let file = format!("{id}.{extension}");
-        let path = self.dir.join(&file);
+        let path = dpl_roots::writable(&self.dir)?.join(&file);
         fs::write(&path, bytes).map_err(|error| format!("draft could not be written: {error}"))?;
         let draft = GenerationDraft {
             id,
@@ -124,11 +124,12 @@ impl ImagineCache {
     /// Removes a draft and its artifact — used by both the explicit Ignore
     /// gesture and by promotion (after the library copy has committed).
     pub fn remove(&mut self, id: &str) -> Result<(), String> {
+        let dir = dpl_roots::writable(&self.dir)?;
         let Some(position) = self.drafts.iter().position(|draft| draft.id == id) else {
             return Err(format!("unknown draft {id}"));
         };
         let draft = self.drafts.remove(position);
-        let path = self.dir.join(&draft.file);
+        let path = dir.join(&draft.file);
         if path.is_file() {
             fs::remove_file(&path)
                 .map_err(|error| format!("draft artifact could not be removed: {error}"))?;
@@ -167,10 +168,11 @@ impl ImagineCache {
         };
         let bytes = serde_json::to_vec_pretty(&index)
             .map_err(|error| format!("draft index could not be encoded: {error}"))?;
-        let temporary = self.dir.join(format!("{INDEX_FILE}.tmp"));
+        let dir = dpl_roots::writable(&self.dir)?;
+        let temporary = dir.join(format!("{INDEX_FILE}.tmp"));
         fs::write(&temporary, bytes)
             .map_err(|error| format!("draft index could not be written: {error}"))?;
-        fs::rename(&temporary, self.dir.join(INDEX_FILE))
+        fs::rename(&temporary, dir.join(INDEX_FILE))
             .map_err(|error| format!("draft index could not be committed: {error}"))
     }
 }
@@ -202,6 +204,7 @@ impl ImaginePolicy {
     }
 
     pub fn save(&self, userdata: &Path) -> io::Result<()> {
+        let userdata = &dpl_roots::writable(userdata).map_err(io::Error::other)?;
         let bytes = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
         let temporary = userdata.join(format!("{POLICY_FILE}.tmp"));
         fs::write(&temporary, bytes)?;

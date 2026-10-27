@@ -282,6 +282,7 @@ impl AssistPolicy {
     }
 
     fn save(&self, userdata: &std::path::Path) -> std::io::Result<()> {
+        let userdata = &dpl_roots::writable(userdata).map_err(std::io::Error::other)?;
         let bytes = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
         let temporary = userdata.join(format!("{ASSIST_POLICY_FILE}.tmp"));
         std::fs::write(&temporary, bytes)?;
@@ -1691,9 +1692,13 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
         }
         HostIntent::OpenRoomLibraryFolder => {
             let root = room_library_root();
-            let made = ["roles", "rooms"]
-                .iter()
-                .try_for_each(|kind| std::fs::create_dir_all(root.join(kind)));
+            let made = dpl_roots::writable(&root)
+                .map_err(std::io::Error::other)
+                .and_then(|root| {
+                    ["roles", "rooms"]
+                        .iter()
+                        .try_for_each(|kind| std::fs::create_dir_all(root.join(kind)))
+                });
             if let Err(error) = made.and_then(|()| reveal_folder(&root)) {
                 tracing::warn!(path = %root.display(), %error, "room library folder could not be opened");
             }

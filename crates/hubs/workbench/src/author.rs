@@ -1238,6 +1238,11 @@ impl AuthorSurface {
         // Newest first. `None` (no readable mtime) sorts last, exactly as the
         // hand-rolled descending comparator did.
         all.sort_by_key(|(_, when)| std::cmp::Reverse(*when));
+        // Nothing at all may mean the library was unplugged (ST2b): one look
+        // only when the list is empty, so a full library costs nothing.
+        if all.is_empty() && !root.is_dir() {
+            dpl_roots::io_failed(&root);
+        }
         all
     }
 
