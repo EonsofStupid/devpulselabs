@@ -2,7 +2,7 @@
 //! reads. The move copies, checks every file byte for byte, publishes the
 //! library's identity last, and only ever reads the source.
 
-use crate::{disk, handle, setup, AccountId, Layout};
+use crate::{disk, handle, setup, AccountId, Layout, Publish};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -134,14 +134,15 @@ pub(crate) fn move_in(
     library: &Path,
     label: &str,
     progress: &MoveProgress,
+    publish: Publish,
 ) -> Result<Layout, String> {
-    setup::config_available(program)?;
+    setup::config_available(program, publish)?;
     crate::model::label(label)?;
     // Planned again here: the folders may have changed since the plan shown.
     let plan = plan_move(source, library)?;
     setup::reject_config_location(program, &plan.library)?;
     let made_folder = !plan.library.exists();
-    match copy_and_publish(program, &plan, label, progress) {
+    match copy_and_publish(program, &plan, label, progress, publish) {
         Ok(layout) => Ok(layout),
         Err(error) => Err(match undo(&plan.library, made_folder) {
             Ok(()) => format!("{error}. Nothing was changed; your folders are as they were."),
@@ -158,6 +159,7 @@ fn copy_and_publish(
     plan: &MovePlan,
     label: &str,
     progress: &MoveProgress,
+    publish: Publish,
 ) -> Result<Layout, String> {
     let layout = Layout::for_library(&plan.library, &AccountId::default());
     setup::create_layout(&layout)?;
@@ -199,7 +201,7 @@ fn copy_and_publish(
     let marker = setup::publish_identity(&plan.library, label)?;
     handle::validate_layout(&layout, &AccountId::default())?;
     let mode = setup::mode_for(program, &plan.library);
-    setup::write_config(program, &plan.library, mode, marker)?;
+    setup::write_config(program, &plan.library, mode, marker, publish)?;
     Ok(layout)
 }
 

@@ -1,6 +1,6 @@
 use crate::{
-    disk, handle, AccountId, Config, Layout, LibraryId, Marker, Mode, CONFIG_FILE, MARKER_FILE,
-    SCHEMA_VERSION,
+    disk, handle, AccountId, Config, Layout, LibraryId, Marker, Mode, Publish, CONFIG_FILE,
+    MARKER_FILE, SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::RandomState;
@@ -32,15 +32,22 @@ fn new_id() -> LibraryId {
         .expect("generated identifier is valid")
 }
 
-pub(crate) fn config_available(program: &Path) -> Result<(), String> {
+pub(crate) fn config_available(program: &Path, publish: Publish) -> Result<(), String> {
     disk::no_symlinks(program)?;
     if !program.is_absolute() || !program.is_dir() {
         return Err("Choose an existing absolute program folder".into());
     }
-    match std::fs::symlink_metadata(program.join(CONFIG_FILE)) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.to_string()),
-        Ok(_) => Err("roots.toml already exists; it will not be replaced".into()),
+    match (
+        std::fs::symlink_metadata(program.join(CONFIG_FILE)),
+        publish,
+    ) {
+        (Err(e), _) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        (Err(e), _) => Err(e.to_string()),
+        (Ok(meta), Publish::Replace) if meta.is_file() => Ok(()),
+        (Ok(_), Publish::Replace) => {
+            Err("roots.toml is not a file; it will not be replaced".into())
+        }
+        (Ok(_), Publish::New) => Err("roots.toml already exists; it will not be replaced".into()),
     }
 }
 
@@ -52,7 +59,19 @@ pub fn setup_at(
     mode: Mode,
     label: &str,
 ) -> Result<Layout, String> {
-    config_available(program)?;
+    setup_publishing(program, selected, mode, label, Publish::New)
+}
+
+/// `setup_at`, replacing an existing `roots.toml` when `publish` says so:
+/// "Use a library on this machine" on the Disconnected screen (ST2a).
+pub(crate) fn setup_publishing(
+    program: &Path,
+    selected: &Path,
+    mode: Mode,
+    label: &str,
+    publish: Publish,
+) -> Result<Layout, String> {
+    config_available(program, publish)?;
     crate::model::label(label)?;
     let library = disk::absolute(selected, program)?;
     reject_config_location(program, &library)?;
@@ -79,7 +98,7 @@ pub fn setup_at(
     };
     let layout = Layout::for_library(&library, &AccountId::default());
     handle::validate_layout(&layout, &AccountId::default())?;
-    write_config(program, &library, mode, marker)?;
+    write_config(program, &library, mode, marker, publish)?;
     Ok(layout)
 }
 
@@ -123,25 +142,28 @@ pub(crate) fn publish_identity(library: &Path, label: &str) -> Result<Marker, St
     Ok(marker)
 }
 
-/// The program's `roots.toml` for a published library; never replaces one.
+/// The program's `roots.toml` for a published library; replaced only when
+/// `publish` says so.
 pub(crate) fn write_config(
     program: &Path,
     library: &Path,
     mode: Mode,
     marker: Marker,
+    publish: Publish,
 ) -> Result<(), String> {
     let linked = mode == Mode::Linked;
-    disk::create_config(
-        program,
-        &Config {
-            v: SCHEMA_VERSION,
-            mode,
-            id: marker.id,
-            label: marker.label,
-            account: AccountId::default(),
-            last_path: linked.then(|| library.to_path_buf()),
-        },
-    )
+    let config = Config {
+        v: SCHEMA_VERSION,
+        mode,
+        id: marker.id,
+        label: marker.label,
+        account: AccountId::default(),
+        last_path: linked.then(|| library.to_path_buf()),
+    };
+    match publish {
+        Publish::New => disk::create_config(program, &config),
+        Publish::Replace => disk::replace_config(program, &config),
+    }
 }
 
 pub(crate) fn reject_config_location(program: &Path, library: &Path) -> Result<(), String> {
@@ -172,12 +194,25 @@ pub(crate) fn reject_config_location(program: &Path, library: &Path) -> Result<(
 /// Stage an existing, identified library for an executable. Does not touch
 /// that library or overwrite an existing executable configuration.
 pub fn stage_roots(program: &Path, library: &Path) -> Result<(), String> {
-    config_available(program)?;
+    stage(program, library, Publish::New)
+}
+
+/// Point `program` at an existing identified library; `Publish::Replace`
+/// is Locate… on the Disconnected screen. The library is only read.
+pub(crate) fn stage(program: &Path, library: &Path, publish: Publish) -> Result<(), String> {
+    config_available(program, publish)?;
     let library = disk::absolute(library, program)?;
+    reject_config_location(program, &library)?;
     let marker = disk::read_marker(&library)?;
     let account = AccountId::default();
     handle::validate_layout(&Layout::for_library(&library, &account), &account)?;
-    write_config(program, &library, mode_for(program, &library), marker)
+    write_config(
+        program,
+        &library,
+        mode_for(program, &library),
+        marker,
+        publish,
+    )
 }
 
 /// Imported when the library is the program's own `library\`, else linked.

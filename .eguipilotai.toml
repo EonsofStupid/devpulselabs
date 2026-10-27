@@ -16,6 +16,21 @@ timeout_ms = 30000
 EGUIPILOTAI_ADAPTER_POLICY = "hardware-then-software"
 CONTENT_ROOT = "target/eguipilotai/default/content"
 
+# ST2a: the one profile without a scratch CONTENT_ROOT. Its exe is a scratch
+# copy whose own program folder (`target/st2-proof/portable/`) holds a
+# scratch `roots.toml`, so it can't reach the operator's library; a
+# CONTENT_ROOT would skip the very Disconnected page it proves
+# (tests/eguipilotai/st2-disconnected.toml).
+[profiles.st2-portable]
+executable = "target/st2-proof/portable/devpulselabs.exe"
+platforms = ["windows"]
+arguments = ["--mood", "0", "--no-seam"]
+adapter_policy = "hardware-then-software"
+timeout_ms = 30000
+
+[profiles.st2-portable.environment]
+EGUIPILOTAI_ADAPTER_POLICY = "hardware-then-software"
+
 [profiles.devpulse-cloud]
 executable = "target/debug/devpulselabs"
 platforms = ["linux"]

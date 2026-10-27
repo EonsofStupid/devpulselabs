@@ -1,0 +1,72 @@
+# ST2a: a linked library that isn't plugged in, on the real exe. Profile
+# `st2-portable` runs a copy of the devtools exe in a scratch program folder
+# (`target/st2-proof/portable/`) whose `roots.toml` links to a library last
+# seen at `P:\library`; no `P:` exists, so the Disconnected page opens. While
+# it waits, the scratch drive folder is mounted as `Q:` (`subst Q:
+# target\st2-proof\drive`), and the app must open by itself on the new
+# letter. The prep and the subst commands are in docs/plans/portable-storage.md
+# §8 (ST2a); remove `Q:` after the run.
+id = "st2-disconnected"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/library.away/heading"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/library.away/locate"
+
+[[steps]]
+kind = "capture"
+name = "disconnected"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/library.away/locate"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/library.away/place"
+
+[[steps]]
+kind = "capture"
+name = "locate-open"
+
+# The drive comes back as Q: during this wait; the watch looks every 2 s.
+[[steps]]
+kind = "wait"
+milliseconds = 9000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.rail/workbench"
+
+[[steps]]
+kind = "capture"
+name = "reconnected"

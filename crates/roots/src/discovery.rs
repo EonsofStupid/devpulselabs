@@ -33,7 +33,7 @@ pub(crate) fn drive_candidates(last: &Path) -> Vec<PathBuf> {
         let suffix = components.as_path();
         (b'A'..=b'Z')
             .filter(|d| *d != drive.to_ascii_uppercase())
-            .map(|d| PathBuf::from(format!("{}:/", char::from(d))).join(suffix))
+            .map(|d| PathBuf::from(format!("{}:\\", char::from(d))).join(suffix))
             .collect()
     }
     #[cfg(not(windows))]
