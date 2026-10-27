@@ -28,6 +28,19 @@ then "Approve" for ST1b (§4.7). The order is now ST1 (done, #297) →
 - Q-ST2-3, a temporary `subst` drive letter for ST2b's proof: "Yes, use
   subst".
 
+**ST5 approved 2026-10-27** (§4f), as two PRs, ST5a then ST5b:
+- Q-ST5-1, recognising a location on another drive letter: "By its files,
+  write nothing". A sample of its file names and sizes is noted when it is
+  added; nothing is ever written onto the drive, and the app asks when it is
+  unsure;
+- Q-ST5-2: "Use location links". A slide points at a file inside a
+  location, and there are no per-file symlinks. This supersedes
+  docs-one-truth §4.3's "Per-file links are real symlinks"; existing
+  symlinks keep working;
+- Q-ST5-3, an offline linked video during Run: "The poster, no label". The
+  audience sees the cached still, and the note shows only on the presenter
+  screen and while authoring.
+
 **§5b signed off, all four:** `roots.toml` beside the exe; the marker check
 on each drive while disconnected; `library.json` written into a linked
 library; and removing the parent walk, the CWD lookup and the OS temp use.
@@ -591,6 +604,116 @@ place** (one PR, after ST2a)
   - The chat brainstorm saves the whole board on its next change.
   - A card's words-to-say (script) are not saved again on reconnect; the
     next change to them saves them.
+
+### 4f. ST5 execution queue — grounded 2026-10-27
+
+Read in THE checkout at `050bdee` (#301), by a census of `crates/composer`
+(`packs.rs`, `browse.rs`, `import.rs`), `crates/index`, `crates/roots`,
+`crates/slides/src/elements/media.rs`, `crates/doc` and
+`docs/plans/export-player.md`. The design is docs-one-truth §4.3 (R83) and
+R288.
+
+What the reading found:
+- **Slides store media content-relative.** `dpl_doc` rejects absolute
+  paths, drive letters and `..` in a media `src` (`doc/src/lib.rs:1029`).
+  Every author writes the index's `rel_path`. A linked file needs a
+  reference form that is itself content-relative.
+- **Pinned packs** (`content/elements/sources.json`) are bare absolute
+  paths: no identity, and no Remove. Offline shows as one row that does
+  nothing.
+- **Browse libraries** (`.userdata/libraries.json`) are bare absolute
+  paths that **vanish** when missing (`browse.rs:227`). They are quick-jump
+  chips only, not indexed.
+- **Import by reference** makes a per-file symlink and **silently copies**
+  when the link fails (`import.rs:230`), against "linking never silently
+  copies".
+- **The index:**
+  - It keys rows by content-relative `rel_path`, but falls back to an
+    absolute path outside content (`index/src/lib.rs:907`).
+  - It marks every row `location: "inbox"`.
+  - A rescan walks only the top of `inbox` (`:823`).
+- **Posters** are written beside the media (`<stem>-poster.jpg`). For a
+  linked folder that would write into the operator's own folder, against
+  "sources are never mutated".
+- **A missing file** draws "video · src · file not found". There is no
+  offline state.
+
+**The design, as built:**
+- **A location** is a record in the account's `.userdata/locations.json`:
+  an id, a label, where it was last seen, and a fingerprint (Q-ST5-1).
+  - `dpl-roots` owns it, beside the library's own drive probe, with the
+    same ceiling: serde, serde_json, toml.
+  - A location on the library's own drive is stored relative to the
+    library, so it follows the drive's letter by itself.
+  - Elsewhere, when it isn't at its last path, the same path is checked on
+    the other drive letters or mount points, as ST2 does for the library.
+- **A linked file's reference is `locations/<id>/<path inside>`.** It is
+  content-relative, so `dpl_doc`'s rules hold unchanged.
+  - `dpl_roots::locate_asset` resolves it to wherever the location is now.
+  - An export copies it into its own `content/locations/<id>/…`, where the
+    same reference finds it with nothing plugged in (R288's "copied into
+    the export").
+- **Posters and thumbnails** for linked files are cached in
+  `common/cache/locations/<id>/…` (regenerable). Nothing is ever written
+  into the operator's folder.
+- **Offline is never broken.**
+  - Authoring shows the cached poster with "On 'Videos drive' — plug it in
+    to play".
+  - Run mode shows what Q-ST5-3 rules.
+
+**ST5a — link a folder and use its videos in slides** (one PR)
+
+1. **`dpl-roots` (`locations.rs`):**
+   - `add` (refuses a folder inside the library, the library inside it, and
+     links);
+   - `list`, with online or offline per location;
+   - `locate` (point at where it is now; the fingerprint must match, or the
+     person confirms);
+   - `remove` (the record only; no file is ever touched);
+   - `resolve(locations/<id>/<rel>)`, wired into `locate_asset`.
+   - The `.userdata` writes ask `writable` (ST2b).
+2. **The index:**
+   - Linked items are indexed by their `locations/<id>/…` reference, with
+     `location = "linked:<id>"`.
+   - A location's scan walks it, recursively, for images and videos. It
+     never soft-clears rows of an offline location.
+   - The absolute-path fallback goes: a file outside content and the
+     locations is refused, not indexed by its absolute path.
+3. **Posters** for linked videos are made by ffmpeg into the cache folder
+   above. A missing poster is made again when the location is back.
+4. **Slides:** `media.rs` tells "offline" from "missing". Offline draws the
+   cached poster and the location's name, per Q-ST5-3. The editor's media
+   picker lists linked items like any other.
+5. **The surfaces:**
+   - Browse's "★ Add as library" becomes **"Add as a location"**. The
+     folder is fingerprinted, indexed and listed.
+   - Composer's "ELEMENTS — your packs" becomes **Locations**, each
+     location with online/offline, Locate… and Remove.
+   - The new controls get pilot ids and tooltips.
+6. **Proof:**
+   - **Unit:** add, resolve, offline, Locate, Remove, the fingerprint
+     surviving files added to the folder, the drive-letter probe, and
+     nothing written into the folder.
+   - **EguiPilotAI on the real exe:** a scratch "drive" folder of short
+     videos mounted with `subst` (ruled Q-ST2-3), added as a location; a
+     video picked into a card; the drive removed, so the card shows
+     offline with its poster; the drive back on another letter, so it
+     plays again.
+   - **Shots** at 1440×900 and 1100×700.
+
+**ST5b — one list, not three** (one PR, after ST5a)
+
+7. **Migrate once,** then delete the old lists (pre-release, no
+   compatibility shims):
+   - pinned packs (`sources.json`) and Browse libraries
+     (`libraries.json`) become locations;
+   - the `--pin-pack` drill becomes `--add-location <dir>`.
+8. **Import by reference** makes a location reference instead of a
+   symlink (Q-ST5-2). The folder joins as a location if it isn't one
+   already. The silent copy fallback is removed. Existing reference
+   symlinks are left as they are.
+9. **Proof:** the migration on scratch copies of both lists, then the same
+   pilot scenario through the new single list.
 
 | Where | Change | Pass |
 |---|---|---|
