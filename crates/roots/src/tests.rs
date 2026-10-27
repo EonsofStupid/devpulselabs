@@ -929,6 +929,12 @@ fn an_unplugged_library_refuses_writes_and_comes_back_on_a_new_letter() {
 /// on another "drive" by the files it is known by — even with one added.
 #[test]
 fn a_location_joins_in_place_and_follows_its_files() {
+    // Saving a location asks the process-wide handle (ST2b's guard), so
+    // these take turns with the tests that install one.
+    let _turn = GLOBAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *global().write().unwrap() = None;
     let base = scratch();
     let layout = imported(&program(&base, "program"));
     let store = locations::Store {
@@ -992,6 +998,12 @@ fn a_location_joins_in_place_and_follows_its_files() {
 /// it without the person saying so, and Remove forgets only the record.
 #[test]
 fn a_different_folder_is_never_taken_for_a_location_without_asking() {
+    // Saving a location asks the process-wide handle (ST2b's guard), so
+    // these take turns with the tests that install one.
+    let _turn = GLOBAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *global().write().unwrap() = None;
     let base = scratch();
     let layout = imported(&program(&base, "program"));
     let store = locations::Store {
