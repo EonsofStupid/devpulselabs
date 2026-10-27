@@ -323,6 +323,21 @@ pub fn refresh_locations() -> Result<usize, String> {
     .refresh_with(discovery::drive_candidates)
 }
 
+/// The location whose recorded folder is `folder`, from the record alone:
+/// no drive is touched, so a window may ask every frame.
+pub fn location_at(folder: &Path) -> Option<Location> {
+    let layout = location_store_paths().ok()?;
+    let store = locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    };
+    store
+        .load()
+        .ok()?
+        .into_iter()
+        .find(|location| store.full(location) == folder)
+}
+
 /// The location a `locations/<id>/…` reference names, online or not.
 pub fn location_of(reference: &str) -> Option<Location> {
     let layout = location_store_paths().ok()?;

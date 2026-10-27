@@ -65,6 +65,17 @@ pub struct Browser {
     pub picked: Vec<PathBuf>,
     /// Folders "Pin pack"-ed since the composer last drained.
     pub pinned: Vec<PathBuf>,
+    /// Folders "Add as a location"-ed since the composer last drained (ST5).
+    pub located: Vec<PathBuf>,
+    /// Locate… for an offline location (ST5): its id and name. The bar
+    /// offers "This is '…'" until a folder is accepted.
+    pub locating: Option<(String, String)>,
+    /// The folder doesn't hold the location's files: tap again to use it.
+    locate_armed: bool,
+    /// A location was located here; the composer refreshes its list.
+    pub locations_changed: bool,
+    /// A line for the composer's status, drained once.
+    pub notice: Option<String>,
     /// A confirmed "Ingest pack" ask (this window's cwd), drained once.
     pub ingest_req: Option<PathBuf>,
     /// The armed ingest confirm — (files, bytes) shown before tap two.
@@ -114,6 +125,11 @@ impl Browser {
             roots: roots(),
             picked: Vec::new(),
             pinned: Vec::new(),
+            located: Vec::new(),
+            locating: None,
+            locate_armed: false,
+            locations_changed: false,
+            notice: None,
             ingest_req: None,
             arm: None,
             query: String::new(),
@@ -222,7 +238,13 @@ pub fn search_files(root: &Path, query: &str, cap: usize) -> Vec<Entry> {
 /// every present drive. Pure std — no dialog crate, no new deps.
 pub fn roots() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
-    // The operator's OWN library folders come FIRST — their AE presets / image
+    // Locations first (ST5): the folders linked in place, while online.
+    for placed in dpl_roots::locations().unwrap_or_default() {
+        if let Some(at) = placed.at {
+            out.push((format!("★ {}", placed.location.label), at));
+        }
+    }
+    // The operator's OWN library folders come next — their AE presets / image
     // collections, added once and reachable from every Browse window.
     for (name, path) in operator_libraries() {
         if path.is_dir() {
@@ -295,37 +317,6 @@ fn read_libraries() -> Vec<PathBuf> {
         .ok()
         .and_then(|s| serde_json::from_str::<Vec<PathBuf>>(&s).ok())
         .unwrap_or_default()
-}
-
-/// Add a folder as a persistent library (idempotent). Returns whether it was
-/// newly added.
-pub fn add_library(path: PathBuf) -> bool {
-    let mut libs = read_libraries();
-    if libs.contains(&path) {
-        return false;
-    }
-    let Ok(file) = dpl_roots::writable(&libraries_file()) else {
-        return false;
-    };
-    libs.push(path);
-    if let Some(dir) = file.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Ok(json) = serde_json::to_string_pretty(&libs) {
-        let _ = std::fs::write(&file, json);
-    }
-    true
-}
-
-/// Drop a library folder from the persistent list.
-pub fn remove_library(path: &Path) {
-    let libs: Vec<PathBuf> = read_libraries().into_iter().filter(|p| p != path).collect();
-    if let (Ok(file), Ok(json)) = (
-        dpl_roots::writable(&libraries_file()),
-        serde_json::to_string_pretty(&libs),
-    ) {
-        let _ = std::fs::write(file, json);
-    }
 }
 
 /// One folder, honestly: dirs first, then media files, both name-sorted;
@@ -453,45 +444,85 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
         if pin.clicked() {
             b.pinned.push(b.cwd.clone());
         }
-        // Toggle THIS folder as a permanent operator library — it shows in the
-        // quick-jump bar of every Browse window. QoL: your own AE presets /
-        // image folders are one tap away, nothing moved or copied.
-        let already = read_libraries().iter().any(|p| p == &b.cwd);
-        let (llabel, ltip, lkey) = if already {
-            (
-                "★ Remove library",
-                "Drop THIS folder from your permanent libraries — the files stay \
-                 where they are; only the quick-jump entry goes away.",
-                "remove-library",
-            )
-        } else {
-            (
-                "★ Add as library",
-                "Add THIS folder as a permanent library — one tap away in every Browse \
-                 window from now on. Your own presets / image folders, in place; nothing moved.",
-                "add-library",
-            )
-        };
-        let lib = cl::tip(bar_chip(ui, llabel, ns, lkey), ltip);
-        ui.pilot_track(
-            &lib,
-            NodeMetadata::new(
-                PilotId::new("browse.add-library").child(&PilotKey::new(format!("{ns}"))),
-                Role::Button,
-                if already {
-                    "Remove this folder as a library"
-                } else {
-                    "Add this folder as a library"
-                },
-            ),
-        );
-        if lib.clicked() {
-            if already {
-                remove_library(&b.cwd);
+        // ST5: join THIS folder to the library in place as a location — or,
+        // while locating one that went offline, say "this is it".
+        if let Some((id, label)) = b.locating.clone() {
+            let (text, tip) = if b.locate_armed {
+                (
+                    format!("Not the same files — use it as '{label}'?"),
+                    format!(
+                        "This folder doesn't hold the files '{label}' is known by. Tap again to \
+                         use it anyway; nothing in it is changed."
+                    ),
+                )
             } else {
-                add_library(b.cwd.clone());
+                (
+                    format!("This is '{label}'"),
+                    format!(
+                        "Point '{label}' at this folder. Its files are checked first; nothing \
+                         in it is changed."
+                    ),
+                )
+            };
+            let here = cl::tip(bar_chip(ui, &text, ns, "locate-here"), &tip);
+            ui.pilot_track(
+                &here,
+                NodeMetadata::new(
+                    PilotId::new("browse.locate-here").child(&PilotKey::new(format!("{ns}"))),
+                    Role::Button,
+                    &text,
+                ),
+            );
+            if here.clicked() {
+                match dpl_roots::locate_location(&id, &b.cwd, b.locate_armed) {
+                    Ok(true) => {
+                        b.locating = None;
+                        b.locate_armed = false;
+                        b.locations_changed = true;
+                        b.notice = Some(format!("'{label}' is linked again, here."));
+                    }
+                    Ok(false) => b.locate_armed = true,
+                    Err(error) => {
+                        b.locate_armed = false;
+                        b.notice = Some(error);
+                    }
+                }
             }
-            b.roots = roots();
+        } else if let Some(location) = dpl_roots::location_at(&b.cwd) {
+            let mine = cl::tip(
+                bar_chip(ui, "★ A location", ns, "a-location"),
+                &format!(
+                    "This folder is the location '{}'. Remove it from Composer's Locations; \
+                     nothing here is ever changed.",
+                    location.label
+                ),
+            );
+            ui.pilot_track(
+                &mine,
+                NodeMetadata::new(
+                    PilotId::new("browse.a-location").child(&PilotKey::new(format!("{ns}"))),
+                    Role::Button,
+                    "This folder is a location",
+                ),
+            );
+        } else {
+            let add = cl::tip(
+                bar_chip(ui, "Add as a location", ns, "add-location"),
+                "Link THIS folder into your library in place: its videos and pictures \
+                 show up for your slides, nothing is copied or written here, and it shows \
+                 as offline while its drive is away.",
+            );
+            ui.pilot_track(
+                &add,
+                NodeMetadata::new(
+                    PilotId::new("browse.add-location").child(&PilotKey::new(format!("{ns}"))),
+                    Role::Button,
+                    "Add this folder as a location",
+                ),
+            );
+            if add.clicked() {
+                b.located.push(b.cwd.clone());
+            }
         }
         let ingest_label = match &b.arm {
             Some((files, bytes)) => {
