@@ -352,9 +352,10 @@ fn relative(path: &Path, base: &Path) -> Option<PathBuf> {
     }
     #[cfg(not(windows))]
     {
-        // Outside Windows a removable drive is a mount point: only a path
-        // under the same mount as the library travels with it.
-        if path_parts.iter().take(4).ne(base_parts.iter().take(4)) {
+        // Outside Windows a removable drive is a mount point: a path travels
+        // with the library only when both sit under the same one, or
+        // neither is under any.
+        if crate::discovery::mount_root(path) != crate::discovery::mount_root(base) {
             return None;
         }
     }
