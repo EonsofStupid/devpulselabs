@@ -6,6 +6,7 @@
 
 mod discovery;
 mod disk;
+mod guard;
 mod handle;
 mod migrate;
 mod model;
@@ -13,6 +14,7 @@ mod setup;
 
 pub use discovery::candidates_on_roots;
 pub use disk::read_marker;
+pub use guard::{generation, io_failed, is_unplugged, library, writable};
 pub use handle::Roots;
 pub use migrate::{has_legacy, plan_move, MoveItem, MovePlan, MoveProgress, LEGACY_RINGS};
 pub use model::{
@@ -166,6 +168,7 @@ pub fn initialize() -> Result<Layout, String> {
         .write()
         .map_err(|_| "Library root state could not be locked")?;
     remember(&mut roots);
+    guard::opened(&roots);
     *installed = Some(roots);
     result
 }
@@ -186,7 +189,7 @@ pub fn notice() -> Option<String> {
 }
 
 /// One look for a library that isn't connected, for the Disconnected
-/// screen's watch. The probe runs outside the lock, so a slow or empty drive
+/// screen's watch and for a library unplugged mid-session. The probe runs outside the lock, so a slow or empty drive
 /// never blocks a frame. Its result is installed only when it connects and
 /// no `roots.toml` was written meanwhile: the screen's own choice always
 /// wins. A seam never probes.
@@ -213,6 +216,7 @@ fn reconnect_with(probe: impl FnOnce() -> Roots) -> Option<Layout> {
         return None;
     }
     remember(&mut roots);
+    guard::opened(&roots);
     *installed = Some(roots);
     Some(layout)
 }
@@ -342,9 +346,19 @@ pub fn try_layout() -> Result<Layout, String> {
     initialize()
 }
 
+/// The library's folders while it is open, and the last ones while it is
+/// unplugged mid-session: readers find nothing there instead of panicking,
+/// and writers ask `writable` first (ST2b).
 fn connected() -> Layout {
-    try_layout()
-        .expect("Library access requires a connected root; gate startup with dpl_roots::initialize")
+    let open = global()
+        .read()
+        .ok()
+        .and_then(|roots| roots.as_ref().and_then(Roots::paths));
+    open.unwrap_or_else(|| {
+        try_layout().expect(
+            "Library access requires a connected root; gate startup with dpl_roots::initialize",
+        )
+    })
 }
 
 pub fn content_root() -> PathBuf {

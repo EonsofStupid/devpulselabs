@@ -825,10 +825,14 @@ fn another_library_replaces_roots_toml_only_when_asked() {
     );
 }
 
-/// The only test that touches the process-wide handle. A probe that
-/// connects is installed; one that raced a `roots.toml` write is not.
+/// The tests that touch the process-wide handle take turns.
+static GLOBAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// A probe that connects is installed; one that raced a `roots.toml` write
+/// is not.
 #[test]
 fn a_reconnect_installs_only_a_probe_no_choice_has_overtaken() {
+    let _turn = GLOBAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let base = scratch();
     let exe = program(&base, "program");
     let drive = imported(&program(&base, "drive")).library;
@@ -852,5 +856,66 @@ fn a_reconnect_installs_only_a_probe_no_choice_has_overtaken() {
         .unwrap();
     assert_eq!(layout.library, drive);
     assert_eq!(try_layout().unwrap(), layout);
+    *global().write().unwrap() = None;
+}
+
+/// ST2b: pulled out mid-session, writes are refused and readers keep their
+/// folders; another drive in its place is never written to; back on a new
+/// letter, a path cached before lands in the library there.
+#[test]
+fn an_unplugged_library_refuses_writes_and_comes_back_on_a_new_letter() {
+    let _turn = GLOBAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let base = scratch();
+    let exe = program(&base, "program");
+    let first = imported(&program(&base, "drive-a")).library;
+    linked_to(&exe, &first, &first);
+    *global().write().unwrap() = None;
+    let before = generation();
+    (0..100)
+        .find_map(|_| reconnect_with(|| Roots::open(&exe, None)))
+        .unwrap();
+    assert!(generation() > before);
+    let note = first.join("accounts/me/content/note.json");
+    let outside = base.join("elsewhere.txt");
+    assert_eq!(writable(&note), Ok(note.clone()));
+    assert_eq!(writable(&outside), Ok(outside.clone()));
+
+    // Pulled out: a failed read notices it.
+    let parked = base.join("parked");
+    fs::rename(&first, &parked).unwrap();
+    io_failed(&note);
+    assert!(is_unplugged());
+    assert!(writable(&note).unwrap_err().contains("was unplugged"));
+    assert_eq!(content_root(), first.join("accounts/me/content"));
+    assert_eq!(writable(&outside), Ok(outside.clone()));
+
+    // Another library takes its place: still refused, nothing opens there.
+    let stranger = imported(&program(&base, "stranger")).library;
+    fs::rename(&stranger, &first).unwrap();
+    assert_eq!(reconnect_with(|| Roots::open(&exe, None)), None);
+    assert!(writable(&note).is_err());
+    fs::rename(&first, &stranger).unwrap();
+
+    // Back on another letter.
+    let second = program(&base, "drive-b").join("library");
+    fs::rename(&parked, &second).unwrap();
+    let back = (0..100)
+        .find_map(|_| {
+            reconnect_with(|| {
+                let mut roots = Roots::open(&exe, None);
+                let _ = roots.refresh_with_candidates(std::slice::from_ref(&second));
+                roots
+            })
+        })
+        .unwrap();
+    assert_eq!(back.library, second);
+    assert!(!is_unplugged());
+    assert_eq!(
+        writable(&note),
+        Ok(second.join("accounts/me/content/note.json")),
+        "a path cached before lands in the library on its new letter"
+    );
+    assert_eq!(library(), Some(second.clone()));
+    assert_eq!(disk::read_config(&exe).unwrap().last_path, Some(second));
     *global().write().unwrap() = None;
 }

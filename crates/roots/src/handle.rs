@@ -81,7 +81,30 @@ impl Roots {
         match &self.state {
             State::Connected(layout) => Ok(layout.clone()),
             State::Unconfigured => Err("Choose where to keep your library".into()),
-            State::Disconnected { reason } => Err(reason.clone()),
+            State::Disconnected { reason } | State::Unplugged { reason, .. } => {
+                Err(reason.clone())
+            }
+        }
+    }
+
+    /// The folders to read from: the library while it is open, and the last
+    /// ones it had while it is unplugged mid-session.
+    pub(crate) fn paths(&self) -> Option<Layout> {
+        match &self.state {
+            State::Connected(layout) | State::Unplugged { last: layout, .. } => {
+                Some(layout.clone())
+            }
+            _ => None,
+        }
+    }
+
+    /// An open library has gone (ST2b): keep its folders for readers.
+    pub(crate) fn unplug(&mut self, reason: String) {
+        if let State::Connected(last) = &self.state {
+            self.state = State::Unplugged {
+                last: last.clone(),
+                reason,
+            };
         }
     }
 
