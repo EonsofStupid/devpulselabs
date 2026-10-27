@@ -837,6 +837,20 @@ fn library_card(
             _ => format!("{} · {}", r.kind, r.captured_at),
         };
         ui.label(RichText::new(facts).small().color(cl::ink::MUTED));
+        // A linked file says where it lives, and when its drive is away.
+        if let Some(location) = dpl_roots::location_of(&r.rel_path) {
+            let here = dpl_roots::locate_asset(&r.rel_path).is_some();
+            let line = if here {
+                format!("on '{}'", location.label)
+            } else {
+                format!("on '{}' · offline — plug it in", location.label)
+            };
+            ui.label(RichText::new(line).small().color(if here {
+                cl::ink::MUTED
+            } else {
+                cl::Tone::Amber.color()
+            }));
+        }
         // W11: images and videos can become a slide right here (a still, a
         // clip, or a session replay — replays are videos). Other kinds
         // (audio, packs) aren't slide media, so no chip.
@@ -871,6 +885,14 @@ fn count_files(dir: &std::path::Path) -> usize {
 /// The thumbnail source, or None for the honest kind-label fallback:
 /// image → itself; video → its poster; guide → its first frame.
 fn thumb_uri(r: &dpl_index::Record, root: &std::path::Path) -> Option<String> {
+    // A linked file (ST5): its cached poster, online or offline, so the
+    // shelf never reaches into the drive while it paints.
+    if let Some(poster) = dpl_roots::location_poster(&r.rel_path).filter(|p| p.is_file()) {
+        return Some(format!(
+            "file:///{}",
+            poster.to_string_lossy().replace('\\', "/")
+        ));
+    }
     let rel = match r.kind.as_str() {
         "image" => Some(r.rel_path.clone()),
         "video" => r.poster_rel_path.clone(),

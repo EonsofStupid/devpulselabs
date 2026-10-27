@@ -907,8 +907,7 @@ fn scan_location(base: &Path, dir: &Path, id: &str, location: &str, out: &mut Ve
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('$') || name.starts_with('.') || name == "System Volume Information"
-        {
+        if name.starts_with('$') || name.starts_with('.') || name == "System Volume Information" {
             continue;
         }
         let Ok(kind_of_entry) = entry.file_type() else {

@@ -960,7 +960,10 @@ fn a_location_joins_in_place_and_follows_its_files() {
         .contains("library is inside"));
 
     let reference = location_reference(&location, Path::new("talks/one.mp4"));
-    assert_eq!(reference, format!("locations/{}/talks/one.mp4", location.id));
+    assert_eq!(
+        reference,
+        format!("locations/{}/talks/one.mp4", location.id)
+    );
     assert_eq!(
         store.resolve(Path::new(&reference)),
         Some(videos.join("talks/one.mp4"))

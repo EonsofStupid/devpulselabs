@@ -71,8 +71,8 @@ impl Store<'_> {
         let file = self.file();
         let locations = match std::fs::read_to_string(&file) {
             Ok(raw) => {
-                let record: Record = serde_json::from_str(&raw)
-                    .map_err(|e| format!("{}: {e}", file.display()))?;
+                let record: Record =
+                    serde_json::from_str(&raw).map_err(|e| format!("{}: {e}", file.display()))?;
                 crate::model::version(record.v, FILE)?;
                 record.locations
             }
@@ -127,7 +127,10 @@ impl Store<'_> {
         let folder = disk::absolute(folder, folder)?;
         disk::no_symlinks(&folder)?;
         if !folder.is_dir() {
-            return Err(format!("{} isn't a folder that can be opened.", folder.display()));
+            return Err(format!(
+                "{} isn't a folder that can be opened.",
+                folder.display()
+            ));
         }
         if migrate::inside(&folder, self.library) {
             return Err("That folder is already inside your library.".into());
@@ -137,7 +140,10 @@ impl Store<'_> {
         }
         let mut locations = self.load()?;
         if let Some(known) = locations.iter().find(|l| self.full(l) == folder) {
-            return Err(format!("That folder is already the location '{}'.", known.label));
+            return Err(format!(
+                "That folder is already the location '{}'.",
+                known.label
+            ));
         }
         let label = match label.trim() {
             "" => folder
@@ -321,7 +327,8 @@ fn matches(folder: &Path, sample: &[(String, u64)]) -> bool {
     let present = sample
         .iter()
         .filter(|(rel, size)| {
-            std::fs::metadata(folder.join(rel)).is_ok_and(|meta| meta.is_file() && meta.len() == *size)
+            std::fs::metadata(folder.join(rel))
+                .is_ok_and(|meta| meta.is_file() && meta.len() == *size)
         })
         .count();
     present * 2 >= sample.len()

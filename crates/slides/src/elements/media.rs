@@ -177,9 +177,7 @@ fn offline(ui: &mut Ui, rect: Rect, path: &str, look: PictureLook) -> Option<Opt
     if !audience {
         let note = format!("On '{}' — plug it in", location.label);
         let font = egui::FontId::proportional(13.0);
-        let galley = ui
-            .painter()
-            .layout_no_wrap(note, font, cl::ink::STRONG);
+        let galley = ui.painter().layout_no_wrap(note, font, cl::ink::STRONG);
         let pad = egui::vec2(8.0, 4.0);
         let chip = Rect::from_min_size(
             rect.left_bottom() + egui::vec2(pad.x, -galley.size().y - pad.y * 3.0),
@@ -187,8 +185,7 @@ fn offline(ui: &mut Ui, rect: Rect, path: &str, look: PictureLook) -> Option<Opt
         );
         ui.painter()
             .rect_filled(chip, cl::RADIUS, egui::Color32::from_black_alpha(180));
-        ui.painter()
-            .galley(chip.min + pad, galley, cl::ink::STRONG);
+        ui.painter().galley(chip.min + pad, galley, cl::ink::STRONG);
     }
     Some(at)
 }

@@ -773,6 +773,12 @@ impl Composer {
     /// Resolve a forward-slash artifact rel_path to a real file path under the
     /// content root (component-wise, so Windows separators stay correct).
     fn resolve(rel: &str) -> PathBuf {
+        // A linked file (ST5) is wherever its location is now.
+        if rel.starts_with("locations/") {
+            if let Some(file) = dpl_roots::locate_asset(rel) {
+                return file;
+            }
+        }
         rel.split('/')
             .fold(Self::content_root(), |acc, seg| acc.join(seg))
     }
@@ -2176,7 +2182,7 @@ impl Composer {
         let (send, done) = std::sync::mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            let result = link_location(&dir);
+            let result = link_location(&dir).map(|(_, line)| line);
             let _ = send.send(result);
             ctx.request_repaint();
         });
@@ -6543,7 +6549,7 @@ fn short_name(rel: &str) -> String {
 /// Record `dir` as a location, index it in place, and make posters for its
 /// videos and pictures into the cache (ST5). Returns the line the status
 /// shows.
-fn link_location(dir: &Path) -> Result<String, String> {
+pub fn link_location(dir: &Path) -> Result<(dpl_roots::Location, String), String> {
     let location = dpl_roots::add_location(dir, "")?;
     let index = dpl_index::Index::open_default()?;
     let report = index.index_location(&location.id, dir)?;
@@ -6567,10 +6573,11 @@ fn link_location(dir: &Path) -> Result<String, String> {
             posters += 1;
         }
     }
-    Ok(format!(
+    let line = format!(
         "Linked '{}' in place: {} file(s), {posters} poster(s) cached — nothing copied.",
         location.label, report.indexed
-    ))
+    );
+    Ok((location, line))
 }
 
 fn section_header(ui: &mut egui::Ui, label: &str) {
