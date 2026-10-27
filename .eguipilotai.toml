@@ -1,5 +1,10 @@
 artifact_root = "target/eguipilotai/runs"
 
+# Every profile carries a scratch CONTENT_ROOT (ST1b, 2026-10-26): a build
+# keeps the operator's real library in its project, so a run must never fall
+# through to it. A fixture's own CONTENT_ROOT wins (fixture env is applied
+# after the profile's).
+
 [profiles.devpulse-windows]
 executable = "target/debug/devpulselabs.exe"
 platforms = ["windows"]
@@ -9,6 +14,7 @@ timeout_ms = 30000
 
 [profiles.devpulse-windows.environment]
 EGUIPILOTAI_ADAPTER_POLICY = "hardware-then-software"
+CONTENT_ROOT = "target/eguipilotai/default/content"
 
 [profiles.devpulse-cloud]
 executable = "target/debug/devpulselabs"
@@ -24,6 +30,7 @@ VK_DRIVER_FILES = "/usr/share/vulkan/icd.d/lvp_icd.json"
 LIBGL_ALWAYS_SOFTWARE = "true"
 TZ = "UTC"
 LANG = "C.UTF-8"
+CONTENT_ROOT = "target/eguipilotai/default/content"
 
 [profiles.devpulse-hardware]
 executable = "target/release/devpulselabs"
@@ -34,6 +41,7 @@ timeout_ms = 30000
 
 [profiles.devpulse-hardware.environment]
 EGUIPILOTAI_ADAPTER_POLICY = "hardware-required"
+CONTENT_ROOT = "target/eguipilotai/default/content"
 
 # macOS lane — STAGED (docs/plans/mac-parity.md). Uncomment on the operator's
 # Mac once the app builds there; the Mac Claude Code instance owns this.

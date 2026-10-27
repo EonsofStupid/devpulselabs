@@ -454,3 +454,200 @@ fn existing_files_in_ring_paths_prevent_publishing_configuration() {
         assert_eq!(fs::read(&invalid).unwrap(), b"existing material");
     }
 }
+
+/// Every file under `dir`, as (relative path, bytes): a tree's full content.
+fn snapshot(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    fn visit(base: &Path, dir: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                visit(base, &path, out);
+            } else {
+                let rel = path.strip_prefix(base).unwrap().to_path_buf();
+                out.push((rel, fs::read(&path).unwrap()));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    visit(dir, dir, &mut out);
+    out.sort();
+    out
+}
+
+/// Today's three rings with a little of everything, including an empty folder.
+fn legacy(base: &Path, name: &str) -> PathBuf {
+    let source = program(base, name);
+    fs::create_dir_all(source.join("content/library/slides")).unwrap();
+    fs::write(source.join("content/library/slides/one.json"), b"{\"v\":3}").unwrap();
+    fs::write(
+        source.join("content/composer-state.json"),
+        vec![7u8; 200_000],
+    )
+    .unwrap();
+    fs::create_dir_all(source.join("content/inbox")).unwrap();
+    fs::create_dir_all(source.join("assets/captures")).unwrap();
+    fs::write(source.join("assets/captures/shot.png"), b"png").unwrap();
+    fs::create_dir_all(source.join(".userdata/profiles")).unwrap();
+    fs::write(source.join(".userdata/index.db"), b"index").unwrap();
+    source
+}
+
+#[test]
+fn a_build_attunes_to_its_project_and_nothing_else_does() {
+    let base = scratch();
+    let project = program(&base, "project");
+    fs::write(project.join("Cargo.toml"), b"[workspace]\n").unwrap();
+    let release = program(&project, "target/release");
+    assert_eq!(project_of_build(&release), Some(project.clone()));
+    assert_eq!(
+        project_of_build(&program(&project, "target/debug")),
+        Some(project.clone())
+    );
+    // Test binaries, other folder names and a missing manifest stay put.
+    assert_eq!(
+        project_of_build(&program(&project, "target/release/deps")),
+        None
+    );
+    assert_eq!(project_of_build(&program(&project, "build/release")), None);
+    let bare = program(&base, "bare");
+    assert_eq!(project_of_build(&program(&bare, "target/release")), None);
+    assert_eq!(project_of_build(&program(&base, "portable")), None);
+}
+
+#[test]
+fn the_plan_counts_each_ring_and_writes_nothing() {
+    let base = scratch();
+    let source = legacy(&base, "source");
+    let before = snapshot(&source);
+    let library = base.join("library");
+    let plan = plan_move(&source, &library).unwrap();
+    let rings: Vec<_> = plan
+        .items
+        .iter()
+        .map(|item| (item.ring, item.files))
+        .collect();
+    assert_eq!(rings, [("content", 2), ("assets", 1), (".userdata", 1)]);
+    assert_eq!(plan.files(), 4);
+    assert_eq!(plan.bytes(), 7 + 200_000 + 3 + 5);
+    assert_eq!(plan.items[0].to, library.join("accounts/me/content"));
+    assert_eq!(plan.items[2].to, library.join("accounts/me/.userdata"));
+    assert!(!library.exists());
+    assert_eq!(snapshot(&source), before);
+}
+
+#[test]
+fn the_plan_refuses_a_busy_or_nested_library_and_an_empty_source() {
+    let base = scratch();
+    let source = legacy(&base, "source");
+    let busy = program(&base, "busy");
+    fs::write(busy.join("notes.txt"), b"mine").unwrap();
+    assert!(plan_move(&source, &busy)
+        .unwrap_err()
+        .contains("already holds files"));
+    assert!(plan_move(&source, &source.join("content/library"))
+        .unwrap_err()
+        .contains("can't go inside"));
+    assert!(plan_move(&source, &source)
+        .unwrap_err()
+        .contains("inside the folder you chose"));
+    assert!(plan_move(&source, Path::new("relative")).is_err());
+    let empty = program(&base, "empty");
+    assert!(plan_move(&empty, &base.join("lib"))
+        .unwrap_err()
+        .contains("no content, assets or .userdata"));
+    assert_eq!(fs::read(busy.join("notes.txt")).unwrap(), b"mine");
+}
+
+#[test]
+fn bringing_in_copies_exactly_publishes_last_and_leaves_the_source() {
+    let base = scratch();
+    let source = legacy(&base, "source");
+    let before = snapshot(&source);
+    let exe = program(&base, "program");
+    let library = base.join("library");
+    let progress = MoveProgress::default();
+    let layout = migrate::move_in(&exe, &source, &library, "My library", &progress).unwrap();
+    assert_eq!(snapshot(&source), before, "the source is only read");
+    assert_eq!(snapshot(&layout.content), snapshot(&source.join("content")));
+    assert_eq!(snapshot(&layout.assets), snapshot(&source.join("assets")));
+    assert_eq!(
+        snapshot(&layout.userdata),
+        snapshot(&source.join(".userdata"))
+    );
+    assert!(
+        layout.content.join("inbox").is_dir(),
+        "empty folders come too"
+    );
+    assert_eq!(progress.copied_files.load(Ordering::Relaxed), 4);
+    assert_eq!(progress.checked_files.load(Ordering::Relaxed), 4);
+    let marker = read_marker(&library).unwrap();
+    let config = disk::read_config(&exe).unwrap();
+    assert_eq!((config.mode, config.id), (Mode::Linked, marker.id));
+    let roots = Roots::open(&exe, None);
+    assert_eq!(
+        roots.layout().unwrap().content,
+        library.join("accounts/me/content")
+    );
+}
+
+#[test]
+fn bringing_in_beside_the_program_is_imported() {
+    let base = scratch();
+    let exe = legacy(&base, "program");
+    let layout = migrate::move_in(
+        &exe,
+        &exe,
+        &exe.join("library"),
+        "My library",
+        &MoveProgress::default(),
+    )
+    .unwrap();
+    assert_eq!(disk::read_config(&exe).unwrap().mode, Mode::Imported);
+    assert_eq!(snapshot(&layout.content), snapshot(&exe.join("content")));
+}
+
+#[test]
+fn bringing_in_never_replaces_a_configuration() {
+    let base = scratch();
+    let source = legacy(&base, "source");
+    let exe = program(&base, "program");
+    fs::write(exe.join(CONFIG_FILE), b"mine").unwrap();
+    let library = base.join("library");
+    let error = migrate::move_in(&exe, &source, &library, "L", &MoveProgress::default());
+    assert!(error.is_err());
+    assert!(!library.exists());
+    assert_eq!(fs::read(exe.join(CONFIG_FILE)).unwrap(), b"mine");
+}
+
+/// A file another program holds open without sharing fails the copy; the
+/// move then removes what it made and the source is as it was.
+#[cfg(windows)]
+#[test]
+fn a_failed_move_removes_what_it_made() {
+    use std::os::windows::fs::OpenOptionsExt;
+    for pre_made in [false, true] {
+        let base = scratch();
+        let source = legacy(&base, "source");
+        let before = snapshot(&source);
+        let exe = program(&base, "program");
+        let library = base.join("library");
+        if pre_made {
+            fs::create_dir(&library).unwrap();
+        }
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(source.join("assets/captures/shot.png"))
+            .unwrap();
+        let error =
+            migrate::move_in(&exe, &source, &library, "L", &MoveProgress::default()).unwrap_err();
+        drop(held);
+        assert!(error.contains("Nothing was changed"), "{error}");
+        assert_eq!(library.exists(), pre_made);
+        if pre_made {
+            assert_eq!(fs::read_dir(&library).unwrap().count(), 0);
+        }
+        assert!(!exe.join(CONFIG_FILE).exists());
+        assert_eq!(snapshot(&source), before);
+    }
+}

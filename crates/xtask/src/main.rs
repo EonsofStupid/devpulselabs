@@ -46,6 +46,45 @@ fn stage_roots(arguments: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// ST1b's dry run (ruled 2026-10-26): what "Bring in my existing library"
+/// would copy, and where, without writing anything. The move itself happens
+/// in the app, on the operator's tap.
+fn move_library(arguments: &[String]) -> Result<(), String> {
+    const USAGE: &str = "usage: cargo xtask move-library --dry-run <source> [<library>]";
+    let (flags, paths): (Vec<&String>, Vec<&String>) =
+        arguments.iter().partition(|a| a.starts_with("--"));
+    if flags.len() != 1 || flags[0] != "--dry-run" {
+        return Err(format!(
+            "{USAGE}\nThe move itself happens in the app, on your tap: \"Bring in my existing library…\"."
+        ));
+    }
+    let absolute = |path: &String| std::path::absolute(path).map_err(|e| e.to_string());
+    let (source, library) = match paths.as_slice() {
+        [source] => (absolute(source)?, absolute(source)?.join("library")),
+        [source, library] => (absolute(source)?, absolute(library)?),
+        _ => return Err(USAGE.into()),
+    };
+    let plan = dpl_roots::plan_move(&source, &library)?;
+    println!("move-library — dry run, nothing changes");
+    println!("  from {}", plan.source.display());
+    println!("  into {}", plan.library.display());
+    for item in &plan.items {
+        println!(
+            "  {:<10} {:>7} files {:>14} bytes  →  {}",
+            item.ring,
+            item.files,
+            item.bytes,
+            item.to.display()
+        );
+    }
+    println!(
+        "{} files, {} bytes in all. The source is only read.",
+        plan.files(),
+        plan.bytes()
+    );
+    Ok(())
+}
+
 fn run(name: &str, args: &[&str]) -> Result<(), String> {
     let mut command = Command::new("cargo");
     command.args(args);
@@ -2391,6 +2430,7 @@ fn main() -> ExitCode {
         "lock" => lock_audit(),
         "stage-tool-deps" => stage_tool_dependencies(&arguments),
         "stage-roots" => stage_roots(&arguments),
+        "move-library" => move_library(&arguments),
         "adopt-tool" => adopt_tool(&arguments),
         "vendor-schema" => vendor_schema(&arguments),
         "update-tool-deps" => update_tool_dependencies(&arguments),
@@ -2410,7 +2450,7 @@ fn main() -> ExitCode {
             )
         }),
         other => Err(format!(
-            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, stage-roots, adopt-tool, update-tool-deps, vendor-schema, dev, fix"
+            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, stage-roots, move-library, adopt-tool, update-tool-deps, vendor-schema, dev, fix"
         )),
     };
     match result {

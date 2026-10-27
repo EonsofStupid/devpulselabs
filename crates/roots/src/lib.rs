@@ -6,12 +6,14 @@
 mod discovery;
 mod disk;
 mod handle;
+mod migrate;
 mod model;
 mod setup;
 
 pub use discovery::candidates_on_roots;
 pub use disk::read_marker;
 pub use handle::Roots;
+pub use migrate::{has_legacy, plan_move, MoveItem, MovePlan, MoveProgress, LEGACY_RINGS};
 pub use model::{
     AccountId, Config, DrillRoots, Layout, LibraryId, Marker, Mode, State, CONFIG_FILE,
     MARKER_FILE, SCHEMA_VERSION,
@@ -28,12 +30,51 @@ fn global() -> &'static RwLock<Option<Roots>> {
     ROOTS.get_or_init(|| RwLock::new(None))
 }
 
-fn program_dir() -> Result<PathBuf, String> {
+fn exe_dir() -> Result<PathBuf, String> {
     std::env::current_exe()
         .map_err(|e| e.to_string())?
         .parent()
         .map(Path::to_path_buf)
         .ok_or_else(|| "The executable has no parent directory".into())
+}
+
+/// Where this program keeps `roots.toml` and an imported `library\`: the
+/// executable's folder, or a build's project (`project_of_build`).
+fn program_dir() -> Result<PathBuf, String> {
+    let exe = exe_dir()?;
+    Ok(project_of_build(&exe).unwrap_or(exe))
+}
+
+/// A build attunes to its project (R291): an executable in
+/// `<project>/target/<profile>/` beside `<project>/Cargo.toml` keeps its
+/// library in `<project>`, out of `cargo clean`'s reach. Exactly two fixed
+/// levels are checked; nothing walks.
+pub fn project_of_build(exe_dir: &Path) -> Option<PathBuf> {
+    let target = exe_dir.parent()?;
+    if target.file_name()? != "target" {
+        return None;
+    }
+    let project = target.parent()?;
+    project
+        .join("Cargo.toml")
+        .is_file()
+        .then(|| project.to_path_buf())
+}
+
+/// The folder `program_dir` settled on, for the startup screen to name.
+pub fn program_folder() -> Result<PathBuf, String> {
+    program_dir()
+}
+
+/// True when this executable is a build whose program folder is its project.
+pub fn is_build() -> bool {
+    exe_dir().is_ok_and(|exe| project_of_build(&exe).is_some())
+}
+
+/// The program folder's own old-layout rings, when it has any: the source
+/// the first screen offers to bring in. Only that one folder is looked at.
+pub fn legacy_source() -> Option<PathBuf> {
+    program_dir().ok().filter(|folder| has_legacy(folder))
 }
 
 /// Parse only explicit root seams; absence never means the launch directory.
@@ -230,6 +271,20 @@ pub fn setup_linked(path: &Path, label: &str) -> Result<Layout, String> {
     let program = program_dir()?;
     setup_at(&program, path, Mode::Linked, label)?;
     initialize()
+}
+
+/// Copy today's folders under `source` into a new library at `library` and
+/// write `program`'s `roots.toml` (ST1b); the caller then opens it with
+/// `initialize`. The program's own `library\` is imported; anywhere else is
+/// linked.
+pub fn bring_in(
+    program: &Path,
+    source: &Path,
+    library: &Path,
+    label: &str,
+    progress: &MoveProgress,
+) -> Result<Layout, String> {
+    migrate::move_in(program, source, library, label, progress)
 }
 
 #[cfg(test)]

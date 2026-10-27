@@ -88,7 +88,9 @@ fn main() -> eframe::Result {
         .init();
     // Select and validate storage before any stores, upgrades or drills run.
     // A missing drive must never become an empty library somewhere else.
-    if !storage_startup::prepare()? {
+    // `--bring-in` opens the startup screen's move panel, for proof shots.
+    let bring_in = std::env::args().any(|arg| arg == "--bring-in");
+    if !storage_startup::prepare(bring_in)? {
         return Ok(());
     }
     {

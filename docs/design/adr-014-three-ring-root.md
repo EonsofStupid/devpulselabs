@@ -63,6 +63,29 @@ ST1's stateful resolver alone is not a guarantee of unplug-safe active IO.
 configuration only after validating the existing marker. It refuses an
 existing roots file and never adopts an unmarked legacy content tree.
 
+## Amendment 2026-10-26 — a build's project; today's folders move in (ST1b)
+
+R291 ("stored inside the project properly … you let the person decide"):
+- **The program folder of a build is its project.** An executable at
+  `<project>/target/<profile>/` whose `<project>/Cargo.toml` is a file keeps
+  `roots.toml` and an imported `library/` in `<project>`, out of reach of
+  `cargo clean`. Exactly those two fixed levels are checked; nothing walks.
+  A copied or released executable is unchanged.
+- **Today's rings move in once, on the person's tap.** The first screen's
+  "Bring in my existing library…" plans the move read-only — each of
+  `content/`, `assets/` and `.userdata/` under a chosen folder, with its
+  files and bytes — then copies them to `accounts/me/{content,assets,
+  .userdata}` of a new library the person places, compares every file byte
+  for byte, and publishes `account.json`, `library.json` and `roots.toml`
+  last. Links, a destination that holds files, and a library inside a ring
+  (or the reverse) are refused. On any failure the move removes what it made.
+  The source is only read: the old folders stay exactly as they were.
+- `cargo xtask move-library --dry-run <source> [<library>]` prints the same
+  plan. The move itself has no command-line form.
+
+ST4 keeps account switching and the split of `.userdata/` into `.userdata/`
+and `.aidata/`.
+
 Precedent: Unreal `Saved`/`Intermediate`/`Content`, Resolve
 cache/media-pool/gallery, Lightroom ingest/catalog/library. Embedded
 Turso (metadata) + in-process Arrow/DataFusion over Parquet (analytics)
