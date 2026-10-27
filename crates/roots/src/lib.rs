@@ -333,6 +333,17 @@ pub fn location_of(reference: &str) -> Option<Location> {
     .of(Path::new(reference))
 }
 
+/// Where a linked file's poster is cached (ST5): `common/cache/locations/
+/// <id>/<path inside>.jpg`, regenerable and never inside the operator's
+/// folder. `None` when `reference` isn't a linked file.
+pub fn location_poster(reference: &str) -> Option<PathBuf> {
+    let (id, inside) = locations::split(Path::new(reference))?;
+    let layout = location_store_paths().ok()?;
+    let mut name = inside.into_os_string();
+    name.push(".jpg");
+    Some(layout.cache.join(LOCATIONS).join(id).join(name))
+}
+
 /// While any location is offline, look for it every three seconds on its
 /// own thread and call `found` each time one comes back. It stops once
 /// every location is online, or when dropped.

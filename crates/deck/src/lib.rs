@@ -263,8 +263,16 @@ impl DeckHost {
     }
 
     /// One frame of the deck. The mount gives it the whole rect it owns
-    /// (full-bleed when presenting).
+    /// (full-bleed when presenting). This is the audience's screen: an
+    /// offline linked video shows its poster with no note (ST5, Q-ST5-3).
     pub fn ui(&mut self, ui: &mut Ui) -> DeckAction {
+        dpl_slides::elements::media::set_audience(ui.ctx(), true);
+        let action = self.show(ui);
+        dpl_slides::elements::media::set_audience(ui.ctx(), false);
+        action
+    }
+
+    fn show(&mut self, ui: &mut Ui) -> DeckAction {
         let rect = ui.max_rect();
         let mut action = DeckAction::None;
 

@@ -277,6 +277,17 @@ pub fn locate_asset(rel: &str) -> Option<PathBuf> {
     dpl_roots::locate_asset(rel)
 }
 
+/// The location a linked file (`locations/<id>/…`) lives in, online or not
+/// (ST5), for the offline note.
+pub fn location_of(rel: &str) -> Option<dpl_roots::Location> {
+    dpl_roots::location_of(rel)
+}
+
+/// A linked file's cached poster (ST5); it may not exist yet.
+pub fn location_poster(rel: &str) -> Option<PathBuf> {
+    dpl_roots::location_poster(rel)
+}
+
 /// The poster convention from the old repo: `x.mp4` → `x-poster.jpg`.
 pub fn poster_of(video: &Path) -> PathBuf {
     let stem = video
