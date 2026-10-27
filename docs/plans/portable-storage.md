@@ -565,6 +565,33 @@ place** (one PR, after ST2a)
       - shots of the banner at both sizes.
     - **The operator's own USB check** comes last (§6).
 
+**Amended while building ST2b (2026-10-27):**
+- **The banner (step 7):** the app sets the shell's banner directly each
+  frame, so there is no `ShellEvent::Library`. There is no Library status
+  cell either, because it would only repeat the banner.
+  - The banner's words and Restart now paint on the top layer, so a sheet
+    never covers them.
+  - Known limit: a sheet as tall as the window, like the card editor, has
+    its top edge, including Done, under the strip. In the Moved state the
+    strip is taller, for Restart now's touch height. Restart now is the
+    tap expected there, and the work is already saved.
+- **Reads (step 5):** a failed read reports itself (`io_failed`) only from
+  the author dashboard, and only when its list comes back empty. A full
+  library costs nothing, and nothing runs while connected.
+- **Writers (step 6):**
+  - `dpl-ledger` gets the same installed guard. Rows it can't write wait,
+    up to one segment per domain; older ones are dropped and counted.
+  - The seam asks `dpl_comp::writable` before a render, so it gains no
+    new dependency.
+  - The app gains a direct `dpl-comp` edge to install that crate's guard.
+- **Kept edits (step 8):**
+  - The card editor and lessons save again on reconnect, through the
+    `Hub::library_back` hook.
+  - The comp autosave retries by itself.
+  - The chat brainstorm saves the whole board on its next change.
+  - A card's words-to-say (script) are not saved again on reconnect; the
+    next change to them saves them.
+
 | Where | Change | Pass |
 |---|---|---|
 | **new `crates/roots` (`dpl-roots`)** | ENGINE layer, egui-free: `roots.toml`, the marker, the layout, the `Roots` handle (connected/disconnected), the drive check; ceiling serde, serde_json, toml | ST1–ST2 |
@@ -723,6 +750,45 @@ in the same process. Details and boundaries:
 - **The empty-drive dialog (§7)** didn't appear in any run. This machine
   has only `C:` and `D:`, so a card reader is still unchecked: the
   operator's USB check covers it.
+
+**ST2b, 2026-10-27:**
+- **Unit:**
+  - `dpl-roots` has 35 tests, 1 new: pulled out, a failed read notices it;
+    writes are refused and readers keep their folders; another library in
+    its place is never opened; back on a new letter, a path cached before
+    lands there, and `roots.toml` remembers it.
+  - `dpl-estate` has 5 tests, 1 new: after a reopen, every holder still
+    reads and writes.
+  - The tests touching the process-wide handle take turns on a mutex.
+- **Real exe, scratch only** (`target/st2-proof/`; scenario
+  `tests/eguipilotai/st2-unplugged.toml`, profile `st2-portable`, fixtures
+  `st2-author` and `st2-author-1100`):
+  - The library is linked as `Q:\library`.
+  - A background timeline, counted from the app's start, runs
+    `subst Q: /d` at 12 s and `subst Q:` again at 20 s, then `subst Q: /d`
+    at 28 s and `subst R:` at 36 s.
+  - Each run removed `R:` afterwards; `subst` lists nothing now.
+  - The run changes a card's background three times.
+- **Passed at both sizes**, the 1440×900 run on the final scenario. The log
+  shows the whole sequence: unplugged → back (kept edits saving) →
+  unplugged → back somewhere new (Restart now offered, `R:\library`).
+- **On disk afterwards:**
+  - rev 2 is orchid-haze, saved while connected;
+  - rev 3 is deep-lagoon: refused while unplugged, saved when `Q:` came
+    back;
+  - rev 4 is solar-flare: refused, then saved on `R:` through the rebased
+    path;
+  - `roots.toml` says `last_path = 'R:\library'`.
+- **Shots** in `docs/proof/portable-storage-st2b/`: unplugged, back and
+  moved, at 1440×900 and 1100×700.
+- **Found and fixed during the proof:**
+  - The banner was first a plain top panel, and the card editor's sheet
+    covered it (text cut, Restart now hidden). Its words now paint on the
+    top layer.
+  - A 30 s profile timeout ended the first run partway; `st2-portable` now
+    allows 90 s.
+  - The first 1100×700 run tapped before the second unplug; the scenario's
+    margins were widened.
 
 ## Questions for the operator
 

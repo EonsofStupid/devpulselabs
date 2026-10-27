@@ -1,0 +1,169 @@
+# ST2b: a library unplugged mid-session, on the real exe. Profile
+# `st2-portable` with fixture `st2-author`: the scratch library at
+# `target/st2-proof/drive/library` is linked as `Q:\library`, and `Q:` is a
+# temporary `subst` of `target\st2-proof\drive` made before the run. A
+# background timeline, counted from the app's start, then:
+# - removes `Q:` at 12 s, mounts it again at 20 s;
+# - removes it at 28 s, and mounts the drive as `R:` at 36 s.
+#
+# A card's background is changed three times. The first save lands. The
+# second is refused while unplugged and saves when `Q:` comes back. The
+# third is refused and saves on `R:`, where Restart now is offered. The
+# commands and the on-disk check are in docs/plans/portable-storage.md §8
+# (ST2b); remove `R:` after the run.
+id = "st2-unplugged"
+fixture = "st2-author"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 3000
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.lane/make"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.shelf/templates"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.card/templates/quote"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.tab/background"
+
+# 1. Connected: this save lands.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.swatch/first/orchid-haze"
+
+# Q: is removed at 12 s.
+[[steps]]
+kind = "wait"
+milliseconds = 7000
+
+# 2. Unplugged: refused, kept, and the banner says so.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.swatch/first/deep-lagoon"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.library/notice"
+
+[[steps]]
+kind = "capture"
+name = "unplugged"
+
+# Q: comes back at 20 s; the watch finds it and the kept edit saves.
+[[steps]]
+kind = "wait"
+milliseconds = 8000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "root/shell.library/notice"
+
+[[steps]]
+kind = "capture"
+name = "back"
+
+# Q: is removed again at 28 s.
+[[steps]]
+kind = "wait"
+milliseconds = 9000
+
+# 3. Unplugged again: refused and kept.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/workbench.author.swatch/first/solar-flare"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.library/notice"
+
+# The drive comes back as R: at 36 s: the edit saves there, and Restart now
+# is offered.
+[[steps]]
+kind = "wait"
+milliseconds = 8000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.library/restart"
+
+[[steps]]
+kind = "capture"
+name = "moved"

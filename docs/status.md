@@ -13,10 +13,10 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-27, main at `2d75c27` (#299) with ST2a in #300. The
-release exe was rebuilt 2026-10-27 00:27 from `2d75c27` and its build stamp
-verified (`2d75c27 · 2026-10-27 04:26z`); it is rebuilt again from main when
-#300 lands.
+**Updated:** 2026-10-27, main at `32e3746` (#300) with ST2b in #301. The
+release exe was rebuilt 2026-10-27 09:04 from `32e3746` and its build stamp
+verified (`32e3746 · 2026-10-27 13:03z`); it is rebuilt again from main when
+#301 lands.
 
 **CI is warm** (#292, #293, 2026-10-24): the Windows lane went from 45–58
 minutes to about 7 (main after #293: 6m45s), Linux runs in about 2. A
@@ -38,6 +38,15 @@ window, so EguiPilotAI reaches both. A linked library that isn't plugged in
 shows "Your library '…' isn't connected", is looked for every two seconds,
 and opens by itself on any drive letter, which `roots.toml` then
 remembers. Locate… and Use a library on this machine are there too.
+ST2b (#301) covers a library pulled out mid-session:
+- every write asks first, so nothing lands on whatever drive takes its
+  letter;
+- saves are refused in plain words, with an amber banner, and open work
+  stays in memory;
+- back where it was, the kept edits save and the estate reopens;
+- back on another letter, they save there, and the banner offers Restart
+  now.
+
 **The operator's own move is owed:** open the exe, tap Bring in my existing
 library…, read the card (358 files, 174.8 MB into
 `D:\projects\devpulselabs\library`), tap Move it. Plan:
@@ -69,7 +78,7 @@ refreshed without touching content. The research is
 | LS4b | Lists and data: agenda, features, timeline, split, compare, stats, code and the infographics painted; list items selectable | |
 | LS4c | Interactive components as node trees and recipes, with touch sub-events | |
 | RL | Run a lesson (R287, ruled 2026-10-25, one pass): **Run** a lesson (the Lessons page, or from a card) or an episode (the episode wall, the Present hub) — locked, the pinned cards, the slides OS full screen and the presenter opening at once in its own window; touch for the big screen (tap anywhere for the next beat, the left edge back, swipe, long press for the navigator); the presenter drives (big Back / Next, tap a beat to jump, Swap screens); window places kept per machine. **On tap** (the card sheet's tab, and the Lessons editor): each line at the start or on a tap, the teleprompter's words per tap written to the card's `script.mdx` as you type, a preview at any tap; each lesson card says "1 tap · script". `--run-lesson <id>` | **done** (#296) |
-| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md`. ST1 **done** (#297); ST1b **done** (#299: a build's library in its project; Bring in my existing library…, R291); ST2 approved 2026-10-27 as two PRs — ST2a **done** (#300: one window; the Disconnected page reconnects by itself, on any letter); then ST2b (unplugged mid-session) → ST5 → ST3 → ST4 |
+| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md`. ST1 **done** (#297); ST1b **done** (#299: a build's library in its project; Bring in my existing library…, R291); ST2 approved 2026-10-27 as two PRs — ST2a **done** (#300: one window; the Disconnected page reconnects by itself, on any letter); ST2b **done** (#301: unplugged mid-session — refused saves, the banner, kept edits, Restart now); then ST5 → ST3 → ST4 |
 | AH | AgentHub (R290, ruled 2026-10-26): the app finds the AIs installed on the machine and links to them; a hub showing each one and what it is working on; each AI arrives briefed, warmed up and resumable; Clyffy brings up the task's UI to work on it with other AIs and other people; Council | after ST, before LS4b — its own program plan, for approval |
 | EX | Export a player (R288, ruled 2026-10-24): one folder — the player, the lesson, its videos copied in — that opens straight into Run mode; after LS4c | ruled direction — `docs/plans/export-player.md` |
 | LS4d | Your own templates ("save it as my template") | |
@@ -230,11 +239,10 @@ release) are still to come.
 ## Next, in order
 
 1. **Portable, linked storage** (`docs/plans/portable-storage.md`): ST1
-   (#297), ST1b (#299) and ST2a (#300) done. Next is **ST2b**, mid-session:
-   saves refused in plain words while unplugged, a banner, kept edits saved
-   on reconnect, and the estate reopened in place. A new letter
-   mid-session offers Restart now (§4e steps 5–10, ruled 2026-10-27). Then
-   ST5 → ST3 → ST4.
+   (#297), ST1b (#299), ST2a (#300) and ST2b (#301) done. Next is **ST5,
+   Locations**: linked video folders on the drive, shown offline when it is
+   away (R288). Its plan queue comes first. Then ST3 → ST4. The operator's
+   own USB unplug-and-replug check (§6) is owed.
 2. **Owed on the operator's own setup:** the move (open the exe → Bring in
    my existing library… → Move it); then Run a lesson (#296) on the 75″
    with the script on the laptop, Swap screens, touch to advance.

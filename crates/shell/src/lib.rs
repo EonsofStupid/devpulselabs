@@ -672,6 +672,9 @@ pub struct Shell {
     library_notice: Option<LibraryNotice>,
     /// Restart now was tapped on the banner; the app takes it.
     restart: bool,
+    /// The banner's height last frame, so its panel keeps the surfaces
+    /// below it.
+    library_height: f32,
     /// The inspector overlay (PANEL zone): OPTIONAL — closed by default so
     /// the content well keeps the full width; open, it floats OVER the
     /// well's right edge (docs/shell.md, "rightside overlay the content").
@@ -760,6 +763,7 @@ impl Shell {
             full_bleed: false,
             library_notice: None,
             restart: false,
+            library_height: 0.0,
             inspector_open: false,
             build: "",
             tooltip_mood: dpl_backdrop::random_mood_index(),
@@ -998,7 +1002,7 @@ impl Shell {
 
         let tone = self.active_tone();
         let (top, go_fullbleed, toggle_inspector) = self.top_bar(ui, &fl);
-        self.library_banner(ui, &fl);
+        self.library_banner(ui, &fl, top);
         if go_fullbleed {
             self.full_bleed = true;
         }
@@ -1123,22 +1127,33 @@ impl Shell {
         std::mem::take(&mut self.restart)
     }
 
-    /// The library banner under the top bar: amber, plain words, and Restart
-    /// now when the library came back somewhere new.
-    fn library_banner(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) {
+    /// The library banner under the top bar: plain words on a raised strip
+    /// with a hard amber edge, and Restart now when the library came back
+    /// somewhere new. A panel keeps the surfaces below it; the words paint on
+    /// the top layer, so an open card editor or sheet never covers them.
+    fn library_banner(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid, top: Rect) {
         let Some(notice) = self.library_notice.clone() else {
             return;
         };
-        let restart = &mut self.restart;
         egui::Panel::top("dpl_library")
+            .exact_size(self.library_height)
             .show_separator_line(false)
-            .frame(
+            .frame(egui::Frame::new().fill(cl::surface::RAISED))
+            .show(ui, |_| {});
+        let restart = &mut self.restart;
+        // The top bar's own margin, so the strip lines up under it.
+        let margin = egui::Margin::symmetric(14, 8);
+        let strip = egui::Area::new(egui::Id::new("dpl_library_line"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(top.left_bottom())
+            .show(ui.ctx(), |ui| {
                 egui::Frame::new()
-                    .fill(Tone::Amber.tint())
-                    .inner_margin(egui::Margin::symmetric(14, 8)),
-            )
-            .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
+                    .fill(cl::surface::RAISED)
+                    .stroke(egui::Stroke::new(2.0, Tone::Amber.color()))
+                    .inner_margin(margin)
+                    .show(ui, |ui| {
+                        ui.set_width(top.width() - margin.sum().x);
+                        ui.horizontal_wrapped(|ui| {
                     let text = match &notice {
                         LibraryNotice::Unplugged { label } => format!(
                             "Your library '{label}' was unplugged. Plug it back in to save — your open work is kept."
@@ -1182,8 +1197,10 @@ impl Shell {
                             *restart = true;
                         }
                     }
-                });
+                        });
+                    });
             });
+        self.library_height = strip.response.rect.height();
     }
 
     fn top_bar(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) -> (Rect, bool, bool) {
