@@ -13,12 +13,9 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-27, main at `050bdee` (#301). ST2a and ST2b both
-merged after completed Windows and Linux green checks. A follow-through
-on `feat/portable-storage-st2` closes two persistence gaps found while
-executing the approved ST2 plan. Local `cargo green` passed: 1,212 tests,
-zero failures, six existing live-tool drills ignored, release build and
-renderer smoke. PR delivery and the merged release rebuild follow.
+**Updated:** 2026-10-27, main at `45ac4f2` (#302: the ST2 follow-through,
+from a parallel session) with ST5a in #303. The release exe is rebuilt from
+main when #303 lands.
 
 **CI is warm** (#292, #293, 2026-10-24): the Windows lane went from 45–58
 minutes to about 7 (main after #293: 6m45s), Linux runs in about 2. A
@@ -40,6 +37,12 @@ window, so EguiPilotAI reaches both. A linked library that isn't plugged in
 shows "Your library '…' isn't connected", is looked for every two seconds,
 and opens by itself on any drive letter, which `roots.toml` then
 remembers. Locate… and Use a library on this machine are there too.
+ST5a (#303), **Locations**: in the Browse window, "Add as a location"
+links any folder in place, for example a drive of videos. Nothing is
+copied, and nothing is written inside it. Its videos and pictures join the
+media shelf and the pickers with cached posters. While the drive is away
+they show "offline — plug it in", never broken, and the drive is found
+again on any letter. Composer lists Locations with Locate… and Remove.
 ST2b (#301) covers a library pulled out mid-session:
 - every write asks first, so nothing lands on whatever drive takes its
   letter;
@@ -88,7 +91,7 @@ refreshed without touching content. The research is
 | LS4b | Lists and data: agenda, features, timeline, split, compare, stats, code and the infographics painted; list items selectable | |
 | LS4c | Interactive components as node trees and recipes, with touch sub-events | |
 | RL | Run a lesson (R287, ruled 2026-10-25, one pass): **Run** a lesson (the Lessons page, or from a card) or an episode (the episode wall, the Present hub) — locked, the pinned cards, the slides OS full screen and the presenter opening at once in its own window; touch for the big screen (tap anywhere for the next beat, the left edge back, swipe, long press for the navigator); the presenter drives (big Back / Next, tap a beat to jump, Swap screens); window places kept per machine. **On tap** (the card sheet's tab, and the Lessons editor): each line at the start or on a tap, the teleprompter's words per tap written to the card's `script.mdx` as you type, a preview at any tap; each lesson card says "1 tap · script". `--run-lesson <id>` | **done** (#296) |
-| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md`. ST1 **done** (#297); ST1b **done** (#299: a build's library in its project; Bring in my existing library…, R291); ST2 approved 2026-10-27 as two PRs — ST2a **done** (#300: one window; the Disconnected page reconnects by itself, on any letter); ST2b **done** (#301: unplugged mid-session — refused saves, the banner, kept edits, Restart now); then ST5 → ST3 → ST4 |
+| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md`. ST1 **done** (#297); ST1b **done** (#299: a build's library in its project; Bring in my existing library…, R291); ST2 approved 2026-10-27 as two PRs — ST2a **done** (#300: one window; the Disconnected page reconnects by itself, on any letter); ST2b **done** (#301: unplugged mid-session — refused saves, the banner, kept edits, Restart now; follow-through #302); ST5 approved 2026-10-27 — ST5a **done** (#303: Locations linked in place, offline posters, found on any letter); then ST5b (one list: packs and libraries move in) → ST3 → ST4 |
 | AH | AgentHub (R290, ruled 2026-10-26): the app finds the AIs installed on the machine and links to them; a hub showing each one and what it is working on; each AI arrives briefed, warmed up and resumable; Clyffy brings up the task's UI to work on it with other AIs and other people; Council | after ST, before LS4b — its own program plan, for approval |
 | EX | Export a player (R288, ruled 2026-10-24): one folder — the player, the lesson, its videos copied in — that opens straight into Run mode; after LS4c | ruled direction — `docs/plans/export-player.md` |
 | LS4d | Your own templates ("save it as my template") | |
@@ -248,11 +251,11 @@ release) are still to come.
 
 ## Next, in order
 
-1. **Portable, linked storage** (`docs/plans/portable-storage.md`): ST1
-   (#297), ST1b (#299), ST2a (#300) and ST2b (#301) done. Next is **ST5,
-   Locations**: linked video folders on the drive, shown offline when it is
-   away (R288). Its plan queue comes first. Then ST3 → ST4. The operator's
-   own USB unplug-and-replug check (§6) is owed.
+1. **Portable, linked storage** (`docs/plans/portable-storage.md`): ST1,
+   ST1b, ST2a/b and ST5a are done. Next is **ST5b**, one list: pinned packs
+   and Browse libraries move into Locations once; `--pin-pack` goes; import
+   by reference makes a location link instead of a symlink (§4f steps 7–9).
+   Then ST3 → ST4. The operator's own USB drive check (§6) is owed.
 2. **Owed on the operator's own setup:** the move (open the exe → Bring in
    my existing library… → Move it); then Run a lesson (#296) on the 75″
    with the script on the laptop, Swap screens, touch to advance.

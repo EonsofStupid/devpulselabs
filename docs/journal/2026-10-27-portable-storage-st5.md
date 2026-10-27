@@ -1,4 +1,4 @@
-# 2026-10-27 — portable-storage: ST5, Locations (started)
+# 2026-10-27 — portable-storage: ST5, Locations (ST5a built)
 
 Milestone `portable-storage-st5`. Plan: `docs/plans/portable-storage.md`
 §4f, approved 2026-10-27 with the rulings Q-ST5-1/2/3 in the Status block.
@@ -71,3 +71,11 @@ git status --short && git log --oneline -3 && gh pr list --state open
 subst   # expect nothing listed
 cargo test -p dpl-roots
 ```
+
+## ST5a — built (PR #303)
+
+Steps 1–6 landed on `feat/portable-storage-st5a`, rebased onto #302 (a
+parallel session's ST2 follow-through: estate write guard, preference
+retries). The amendments and §8 evidence are in the plan. The next step is
+**ST5b** (§4f steps 7–9): migrate `sources.json` and `libraries.json` once,
+remove `--pin-pack`, and make import by reference produce a location link.
