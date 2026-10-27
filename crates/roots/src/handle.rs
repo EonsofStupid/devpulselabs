@@ -279,6 +279,16 @@ impl Roots {
         // Content-relative media first; ring-prefixed and shipped program assets
         // remain supported without searching ancestors or the launch directory.
         let mut candidates = vec![layout.content.join(path)];
+        // A linked file (ST5): wherever its location is now. An export's
+        // copy under `content/locations/` is found first, above.
+        if let Some(file) = (crate::locations::Store {
+            library: &layout.library,
+            userdata: &layout.userdata,
+        })
+        .resolve(path)
+        {
+            candidates.push(file);
+        }
         if let Ok(suffix) = path.strip_prefix("assets") {
             candidates.push(layout.assets.join(suffix));
         }

@@ -923,3 +923,96 @@ fn an_unplugged_library_refuses_writes_and_comes_back_on_a_new_letter() {
     assert_eq!(disk::read_config(&exe).unwrap().last_path, Some(second));
     *global().write().unwrap() = None;
 }
+
+/// ST5: a folder joins the library in place. Nothing inside it is written;
+/// its files resolve by reference, go offline when it is away, and come back
+/// on another "drive" by the files it is known by — even with one added.
+#[test]
+fn a_location_joins_in_place_and_follows_its_files() {
+    let base = scratch();
+    let layout = imported(&program(&base, "program"));
+    let store = locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    };
+    let videos = program(&base, "drive/videos");
+    fs::write(videos.join("intro.mp4"), vec![1u8; 300]).unwrap();
+    fs::create_dir_all(videos.join("talks")).unwrap();
+    fs::write(videos.join("talks/one.mp4"), vec![2u8; 500]).unwrap();
+    let before = snapshot(&videos);
+
+    let location = store.add(&videos, "").unwrap();
+    assert_eq!(location.label, "videos");
+    assert!(
+        location.path.is_relative(),
+        "on the library's own drive it travels with it"
+    );
+    assert_eq!(location.sample.len(), 2);
+    assert_eq!(snapshot(&videos), before, "nothing is written inside");
+    assert!(store.add(&videos, "again").unwrap_err().contains("already"));
+    assert!(store
+        .add(&layout.content, "mine")
+        .unwrap_err()
+        .contains("inside your library"));
+    assert!(store
+        .add(&base, "all")
+        .unwrap_err()
+        .contains("library is inside"));
+
+    let reference = location_reference(&location, Path::new("talks/one.mp4"));
+    assert_eq!(reference, format!("locations/{}/talks/one.mp4", location.id));
+    assert_eq!(
+        store.resolve(Path::new(&reference)),
+        Some(videos.join("talks/one.mp4"))
+    );
+    let climbing = format!("locations/{}/../secret.txt", location.id);
+    assert_eq!(store.resolve(Path::new(&climbing)), None);
+
+    // Unplugged: offline, never resolved, still named.
+    let away = base.join("away");
+    fs::rename(base.join("drive"), &away).unwrap();
+    assert_eq!(store.list().unwrap()[0].at, None);
+    assert_eq!(store.resolve(Path::new(&reference)), None);
+    assert_eq!(store.of(Path::new(&reference)).unwrap().label, "videos");
+
+    // Back elsewhere, with a file added since.
+    fs::write(away.join("videos/new.mp4"), b"new").unwrap();
+    assert_eq!(store.refresh_with(|_| vec![away.join("videos")]), Ok(1));
+    assert_eq!(
+        store.resolve(Path::new(&reference)),
+        Some(away.join("videos/talks/one.mp4"))
+    );
+    assert_eq!(store.list().unwrap()[0].at, Some(away.join("videos")));
+}
+
+/// ST5: a folder that doesn't hold a location's files is never taken for
+/// it without the person saying so, and Remove forgets only the record.
+#[test]
+fn a_different_folder_is_never_taken_for_a_location_without_asking() {
+    let base = scratch();
+    let layout = imported(&program(&base, "program"));
+    let store = locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    };
+    let videos = program(&base, "videos");
+    for name in ["a.mp4", "b.mp4", "c.mp4"] {
+        fs::write(videos.join(name), name.as_bytes()).unwrap();
+    }
+    let id = store.add(&videos, "Videos drive").unwrap().id;
+    let other = program(&base, "other");
+    fs::write(other.join("holiday.mp4"), b"someone else's").unwrap();
+    let other_before = snapshot(&other);
+    fs::rename(&videos, base.join("gone")).unwrap();
+
+    assert_eq!(store.refresh_with(|_| vec![other.clone()]), Ok(0));
+    assert_eq!(store.locate(&id, &other, false), Ok(false));
+    assert_eq!(store.list().unwrap()[0].at, None, "nothing changed yet");
+    assert_eq!(store.locate(&id, &other, true), Ok(true));
+    assert_eq!(store.list().unwrap()[0].at, Some(other.clone()));
+
+    store.remove(&id).unwrap();
+    assert!(store.list().unwrap().is_empty());
+    assert_eq!(snapshot(&other), other_before, "files are never touched");
+    assert!(store.remove(&id).is_err());
+}
