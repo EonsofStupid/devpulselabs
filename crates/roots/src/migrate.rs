@@ -288,7 +288,7 @@ fn destination_free(library: &Path) -> Result<(), String> {
 }
 
 /// `path` is `folder` or lies under it. Windows paths compare without case.
-fn inside(path: &Path, folder: &Path) -> bool {
+pub(crate) fn inside(path: &Path, folder: &Path) -> bool {
     let parts = |p: &Path| -> Vec<String> {
         p.components()
             .map(|c| {

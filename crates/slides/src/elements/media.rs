@@ -133,7 +133,10 @@ pub fn media_block_backdrop(
 /// backdrop is dimmed so words can sit on it; a picker tile IS the subject and
 /// dimming it would misrepresent what the operator is choosing.
 pub fn asset_thumb(ui: &mut Ui, rect: Rect, src: &str) {
-    match dpl_video::locate_asset(src) {
+    // A linked file whose location is offline shows its cached poster.
+    let still = dpl_video::locate_asset(src)
+        .or_else(|| dpl_video::location_poster(src).filter(|p| p.is_file()));
+    match still {
         Some(file) => {
             let uri = file.to_string_lossy().replace('\\', "/");
             egui::Image::new(format!("file:///{uri}"))
@@ -142,6 +145,49 @@ pub fn asset_thumb(ui: &mut Ui, rect: Rect, src: &str) {
         }
         None => missing_plate(ui, rect, "file not found"),
     }
+}
+
+/// The audience's screen in Run (ruled 2026-10-27, Q-ST5-3): an offline
+/// linked file shows its poster there with no note. The Present hub marks
+/// the span it paints the audience's deck in.
+pub fn set_audience(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(audience_id(), on));
+}
+
+fn audience_id() -> egui::Id {
+    egui::Id::new("dpl.slides.audience")
+}
+
+/// A linked file whose location is offline (ST5): its cached poster, or a
+/// plain plate, and — except on the audience's screen — a note naming
+/// where it lives. `None` when `path` isn't a linked file.
+fn offline(ui: &mut Ui, rect: Rect, path: &str, look: PictureLook) -> Option<Option<Rect>> {
+    let location = dpl_video::location_of(path)?;
+    let at = dpl_video::location_poster(path)
+        .filter(|p| p.is_file())
+        .map(|p| paint_still(ui, rect, &p, look));
+    if at.is_none() {
+        ui.painter()
+            .rect_filled(rect, cl::RADIUS, cl::surface::RAISED);
+    }
+    let audience = ui
+        .ctx()
+        .data(|d| d.get_temp::<bool>(audience_id()))
+        .unwrap_or(false);
+    if !audience {
+        let note = format!("On '{}' — plug it in", location.label);
+        let font = egui::FontId::proportional(13.0);
+        let galley = ui.painter().layout_no_wrap(note, font, cl::ink::STRONG);
+        let pad = egui::vec2(8.0, 4.0);
+        let chip = Rect::from_min_size(
+            rect.left_bottom() + egui::vec2(pad.x, -galley.size().y - pad.y * 3.0),
+            galley.size() + pad * 2.0,
+        );
+        ui.painter()
+            .rect_filled(chip, cl::RADIUS, egui::Color32::from_black_alpha(180));
+        ui.painter().galley(chip.min + pad, galley, cl::ink::STRONG);
+    }
+    Some(at)
 }
 
 /// A labeled fallback plate — the honest bottom rung of every ladder.
@@ -162,6 +208,9 @@ fn paint_image(ui: &mut Ui, rect: Rect, path: &str, look: PictureLook) -> Option
     match dpl_video::locate_asset(path) {
         Some(file) => Some(paint_still(ui, rect, &file, look)),
         None => {
+            if let Some(at) = offline(ui, rect, path, look) {
+                return at;
+            }
             missing_plate(ui, rect, &format!("image · {path} · file not found"));
             None
         }
@@ -206,6 +255,9 @@ fn paint_video(
     look: PictureLook,
 ) -> Option<Rect> {
     let Some(file) = dpl_video::locate_asset(path) else {
+        if let Some(at) = offline(ui, rect, path, look) {
+            return at;
+        }
         missing_plate(ui, rect, &format!("video · {path} · file not found"));
         return None;
     };
@@ -219,7 +271,8 @@ fn paint_video(
     let still = poster
         .and_then(dpl_video::locate_asset)
         .filter(|p| p.is_file())
-        .or_else(|| Some(dpl_video::poster_of(&file)).filter(|p| p.is_file()));
+        .or_else(|| Some(dpl_video::poster_of(&file)).filter(|p| p.is_file()))
+        .or_else(|| dpl_video::location_poster(path).filter(|p| p.is_file()));
     match still {
         Some(p) => Some(paint_still(ui, rect, &p, look)),
         None => {

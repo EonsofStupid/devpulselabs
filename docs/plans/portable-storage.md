@@ -28,6 +28,19 @@ then "Approve" for ST1b (§4.7). The order is now ST1 (done, #297) →
 - Q-ST2-3, a temporary `subst` drive letter for ST2b's proof: "Yes, use
   subst".
 
+**ST5 approved 2026-10-27** (§4f), as two PRs, ST5a then ST5b:
+- Q-ST5-1, recognising a location on another drive letter: "By its files,
+  write nothing". A sample of its file names and sizes is noted when it is
+  added; nothing is ever written onto the drive, and the app asks when it is
+  unsure;
+- Q-ST5-2: "Use location links". A slide points at a file inside a
+  location, and there are no per-file symlinks. This supersedes
+  docs-one-truth §4.3's "Per-file links are real symlinks"; existing
+  symlinks keep working;
+- Q-ST5-3, an offline linked video during Run: "The poster, no label". The
+  audience sees the cached still, and the note shows only on the presenter
+  screen and while authoring.
+
 **§5b signed off, all four:** `roots.toml` beside the exe; the marker check
 on each drive while disconnected; `library.json` written into a linked
 library; and removing the parent walk, the CWD lookup and the OS temp use.
@@ -592,6 +605,146 @@ place** (one PR, after ST2a)
   - A card's words-to-say (script) are not saved again on reconnect; the
     next change to them saves them.
 
+### 4f. ST5 execution queue — grounded 2026-10-27
+
+Read in THE checkout at `050bdee` (#301), by a census of `crates/composer`
+(`packs.rs`, `browse.rs`, `import.rs`), `crates/index`, `crates/roots`,
+`crates/slides/src/elements/media.rs`, `crates/doc` and
+`docs/plans/export-player.md`. The design is docs-one-truth §4.3 (R83) and
+R288.
+
+What the reading found:
+- **Slides store media content-relative.** `dpl_doc` rejects absolute
+  paths, drive letters and `..` in a media `src` (`doc/src/lib.rs:1029`).
+  Every author writes the index's `rel_path`. A linked file needs a
+  reference form that is itself content-relative.
+- **Pinned packs** (`content/elements/sources.json`) are bare absolute
+  paths: no identity, and no Remove. Offline shows as one row that does
+  nothing.
+- **Browse libraries** (`.userdata/libraries.json`) are bare absolute
+  paths that **vanish** when missing (`browse.rs:227`). They are quick-jump
+  chips only, not indexed.
+- **Import by reference** makes a per-file symlink and **silently copies**
+  when the link fails (`import.rs:230`), against "linking never silently
+  copies".
+- **The index:**
+  - It keys rows by content-relative `rel_path`, but falls back to an
+    absolute path outside content (`index/src/lib.rs:907`).
+  - It marks every row `location: "inbox"`.
+  - A rescan walks only the top of `inbox` (`:823`).
+- **Posters** are written beside the media (`<stem>-poster.jpg`). For a
+  linked folder that would write into the operator's own folder, against
+  "sources are never mutated".
+- **A missing file** draws "video · src · file not found". There is no
+  offline state.
+
+**The design, as built:**
+- **A location** is a record in the account's `.userdata/locations.json`:
+  an id, a label, where it was last seen, and a fingerprint (Q-ST5-1).
+  - `dpl-roots` owns it, beside the library's own drive probe, with the
+    same ceiling: serde, serde_json, toml.
+  - A location on the library's own drive is stored relative to the
+    library, so it follows the drive's letter by itself.
+  - Elsewhere, when it isn't at its last path, the same path is checked on
+    the other drive letters or mount points, as ST2 does for the library.
+- **A linked file's reference is `locations/<id>/<path inside>`.** It is
+  content-relative, so `dpl_doc`'s rules hold unchanged.
+  - `dpl_roots::locate_asset` resolves it to wherever the location is now.
+  - An export copies it into its own `content/locations/<id>/…`, where the
+    same reference finds it with nothing plugged in (R288's "copied into
+    the export").
+- **Posters and thumbnails** for linked files are cached in
+  `common/cache/locations/<id>/…` (regenerable). Nothing is ever written
+  into the operator's folder.
+- **Offline is never broken.**
+  - Authoring shows the cached poster with "On 'Videos drive' — plug it in
+    to play".
+  - Run mode shows what Q-ST5-3 rules.
+
+**ST5a — link a folder and use its videos in slides** (one PR)
+
+1. **`dpl-roots` (`locations.rs`):**
+   - `add` (refuses a folder inside the library, the library inside it, and
+     links);
+   - `list`, with online or offline per location;
+   - `locate` (point at where it is now; the fingerprint must match, or the
+     person confirms);
+   - `remove` (the record only; no file is ever touched);
+   - `resolve(locations/<id>/<rel>)`, wired into `locate_asset`.
+   - The `.userdata` writes ask `writable` (ST2b).
+2. **The index:**
+   - Linked items are indexed by their `locations/<id>/…` reference, with
+     `location = "linked:<id>"`.
+   - A location's scan walks it, recursively, for images and videos. It
+     never soft-clears rows of an offline location.
+   - The absolute-path fallback goes: a file outside content and the
+     locations is refused, not indexed by its absolute path.
+3. **Posters** for linked videos are made by ffmpeg into the cache folder
+   above. A missing poster is made again when the location is back.
+4. **Slides:** `media.rs` tells "offline" from "missing". Offline draws the
+   cached poster and the location's name, per Q-ST5-3. The editor's media
+   picker lists linked items like any other.
+5. **The surfaces:**
+   - Browse's "★ Add as library" becomes **"Add as a location"**. The
+     folder is fingerprinted, indexed and listed.
+   - Composer's "ELEMENTS — your packs" becomes **Locations**, each
+     location with online/offline, Locate… and Remove.
+   - The new controls get pilot ids and tooltips.
+6. **Proof:**
+   - **Unit:** add, resolve, offline, Locate, Remove, the fingerprint
+     surviving files added to the folder, the drive-letter probe, and
+     nothing written into the folder.
+   - **EguiPilotAI on the real exe:** a scratch "drive" folder of short
+     videos mounted with `subst` (ruled Q-ST2-3), added as a location; a
+     video picked into a card; the drive removed, so the card shows
+     offline with its poster; the drive back on another letter, so it
+     plays again.
+   - **Shots** at 1440×900 and 1100×700.
+
+**ST5b — one list, not three** (one PR, after ST5a)
+
+7. **Migrate once,** then delete the old lists (pre-release, no
+   compatibility shims):
+   - pinned packs (`sources.json`) and Browse libraries
+     (`libraries.json`) become locations;
+   - the `--pin-pack` drill becomes `--add-location <dir>`.
+8. **Import by reference** makes a location reference instead of a
+   symlink (Q-ST5-2). The folder joins as a location if it isn't one
+   already. The silent copy fallback is removed. Existing reference
+   symlinks are left as they are.
+9. **Proof:** the migration on scratch copies of both lists, then the same
+   pilot scenario through the new single list.
+
+**Amended while building ST5a (2026-10-27):**
+- **Until ST5b moves the old lists in, there are two at once:**
+  - Composer's Locations is a new section above "ELEMENTS — your packs";
+    pinned packs stay where they are.
+  - Browse's quick-jump chips list online locations first, then the old
+    libraries.
+  - Browse's library toggle is gone (`add_library` and `remove_library`
+    were deleted), replaced by "Add as a location".
+- **Locate…** opens a Browse window. Its bar offers "This is 'X'", which
+  checks the files there. When they don't match, it arms a second tap: "Not
+  the same files — use it as 'X'?".
+- **`--add-location <dir>`** lands now, as a headless drill that prints the
+  new location's id (it was planned for ST5b). `--pin-pack` goes in ST5b.
+- **At launch** (`open_library`), offline locations are looked for once on
+  the other drive letters before anything paints. While any is still
+  offline, Composer runs a watch that looks every 3 s. Nothing runs while
+  all are online.
+- **Posters are not stored in the index.** A linked row's poster is
+  derived from its reference (`dpl_roots::location_poster`) and cached in
+  `common/cache/locations/<id>/…jpg`. The media shelf shows that cached
+  poster whether the location is online or offline, so it never reaches
+  into the drive while it paints.
+- **Each linked card on WiredFront's media shelf** shows "on 'X'", or "on
+  'X' · offline — plug it in" in amber.
+- **Composer's `resolve`** finds linked files, so linked footage previews.
+- **`rel_path_of`'s absolute fallback is left as it is:** every path a scan
+  hands it is already under the root.
+- **The pickers** list linked items through the index's `recent`, so on a
+  large drive the oldest files sit past a picker's first page.
+
 | Where | Change | Pass |
 |---|---|---|
 | **new `crates/roots` (`dpl-roots`)** | ENGINE layer, egui-free: `roots.toml`, the marker, the layout, the `Roots` handle (connected/disconnected), the drive check; ceiling serde, serde_json, toml | ST1–ST2 |
@@ -821,6 +974,45 @@ tests passed, zero failures, six existing live-tool drills ignored). The
 format, Clippy, architecture/contracts and release gates passed; smoke
 rendered 16,616 shape pixels, 10,634 text pixels and 60 export frames.
 This follow-through changes no pixels and makes no fresh USB drill claim.
+
+**ST5a, 2026-10-27:**
+- **Unit:**
+  - `dpl-roots` has 37 tests, 2 new. A folder joins in place with nothing
+    written inside it; it is stored relative to the library on the
+    library's drive; references resolve and never climb out; it goes
+    offline when away and is found elsewhere by its files, even with one
+    added.
+  - A different folder is never taken for a location without the person
+    saying so, and Remove forgets only the record.
+  - `dpl-index`, 1 new test: a location is indexed every level down by
+    reference, a drive's own `$RECYCLE.BIN` is skipped, and Remove clears
+    its rows while the files stay.
+- **Real exe, scratch only** (`target/st5-proof/`, the debug exe with a
+  scratch `--content-root`):
+  - The test clips were made with the depot's ffmpeg and the drive mounted
+    as `S:` with `subst`.
+  - `--add-location S:\videos` printed "Linked 'videos' in place: 3
+    file(s), 3 poster(s) cached — nothing copied". The posters landed in
+    `common/cache/locations/<id>/`.
+  - The drive's files were listed with their sizes before and after, and
+    were the same.
+  - `--make-slide locations/<id>/clip.mp4` minted a card whose `src` is the
+    reference.
+- **Shots** (`docs/proof/portable-storage-st5a/`):
+  - **Online:** the media shelf shows the three files with their posters,
+    each "on 'videos'".
+  - **`S:` removed:** the same posters, "on 'videos' · offline — plug it
+    in", and Composer's Locations showing videos offline with Locate… and
+    Remove.
+  - **Back as `T:`:** launch found it ("locations found on another drive
+    letter back=1"), `locations.json` now says `T:\videos`, and the shelf
+    is online again.
+  - Shots at 1440×900 and 1100×700. `subst` lists nothing after the runs.
+- **Not shown on screen:** a card painting its offline poster, and Run
+  hiding the note (Q-ST5-3). Both are in the slide painter
+  (`media.rs` `offline`, the deck's audience mark); this build has no
+  harness route that opens a library card. The operator's own drive check
+  covers it.
 
 ## Questions for the operator
 

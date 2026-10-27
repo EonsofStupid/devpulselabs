@@ -473,6 +473,45 @@ impl Index {
         })
     }
 
+    /// Index a location in place (ST5): every image and video under
+    /// `folder`, recursively, as `locations/<id>/<path inside>` with
+    /// `location = "linked:<id>"`. Rows of this location that are no longer
+    /// there are soft-cleared. The caller indexes only an online location,
+    /// and a scan that finds nothing never clears anything.
+    pub fn index_location(&self, id: &str, folder: &Path) -> Result<ReindexReport, String> {
+        let location = format!("linked:{id}");
+        let mut found = Vec::new();
+        scan_location(folder, folder, id, &location, &mut found);
+        for r in &found {
+            self.upsert(r)?;
+        }
+        let mut cleared = 0;
+        if !found.is_empty() {
+            let live: std::collections::BTreeSet<&str> =
+                found.iter().map(|r| r.rel_path.as_str()).collect();
+            for row in self.list(None, Some(&location))? {
+                if !live.contains(row.rel_path.as_str()) {
+                    self.soft_clear(&row.rel_path)?;
+                    cleared += 1;
+                }
+            }
+        }
+        Ok(ReindexReport {
+            indexed: found.len(),
+            cleared,
+        })
+    }
+
+    /// A location was removed (ST5): its rows are soft-cleared. Its files
+    /// are never touched.
+    pub fn forget_location(&self, id: &str) -> Result<usize, String> {
+        let rows = self.list(None, Some(&format!("linked:{id}")))?;
+        for row in &rows {
+            self.soft_clear(&row.rel_path)?;
+        }
+        Ok(rows.len())
+    }
+
     /// KEEP (X3): MOVE an inbox artifact into an EXISTING content episode
     /// — `content/<show>/<episode>/assets/` — companions travelling
     /// (sidecar; a video's poster; a guide folder whole), the sidecar
@@ -859,6 +898,51 @@ fn scan_inbox(root: &Path) -> Result<Vec<Record>, String> {
     Ok(out)
 }
 
+/// Walk a location for images and videos, every level down. Folders a
+/// drive keeps for itself (`$RECYCLE.BIN`, `System Volume Information`,
+/// hidden ones) and links are skipped; nothing is written.
+fn scan_location(base: &Path, dir: &Path, id: &str, location: &str, out: &mut Vec<Record>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('$') || name.starts_with('.') || name == "System Volume Information" {
+            continue;
+        }
+        let Ok(kind_of_entry) = entry.file_type() else {
+            continue;
+        };
+        let path = entry.path();
+        if kind_of_entry.is_symlink() {
+            continue;
+        }
+        if kind_of_entry.is_dir() {
+            scan_location(base, &path, id, location, out);
+            continue;
+        }
+        let Some(kind) = kind_of(&path) else { continue };
+        let inside = path
+            .strip_prefix(base)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let (size_kb, modified_ms) = fs_facts(&path);
+        let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(&name);
+        out.push(Record {
+            rel_path: format!("locations/{id}/{inside}"),
+            location: location.into(),
+            kind: kind.into(),
+            name: stem.into(),
+            size_kb,
+            modified_ms,
+            captured_at: modified_ms.map(iso_from_ms).unwrap_or_default(),
+            source: "location".into(),
+            ..Record::default()
+        });
+    }
+}
+
 /// Build the record for one on-disk find: fs facts first, then the
 /// sidecar's authored fields WIN where present.
 fn record_for(path: &Path, root: &Path, kind: &str, file_name: &str) -> Record {
@@ -977,6 +1061,44 @@ mod tests {
             modified_ms: Some(1_753_000_000_000),
             ..Record::default()
         }
+    }
+
+    /// ST5: a location is indexed in place, every level down, by reference;
+    /// the drive's own folders are skipped, and Remove clears its rows only.
+    #[test]
+    fn a_location_is_indexed_in_place_and_forgotten_on_remove() {
+        let root = scratch("location");
+        let drive = root.join("drive");
+        std::fs::create_dir_all(drive.join("talks/2026")).unwrap();
+        std::fs::create_dir_all(drive.join("$RECYCLE.BIN")).unwrap();
+        std::fs::write(drive.join("intro.mp4"), b"v").unwrap();
+        std::fs::write(drive.join("talks/2026/keynote.mp4"), b"v").unwrap();
+        std::fs::write(drive.join("talks/cover.png"), b"i").unwrap();
+        std::fs::write(drive.join("$RECYCLE.BIN/old.mp4"), b"v").unwrap();
+        std::fs::write(drive.join("notes.txt"), b"t").unwrap();
+        let ix = Index::open(&root.join("index.db")).unwrap();
+        let report = ix.index_location("loc-1", &drive).unwrap();
+        assert_eq!(report.indexed, 3);
+        let mut rows: Vec<String> = ix
+            .list(None, Some("linked:loc-1"))
+            .unwrap()
+            .into_iter()
+            .map(|r| r.rel_path)
+            .collect();
+        rows.sort();
+        assert_eq!(
+            rows,
+            [
+                "locations/loc-1/intro.mp4",
+                "locations/loc-1/talks/2026/keynote.mp4",
+                "locations/loc-1/talks/cover.png"
+            ]
+        );
+        std::fs::remove_file(drive.join("intro.mp4")).unwrap();
+        assert_eq!(ix.index_location("loc-1", &drive).unwrap().cleared, 1);
+        assert_eq!(ix.forget_location("loc-1").unwrap(), 2);
+        assert!(ix.list(None, Some("linked:loc-1")).unwrap().is_empty());
+        assert!(drive.join("talks/2026/keynote.mp4").is_file());
     }
 
     #[test]

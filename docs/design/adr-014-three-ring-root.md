@@ -123,6 +123,23 @@ and `.aidata/`.
   - Back somewhere new, a path cached from before is moved onto the new
     place, and the banner offers Restart now.
 
+## Amendment 2026-10-27 — Locations (ST5a)
+
+- **A location is a folder that joins the library in place** (R83, R288).
+  The account's `.userdata/locations.json` records its name and where it
+  was last seen. A location on the library's own drive is stored relative
+  to the library; one elsewhere is stored with its absolute path. The
+  record also notes a sample of the folder's files and sizes, so the
+  folder can be recognised on another drive letter. Nothing is ever
+  written inside the folder.
+- **A linked file is named `locations/<id>/<path inside>`.** The name is
+  content-relative, so it fits the document rules, and `locate_asset`
+  resolves it to wherever the folder is now. An export copies the file to
+  the same name under its own `content/`, where it is found first.
+- **Offline is never broken.** Posters are cached in
+  `common/cache/locations/`. A missing location is looked for on the other
+  drive letters at launch, and while it is away.
+
 Precedent: Unreal `Saved`/`Intermediate`/`Content`, Resolve
 cache/media-pool/gallery, Lightroom ingest/catalog/library. Embedded
 Turso (metadata) + in-process Arrow/DataFusion over Parquet (analytics)

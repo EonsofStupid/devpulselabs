@@ -8,6 +8,7 @@ mod discovery;
 mod disk;
 mod guard;
 mod handle;
+mod locations;
 mod migrate;
 mod model;
 mod setup;
@@ -16,6 +17,7 @@ pub use discovery::candidates_on_roots;
 pub use disk::read_marker;
 pub use guard::{generation, io_failed, is_unplugged, label, library, writable};
 pub use handle::Roots;
+pub use locations::{reference as location_reference, Location, Placed, PREFIX as LOCATIONS};
 pub use migrate::{has_legacy, plan_move, MoveItem, MovePlan, MoveProgress, LEGACY_RINGS};
 pub use model::{
     AccountId, Config, DrillRoots, Layout, LibraryId, Marker, Mode, Publish, State, CONFIG_FILE,
@@ -254,6 +256,135 @@ pub fn watch(found: impl FnOnce() + Send + 'static) -> Result<Watch, String> {
             }
         })
         .map_err(|e| format!("The library watch could not start: {e}"))?;
+    Ok(Watch { stop })
+}
+
+/// The open library's folders for its locations' record and their paths.
+fn location_store_paths() -> Result<Layout, String> {
+    global()
+        .read()
+        .map_err(|_| "Library root state could not be locked")?
+        .as_ref()
+        .and_then(Roots::paths)
+        .ok_or_else(|| "Your library isn't open".to_string())
+}
+
+/// Every location (ST5), online where its folder is and offline where it
+/// isn't.
+pub fn locations() -> Result<Vec<Placed>, String> {
+    let layout = location_store_paths()?;
+    locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    }
+    .list()
+}
+
+/// Join `folder` to the library in place as a location. Nothing inside it
+/// is written.
+pub fn add_location(folder: &Path, label: &str) -> Result<Location, String> {
+    let layout = location_store_paths()?;
+    locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    }
+    .add(folder, label)
+}
+
+/// Point a location at where it is now; `Ok(false)` means the folder
+/// doesn't hold the files it is known by, and the person should confirm.
+pub fn locate_location(id: &str, folder: &Path, confirmed: bool) -> Result<bool, String> {
+    let layout = location_store_paths()?;
+    locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    }
+    .locate(id, folder, confirmed)
+}
+
+/// Forget a location; its folder and files are never touched.
+pub fn remove_location(id: &str) -> Result<(), String> {
+    let layout = location_store_paths()?;
+    locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    }
+    .remove(id)
+}
+
+/// Look for offline locations at the same place on other drive letters or
+/// mount points; returns how many came back.
+pub fn refresh_locations() -> Result<usize, String> {
+    let layout = location_store_paths()?;
+    locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    }
+    .refresh_with(discovery::drive_candidates)
+}
+
+/// The location whose recorded folder is `folder`, from the record alone:
+/// no drive is touched, so a window may ask every frame.
+pub fn location_at(folder: &Path) -> Option<Location> {
+    let layout = location_store_paths().ok()?;
+    let store = locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    };
+    store
+        .load()
+        .ok()?
+        .into_iter()
+        .find(|location| store.full(location) == folder)
+}
+
+/// The location a `locations/<id>/…` reference names, online or not.
+pub fn location_of(reference: &str) -> Option<Location> {
+    let layout = location_store_paths().ok()?;
+    locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    }
+    .of(Path::new(reference))
+}
+
+/// Where a linked file's poster is cached (ST5): `common/cache/locations/
+/// <id>/<path inside>.jpg`, regenerable and never inside the operator's
+/// folder. `None` when `reference` isn't a linked file.
+pub fn location_poster(reference: &str) -> Option<PathBuf> {
+    let (id, inside) = locations::split(Path::new(reference))?;
+    let layout = location_store_paths().ok()?;
+    let mut name = inside.into_os_string();
+    name.push(".jpg");
+    Some(layout.cache.join(LOCATIONS).join(id).join(name))
+}
+
+/// While any location is offline, look for it every three seconds on its
+/// own thread and call `found` each time one comes back. It stops once
+/// every location is online, or when dropped.
+pub fn watch_locations(found: impl Fn() + Send + 'static) -> Result<Watch, String> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopped = Arc::clone(&stop);
+    std::thread::Builder::new()
+        .name("dpl-roots-locations".into())
+        .spawn(move || loop {
+            for _ in 0..30 {
+                if stopped.load(Ordering::Acquire) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            if refresh_locations().is_ok_and(|back| back > 0) {
+                found();
+            }
+            let all_online = locations()
+                .map(|placed| placed.iter().all(|p| p.at.is_some()))
+                .unwrap_or(true);
+            if all_online {
+                return;
+            }
+        })
+        .map_err(|e| format!("The location watch could not start: {e}"))?;
     Ok(Watch { stop })
 }
 

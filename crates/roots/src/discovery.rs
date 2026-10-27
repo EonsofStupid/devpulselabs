@@ -64,7 +64,7 @@ fn child_dirs(base: &Path) -> Vec<PathBuf> {
 }
 
 #[cfg(not(windows))]
-fn mount_root(path: &Path) -> Option<PathBuf> {
+pub(crate) fn mount_root(path: &Path) -> Option<PathBuf> {
     for (base, depth) in [("/media", 2), ("/run/media", 2), ("/mnt", 1)] {
         if let Ok(rest) = path.strip_prefix(base) {
             let parts: Vec<_> = rest.components().take(depth).collect();

@@ -161,6 +161,14 @@ pub struct Composer {
     elements: Option<usize>,
     /// The PACK SHELF — pinned sources' packs, listed live (in place).
     packs: Option<Vec<packs::Pack>>,
+    /// The locations (ST5), read again after any change.
+    locations: Option<Vec<dpl_roots::Placed>>,
+    /// Folders being linked, indexed and postered off the UI thread.
+    location_jobs: Vec<std::sync::mpsc::Receiver<Result<String, String>>>,
+    /// Looks for offline locations on other drive letters while any is away.
+    location_watch: Option<dpl_roots::Watch>,
+    /// Set by the watch when a location came back.
+    location_back: Arc<std::sync::atomic::AtomicBool>,
     /// The footage row highlighted in the project preview well.
     proj_sel: Option<usize>,
     /// The FOOTAGE palette's active tag filter (L3 — the enricher's tags
@@ -331,6 +339,10 @@ impl Default for Composer {
             renders: None,
             elements: None,
             packs: None,
+            locations: None,
+            location_jobs: Vec::new(),
+            location_watch: None,
+            location_back: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             proj_sel: None,
             palette_tag: None,
             luts: None,
@@ -458,6 +470,11 @@ enum Act {
     Browse,
     /// Open a Browse window rooted at a specific folder (a shelf pack).
     BrowseAt(PathBuf),
+    /// Forget a location (ST5): the record and its index rows, never a file.
+    RemoveLocation(String),
+    /// Open Browse to point an offline location at where it is now (ST5):
+    /// its id and name.
+    LocateLocation(String, String),
     /// File the finished render into (show, episode) — the tag seam.
     Keep(String, String),
     /// The mock's ⑦ switch columns — each toggles real document state and
@@ -756,6 +773,12 @@ impl Composer {
     /// Resolve a forward-slash artifact rel_path to a real file path under the
     /// content root (component-wise, so Windows separators stay correct).
     fn resolve(rel: &str) -> PathBuf {
+        // A linked file (ST5) is wherever its location is now.
+        if rel.starts_with("locations/") {
+            if let Some(file) = dpl_roots::locate_asset(rel) {
+                return file;
+            }
+        }
         rel.split('/')
             .fold(Self::content_root(), |acc, seg| acc.join(seg))
     }
@@ -2151,6 +2174,60 @@ impl Composer {
     }
 
     /// Open a Browse peer window rooted at `start`.
+    /// Link a folder as a location OFF the UI thread (ST5): record it,
+    /// index it in place, and make posters into the cache. Nothing is
+    /// copied, and nothing is written inside the folder.
+    fn add_location(&mut self, dir: PathBuf, ctx: &egui::Context) {
+        self.status = format!("Linking {} in place…", dir.display());
+        let (send, done) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let result = link_location(&dir).map(|(_, line)| line);
+            let _ = send.send(result);
+            ctx.request_repaint();
+        });
+        self.location_jobs.push(done);
+    }
+
+    /// The locations' list, jobs and watch, once a frame (ST5).
+    fn tick_locations(&mut self, ctx: &egui::Context) {
+        let jobs = std::mem::take(&mut self.location_jobs);
+        for job in jobs {
+            match job.try_recv() {
+                Ok(result) => {
+                    self.status = result.unwrap_or_else(|error| error);
+                    self.locations = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => self.location_jobs.push(job),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
+            }
+        }
+        if !self.location_jobs.is_empty() {
+            ctx.request_repaint_after(Duration::from_millis(200));
+        }
+        if self
+            .location_back
+            .swap(false, std::sync::atomic::Ordering::AcqRel)
+        {
+            self.locations = None;
+            self.status = "A location is back — its files play again.".into();
+        }
+        let placed = self
+            .locations
+            .get_or_insert_with(|| dpl_roots::locations().unwrap_or_default());
+        let offline = placed.iter().any(|p| p.at.is_none());
+        if offline && self.location_watch.is_none() {
+            let (back, ctx) = (Arc::clone(&self.location_back), ctx.clone());
+            self.location_watch = dpl_roots::watch_locations(move || {
+                back.store(true, std::sync::atomic::Ordering::Release);
+                ctx.request_repaint();
+            })
+            .ok();
+        } else if !offline {
+            self.location_watch = None;
+        }
+    }
+
     fn open_browser(&mut self, start: PathBuf) {
         self.browsers.push(Arc::new(Mutex::new(browse::Browser::new(
             self.next_browser,
@@ -2289,16 +2366,31 @@ impl Composer {
         let mut incoming: Vec<PathBuf> = Vec::new();
         let mut pins: Vec<PathBuf> = Vec::new();
         let mut ingests: Vec<PathBuf> = Vec::new();
+        let mut located: Vec<PathBuf> = Vec::new();
+        let mut notices: Vec<String> = Vec::new();
+        let mut relocated = false;
         for b in &self.browsers {
             let mut b = lock(b);
             incoming.append(&mut b.picked);
             pins.append(&mut b.pinned);
+            located.append(&mut b.located);
+            relocated |= std::mem::take(&mut b.locations_changed);
+            notices.extend(b.notice.take());
             if let Some(dir) = b.ingest_req.take() {
                 ingests.push(dir);
             }
         }
         for dir in pins {
             self.pin_pack(&dir);
+        }
+        for dir in located {
+            self.add_location(dir, ctx);
+        }
+        if relocated {
+            self.locations = None;
+        }
+        if let Some(notice) = notices.pop() {
+            self.status = notice;
         }
         for dir in ingests {
             self.start_ingest(&dir);
@@ -2913,6 +3005,7 @@ impl Composer {
         self.show_browsers(ui.ctx());
         self.show_preview(ui.ctx());
         self.drain_media_feeds(ui.ctx());
+        self.tick_locations(ui.ctx());
         // The ingest pill: progress while Running (the board row's counter),
         // one-shot status + cache reset when the row resolves.
         let finished = match self.ingest_job.clone() {
@@ -3262,6 +3355,29 @@ impl Composer {
                 self.open_browser(start);
             }
             Some(Act::BrowseAt(dir)) => self.open_browser(dir),
+            Some(Act::RemoveLocation(id)) => {
+                let result = dpl_roots::remove_location(&id).and_then(|()| {
+                    dpl_index::Index::open_default().and_then(|ix| ix.forget_location(&id))
+                });
+                self.status = match result {
+                    Ok(rows) => format!(
+                        "Location removed — {rows} linked file(s) forgotten; nothing on the drive was touched."
+                    ),
+                    Err(error) => error,
+                };
+                self.locations = None;
+            }
+            Some(Act::LocateLocation(id, label)) => {
+                let start = std::env::var_os("USERPROFILE")
+                    .or_else(|| std::env::var_os("HOME"))
+                    .map(PathBuf::from)
+                    .unwrap_or_default();
+                self.open_browser(start);
+                if let Some(browser) = self.browsers.last() {
+                    lock(browser).locating = Some((id, label.clone()));
+                }
+                self.status = format!("Find '{label}', then tap \"This is '{label}'\".");
+            }
             Some(Act::Keep(show, ep)) => self.keep_render(&show, &ep),
             None => {}
         }
@@ -3771,6 +3887,80 @@ impl Composer {
                     if resp.clicked() {
                         *act = Some(Act::OpenComp(dir.clone()));
                     }
+                }
+                section_header(ui, "LOCATIONS — folders linked in place");
+                let placed = self.locations.as_deref().unwrap_or(&[]);
+                if placed.is_empty() {
+                    empty_line(
+                        ui,
+                        "none yet — open Browse…, go to a folder of videos or pictures, tap Add as a location",
+                    );
+                }
+                for p in placed {
+                    let id = p.location.id.as_str();
+                    let label = p.location.label.as_str();
+                    let online = p.at.is_some();
+                    let resp = cl::tip(
+                        row_line(
+                            ui,
+                            "proj-location",
+                            label,
+                            if online { "online" } else { "offline" },
+                            ("lc", id),
+                        ),
+                        if online {
+                            "Open this location in its own window — its files stay where they are"
+                        } else {
+                            "This location's drive isn't connected — plug it in and it comes back by itself, on any drive letter"
+                        },
+                    );
+                    ui.pilot_track(
+                        &resp,
+                        NodeMetadata::new(
+                            PilotId::new("composer.project.location").child(&PilotKey::new(id)),
+                            Role::Button,
+                            label,
+                        )
+                        .value(if online { "online" } else { "offline" }),
+                    );
+                    if let (true, Some(at)) = (resp.clicked(), &p.at) {
+                        *act = Some(Act::BrowseAt(at.clone()));
+                    }
+                    ui.horizontal(|ui| {
+                        if !online {
+                            let locate = cl::tip(
+                                ui.small_button("Locate…"),
+                                "Point this location at where its folder is now",
+                            );
+                            ui.pilot_track(
+                                &locate,
+                                NodeMetadata::new(
+                                    PilotId::new("composer.project.locate").child(&PilotKey::new(id)),
+                                    Role::Button,
+                                    "Locate…",
+                                ),
+                            );
+                            if locate.clicked() {
+                                *act = Some(Act::LocateLocation(id.to_owned(), label.to_owned()));
+                            }
+                        }
+                        let remove = cl::tip(
+                            ui.small_button("Remove"),
+                            "Forget this location — its folder and files are never touched",
+                        );
+                        ui.pilot_track(
+                            &remove,
+                            NodeMetadata::new(
+                                PilotId::new("composer.project.remove-location")
+                                    .child(&PilotKey::new(id)),
+                                Role::Button,
+                                "Remove",
+                            ),
+                        );
+                        if remove.clicked() {
+                            *act = Some(Act::RemoveLocation(id.to_owned()));
+                        }
+                    });
                 }
                 section_header(ui, "ELEMENTS — your packs");
                 let shelf = self.packs.as_deref().unwrap_or(&[]);
@@ -6356,6 +6546,40 @@ fn short_name(rel: &str) -> String {
 }
 
 /// A PROJECT section header line.
+/// Record `dir` as a location, index it in place, and make posters for its
+/// videos and pictures into the cache (ST5). Returns the line the status
+/// shows.
+pub fn link_location(dir: &Path) -> Result<(dpl_roots::Location, String), String> {
+    let location = dpl_roots::add_location(dir, "")?;
+    let index = dpl_index::Index::open_default()?;
+    let report = index.index_location(&location.id, dir)?;
+    let mut posters = 0;
+    for row in index.list(None, Some(&format!("linked:{}", location.id)))? {
+        let (Some(src), Some(out)) = (
+            dpl_roots::locate_asset(&row.rel_path),
+            dpl_roots::location_poster(&row.rel_path),
+        ) else {
+            continue;
+        };
+        if dpl_engine_media::is_fresh(&src, &out) {
+            continue;
+        }
+        let Some(parent) = out.parent() else {
+            continue;
+        };
+        let parent = dpl_roots::writable(parent)?;
+        std::fs::create_dir_all(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        if dpl_engine_media::write_poster(&src, &out).is_ok() {
+            posters += 1;
+        }
+    }
+    let line = format!(
+        "Linked '{}' in place: {} file(s), {posters} poster(s) cached — nothing copied.",
+        location.label, report.indexed
+    );
+    Ok((location, line))
+}
+
 fn section_header(ui: &mut egui::Ui, label: &str) {
     ui.add_space(cl::space::S2);
     ui.label(RichText::new(label).small().strong().color(cl::ink::MUTED));

@@ -513,11 +513,38 @@ fn main() -> eframe::Result {
     // The headless drills write into the library and open no window, so
     // without a library they say why and stop.
     if let Err(error) = &library {
-        let headless = ["--clone-seed", "--export-guide", "--brainstorm-drill"];
+        let headless = [
+            "--clone-seed",
+            "--export-guide",
+            "--brainstorm-drill",
+            "--add-location",
+        ];
         if args.iter().any(|arg| headless.contains(&arg.as_str())) {
             eprintln!("{error}");
             std::process::exit(2);
         }
+    }
+
+    // `--add-location <dir>` — the headless ST5 drill: link a folder in
+    // place as a location (record, index, cached posters), print its id,
+    // exit by verdict; no window boots.
+    if let Some(i) = args.iter().position(|a| a == "--add-location") {
+        let Some(dir) = args.get(i + 1).filter(|a| !a.starts_with("--")) else {
+            eprintln!("usage: --add-location <dir>");
+            std::process::exit(2);
+        };
+        std::process::exit(
+            match dpl_composer::link_location(std::path::Path::new(dir)) {
+                Ok((location, line)) => {
+                    println!("{} {line}", location.id);
+                    0
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    1
+                }
+            },
+        );
     }
 
     // `--clone-seed <seed-id> <show> <episode>` — the headless clone
@@ -708,6 +735,13 @@ fn main() -> eframe::Result {
 /// move into the library. A slide that cannot upgrade is left exactly as it
 /// was, and named. Runs once a library is open, before the app starts.
 fn open_library() {
+    // ST5: a location whose drive came back on another letter is found
+    // before anything paints it.
+    match dpl_roots::refresh_locations() {
+        Ok(0) => {}
+        Ok(back) => tracing::info!(back, "locations found on another drive letter"),
+        Err(error) => tracing::warn!(%error, "locations could not be looked for"),
+    }
     let (upgraded, failed) = dpl_doc::legacy::upgrade_content(&dpl_roots::content_root());
     for slide in &upgraded {
         tracing::info!(
