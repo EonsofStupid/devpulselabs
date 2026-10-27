@@ -271,8 +271,9 @@ ahead of ST2.
   `…\assets\`, `.userdata\` → `…\.userdata\` whole (the `.aidata`
   split stays in ST4). `cargo xtask move-library --dry-run <source>` prints
   the same plan and touches nothing.
-- **Move it:** copy, check each file's size and hash, write `library.json`
-  and `roots.toml`, open the app. The old folders are left untouched:
+- **Move it:** copy, check each file byte for byte (stronger than a hash,
+  and no new dependency), write `library.json` and `roots.toml`, open the
+  app. The old folders are left untouched:
   sources are never mutated, which for ST1b replaces §4.5's "label".
   Deleting them is the operator's call. On any failure the new copy is
   removed and nothing else has changed.
@@ -330,6 +331,34 @@ and its operator data remain untouched. No open storage PR was found.
    removing that discovery must not make tests read an operator library.
    Direct cargo-test invocations of those consumers use the same explicit
    scratch seams. Root-engine tests inject their own contexts.
+
+### 4d. ST1b execution queue — grounded 2026-10-26
+
+Read in THE checkout at `9ab0c8a` (#297): `crates/roots/src/{lib,setup,
+model,disk,handle}.rs`, `crates/app/src/storage_startup.rs`,
+`crates/xtask/src/main.rs` (`stage_roots`), `.eguipilotai.toml` and the
+runner's environment merge (`egui-pilot-ai-runner/src/lib.rs:286-295`:
+profile first, fixture wins). THE checkout's legacy rings hold 358 files
+(content 156.6 MB, assets 3.8 MB, .userdata 14.4 MB) and no links.
+
+1. **A build attunes to its project** (`dpl-roots`): `program_dir()` is the
+   exe's folder, or `<project>` by `project_of_build` (two fixed levels).
+2. **The move as engine code** (`dpl-roots`, `migrate.rs`; the ceiling stays
+   serde, serde_json, toml): `has_legacy`, `plan_move` (read-only) and
+   `move_in` (copy, byte-for-byte check, identity published last,
+   `roots.toml` last of all; any failure removes what it made). `setup.rs`
+   shares `create_layout`, `publish_identity` and `write_config` with it.
+3. **The first-launch screen:** "Keep my library in this project" for a
+   build; **Bring in my existing library…** as its own page — the library
+   name, one card saying From, Into and what moves, **Move it** under it,
+   **Change where…** for the fields, progress while it copies and checks.
+   `--bring-in` opens the page for proof shots.
+4. **`cargo xtask move-library --dry-run <source> [<library>]`**; without
+   `--dry-run` it refuses.
+5. **Drills stay off the library:** each `.eguipilotai.toml` profile has
+   `CONTENT_ROOT = "target/eguipilotai/default/content"`; a fixture's own
+   wins.
+6. **Docs:** ADR-014's amendment, this queue and §8, status, the journal.
 
 Wire fields are implementation details within the approved design:
 schema `v = 1`, `mode = "imported" | "linked"`, library identity and
@@ -398,6 +427,39 @@ captures were inspected at the two required sizes, and the release app's
 actual imported-library button created the layout and opened the main app
 in the same process. Details and boundaries:
 `docs/proof/portable-storage-st1/REPORT.md`. No operator data was migrated.
+
+**ST1b, 2026-10-27:**
+- **Unit:** `dpl-roots` 27 tests (7 new): a build attunes to its project and
+  test binaries, other folder names, a missing manifest and copied exes do
+  not; the plan counts each ring and writes nothing; a busy destination, a
+  library inside a ring, a ring inside the library and an empty source are
+  refused; bringing in copies exactly (every ring's files and bytes equal,
+  empty folders too), publishes last and leaves the source unchanged; beside
+  the program it is imported; an existing `roots.toml` is never replaced; a
+  copy that fails partway (a file held open without sharing, Windows) removes
+  what it made, with or without a pre-made empty folder.
+- **The page, headless** (`egui_kittest`, the app's tests): the card shows
+  the plan, Move it copies into the program's library, writes `roots.toml`
+  and opens, and the source is unchanged; a busy destination is named and
+  nothing moves.
+- **Real exe, scratch only:** a scratch project (`Cargo.toml` stub and the
+  exe in its `target/debug/`) and a scratch portable folder, each with
+  synthetic rings. Shots in `docs/proof/portable-storage-st1b/`: the first
+  screen and the Bring in page at 1440×900 and 1100×700, and the portable
+  folder's page ("with the program"). Move it is on screen at 1100×700. No
+  file was written by those runs.
+- **On THE checkout, read-only:** `cargo xtask move-library --dry-run
+  D:/projects/devpulselabs` lists content 63 files (156,600,172 bytes),
+  assets 13 (3,785,775), .userdata 282 (14,441,723): 358 files, 174.8 MB,
+  into `D:\projects\devpulselabs\library`. Without `--dry-run` it refuses.
+- **EguiPilotAI:** the first screen is not reachable — the pilot's runtime
+  attaches only in the main app, and its stdio reader can't be handed from
+  the startup window to the main one without losing a frame. ST2's
+  Disconnected screen lives in the same window, so ST2 needs one
+  process-wide transport across both. The `test-lab` fixture, which has no
+  `CONTENT_ROOT` of its own, now runs in `target/eguipilotai/default`.
+- **Owed to the operator:** the real move — open the rebuilt exe, tap Bring
+  in my existing library…, check the card, tap Move it.
 
 ## Questions for the operator
 

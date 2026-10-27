@@ -28,10 +28,13 @@ the Proxmox host.
 **Portable storage (ST).** ST1 landed (#297): the library has one owner
 (`dpl-roots`), `roots.toml` beside the program, a `library.json` marker, a
 first-launch choice and a startup error with Try again / Quit; no parent
-walk, no CWD. Because an unmarked folder is never adopted, the exe no longer
-reaches today's `content\`, `assets\` and `.userdata\` — so **ST1b moves
-them in next** (ruled 2026-10-26, R291: the person decides where; a build
-keeps its library inside its project). Plan:
+walk, no CWD. ST1b landed (#299, R291): a build keeps `roots.toml` and its
+library inside its project, and the first screen's **Bring in my existing
+library…** copies today's `content\`, `assets\` and `.userdata\` into a
+new library the person places — checked byte for byte, the old folders left
+exactly as they were. **The operator's own move is owed:** open the exe,
+tap Bring in my existing library…, read the card (358 files, 174.8 MB into
+`D:\projects\devpulselabs\library`), tap Move it. Plan:
 `docs/plans/portable-storage.md` §4.7.
 
 **Lessons, slides and components (R285, ruled 2026-10-21).** The schema
@@ -60,7 +63,7 @@ refreshed without touching content. The research is
 | LS4b | Lists and data: agenda, features, timeline, split, compare, stats, code and the infographics painted; list items selectable | |
 | LS4c | Interactive components as node trees and recipes, with touch sub-events | |
 | RL | Run a lesson (R287, ruled 2026-10-25, one pass): **Run** a lesson (the Lessons page, or from a card) or an episode (the episode wall, the Present hub) — locked, the pinned cards, the slides OS full screen and the presenter opening at once in its own window; touch for the big screen (tap anywhere for the next beat, the left edge back, swipe, long press for the navigator); the presenter drives (big Back / Next, tap a beat to jump, Swap screens); window places kept per machine. **On tap** (the card sheet's tab, and the Lessons editor): each line at the start or on a tap, the teleprompter's words per tap written to the card's `script.mdx` as you type, a preview at any tap; each lesson card says "1 tap · script". `--run-lesson <id>` | **done** (#296) |
-| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md`. ST1 **done** (#297); ST1b (today's folders move in, R291) next, then ST2 → ST5 → ST3 → ST4 |
+| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md`. ST1 **done** (#297); ST1b **done** (#299: a build's library in its project; Bring in my existing library…, R291); then ST2 → ST5 → ST3 → ST4 |
 | AH | AgentHub (R290, ruled 2026-10-26): the app finds the AIs installed on the machine and links to them; a hub showing each one and what it is working on; each AI arrives briefed, warmed up and resumable; Clyffy brings up the task's UI to work on it with other AIs and other people; Council | after ST, before LS4b — its own program plan, for approval |
 | EX | Export a player (R288, ruled 2026-10-24): one folder — the player, the lesson, its videos copied in — that opens straight into Run mode; after LS4c | ruled direction — `docs/plans/export-player.md` |
 | LS4d | Your own templates ("save it as my template") | |
@@ -221,12 +224,13 @@ release) are still to come.
 ## Next, in order
 
 1. **Portable, linked storage** (`docs/plans/portable-storage.md`): ST1
-   done (#297). **ST1b** next — today's folders move in, on the operator's
-   own tap, to where the person chooses (§4.7) — then ST2 → ST5 → ST3 →
-   ST4.
-2. **Owed on the operator's own setup:** Run a lesson (#296) on the 75″
-   with the script on the laptop, Swap screens, touch to advance — once
-   ST1b brings their lessons back into the exe.
+   (#297) and ST1b (#299) done; then ST2 → ST5 → ST3 → ST4. ST2's
+   Disconnected screen shares the first screen's window, which EguiPilotAI
+   can't reach yet: one process-wide pilot transport across the startup and
+   main windows comes first (§8).
+2. **Owed on the operator's own setup:** the move (open the exe → Bring in
+   my existing library… → Move it); then Run a lesson (#296) on the 75″
+   with the script on the laptop, Swap screens, touch to advance.
 3. **AgentHub** (R290), after ST: its own program plan, for approval. Its
    plan sets how it meets chat's queue (item 5); the Council still comes
    after Codex and Claude Code each work on their own (R33).

@@ -1820,6 +1820,7 @@ dependencies = [
  "egui-pilot-ai-transport",
  "egui-wgpu",
  "egui_extras",
+ "egui_kittest",
  "image",
  "serde",
  "serde_json",

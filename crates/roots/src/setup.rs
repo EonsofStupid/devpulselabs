@@ -16,7 +16,7 @@ pub(crate) struct Account {
     pub created: u64,
 }
 
-fn timestamp() -> Result<u64, String> {
+pub(crate) fn timestamp() -> Result<u64, String> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -32,7 +32,7 @@ fn new_id() -> LibraryId {
         .expect("generated identifier is valid")
 }
 
-fn config_available(program: &Path) -> Result<(), String> {
+pub(crate) fn config_available(program: &Path) -> Result<(), String> {
     disk::no_symlinks(program)?;
     if !program.is_absolute() || !program.is_dir() {
         return Err("Choose an existing absolute program folder".into());
@@ -45,7 +45,7 @@ fn config_available(program: &Path) -> Result<(), String> {
 }
 
 /// Explicit first-launch selection only. Existing content is not adopted:
-/// a populated unmarked folder belongs to ST4's reviewed migration.
+/// a populated unmarked folder is brought in only by the shown move (ST1b).
 pub fn setup_at(
     program: &Path,
     selected: &Path,
@@ -66,62 +66,85 @@ pub fn setup_at(
             match std::fs::read_dir(&library) {
                 Ok(mut entries) => {
                     if entries.next().is_some() {
-                        return Err("This folder already contains files but has no library.json. Choose an empty folder or an existing DevPULSE library; existing data is not moved during setup".into());
+                        return Err("This folder already contains files but has no library.json. Choose an empty folder or an existing DevPULSE library. To copy today's folders into a new library, use Bring in my existing library".into());
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(format!("{}: {e}", library.display())),
             }
-            let marker = Marker {
-                v: SCHEMA_VERSION,
-                id: new_id(),
-                label: label.to_owned(),
-                created: timestamp()?,
-            };
-            let account = Account {
-                v: SCHEMA_VERSION,
-                id: AccountId::default(),
-                name: "Me".into(),
-                created: marker.created,
-            };
-            let layout = Layout::for_library(&library, &account.id);
-            for path in [
-                &layout.content,
-                &layout.assets,
-                &layout.userdata,
-                &layout.aidata,
-                &layout.cache,
-                &layout.temp,
-            ] {
-                disk::no_symlinks(path)?;
-                std::fs::create_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))?;
-            }
-            let account_file = library
-                .join("accounts")
-                .join(account.id.as_str())
-                .join("account.json");
-            disk::create_json(&account_file, &account)?;
-            // Publish identity only after a valid complete account layout exists.
-            disk::create_json(&library.join(MARKER_FILE), &marker)?;
-            marker
+            create_layout(&Layout::for_library(&library, &AccountId::default()))?;
+            publish_identity(&library, label)?
         }
         Err(e) => return Err(e.to_string()),
     };
     let layout = Layout::for_library(&library, &AccountId::default());
     handle::validate_layout(&layout, &AccountId::default())?;
-    let config = Config {
-        v: SCHEMA_VERSION,
-        mode: mode.clone(),
-        id: marker.id,
-        label: marker.label,
-        account: AccountId::default(),
-        last_path: (mode == Mode::Linked).then_some(library),
-    };
-    disk::create_config(program, &config)?;
+    write_config(program, &library, mode, marker)?;
     Ok(layout)
 }
 
-fn reject_config_location(program: &Path, library: &Path) -> Result<(), String> {
+/// Every ring folder of a new library, before anything is published.
+pub(crate) fn create_layout(layout: &Layout) -> Result<(), String> {
+    for path in [
+        &layout.content,
+        &layout.assets,
+        &layout.userdata,
+        &layout.aidata,
+        &layout.cache,
+        &layout.temp,
+    ] {
+        disk::no_symlinks(path)?;
+        std::fs::create_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// Publish identity only after a valid complete account layout exists: the
+/// account first, the marker last.
+pub(crate) fn publish_identity(library: &Path, label: &str) -> Result<Marker, String> {
+    let marker = Marker {
+        v: SCHEMA_VERSION,
+        id: new_id(),
+        label: label.to_owned(),
+        created: timestamp()?,
+    };
+    let account = Account {
+        v: SCHEMA_VERSION,
+        id: AccountId::default(),
+        name: "Me".into(),
+        created: marker.created,
+    };
+    let account_file = library
+        .join("accounts")
+        .join(account.id.as_str())
+        .join("account.json");
+    disk::create_json(&account_file, &account)?;
+    disk::create_json(&library.join(MARKER_FILE), &marker)?;
+    Ok(marker)
+}
+
+/// The program's `roots.toml` for a published library; never replaces one.
+pub(crate) fn write_config(
+    program: &Path,
+    library: &Path,
+    mode: Mode,
+    marker: Marker,
+) -> Result<(), String> {
+    let linked = mode == Mode::Linked;
+    disk::create_config(
+        program,
+        &Config {
+            v: SCHEMA_VERSION,
+            mode,
+            id: marker.id,
+            label: marker.label,
+            account: AccountId::default(),
+            last_path: linked.then(|| library.to_path_buf()),
+        },
+    )
+}
+
+pub(crate) fn reject_config_location(program: &Path, library: &Path) -> Result<(), String> {
     let program = std::fs::canonicalize(program).map_err(|e| e.to_string())?;
     for ancestor in library.ancestors() {
         let Some(name) = ancestor.file_name() else {
@@ -154,20 +177,14 @@ pub fn stage_roots(program: &Path, library: &Path) -> Result<(), String> {
     let marker = disk::read_marker(&library)?;
     let account = AccountId::default();
     handle::validate_layout(&Layout::for_library(&library, &account), &account)?;
-    let mode = if library == program.join("library") {
+    write_config(program, &library, mode_for(program, &library), marker)
+}
+
+/// Imported when the library is the program's own `library\`, else linked.
+pub(crate) fn mode_for(program: &Path, library: &Path) -> Mode {
+    if library == program.join("library") {
         Mode::Imported
     } else {
         Mode::Linked
-    };
-    disk::create_config(
-        program,
-        &Config {
-            v: SCHEMA_VERSION,
-            mode: mode.clone(),
-            id: marker.id,
-            label: marker.label,
-            account,
-            last_path: (mode == Mode::Linked).then_some(library),
-        },
-    )
+    }
 }

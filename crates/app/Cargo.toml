@@ -81,5 +81,10 @@ name = "chat-native-proof"
 path = "src/bin/chat_native_proof.rs"
 required-features = ["eguipilotai-devtools"]
 
+[dev-dependencies]
+# The startup page's headless test — egui's official harness, version-locked
+# to the workspace egui.
+egui_kittest.workspace = true
+
 [lints]
 workspace = true

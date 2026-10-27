@@ -56,7 +56,7 @@ pub(crate) fn no_symlinks(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn is_link(meta: &fs::Metadata) -> bool {
+pub(crate) fn is_link(meta: &fs::Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
