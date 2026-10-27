@@ -692,9 +692,9 @@ fn main() -> eframe::Result {
     if RESTART.load(std::sync::atomic::Ordering::Acquire) {
         // The same program and arguments, started as this one ends.
         let restarted = std::env::current_exe().and_then(|exe| {
-            std::process::Command::new(exe)
-                .args(std::env::args_os().skip(1))
-                .spawn()
+            let mut command = std::process::Command::new(exe);
+            command.args(std::env::args_os().skip(1));
+            dpl_proc::quiet(&mut command).spawn()
         });
         if let Err(error) = restarted {
             tracing::error!(%error, "DevPULSE could not restart; open it again");
