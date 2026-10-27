@@ -10,6 +10,16 @@
   covers drive → drive too, copy → verify → label, never delete);
 - Q6 "Link first, accounts last" — ST1 → ST2 → ST5 → ST3 → ST4.
 
+**Amended 2026-10-26, after ST1 (#297):** with no parent walk and no
+adoption of unmarked folders, the operator's exe no longer reached today's
+folders. The operator ruled "Move them next", and, on where (R291):
+
+> stored inside the project properly what part of portable? you let the
+> person decide
+
+then "Approve" for ST1b (§4.7). The order is now ST1 (done, #297) →
+**ST1b** → ST2 → ST5 → ST3 → ST4 (accounts and the `.aidata` split).
+
 **§5b signed off, all four:** `roots.toml` beside the exe; the marker check
 on each drive while disconnected; `library.json` written into a linked
 library; and removing the parent walk, the CWD lookup and the OS temp use.
@@ -217,6 +227,9 @@ holds no operator data. Seeds stay embedded material (DQ7).
 
 ### 4.5 Today's folders move once (ST4)
 
+**Moved to ST1b (§4.7), ruled 2026-10-26.** ST4 keeps the split of
+`.userdata\` into `.userdata\` and `.aidata\`.
+
 - **A read-only dry run first** (`cargo xtask move-library --dry-run`, as
   in LS3b2). It lists every file and where it lands:
   `content\` → `accounts\me\content\`, and `.userdata\` splits into
@@ -235,6 +248,36 @@ holds no operator data. Seeds stay embedded material (DQ7).
   removes the record.
 - Locations replace pinned pack sources and Browse libraries (two lists
   become one).
+
+### 4.7 Your library moves in (ST1b, ruled 2026-10-26)
+
+After ST1 the app no longer finds today's folders, so the move comes next,
+ahead of ST2.
+- **The person decides (R291).** The first-launch screen gains a third
+  choice, **Bring in my existing library…**:
+  - the source is the folder it found (for a build, the project's
+    `content\`, `assets\` and `.userdata\`) or a path the person pastes;
+  - the destination is the person's pick: **Inside the project** (the
+    default for a build), **With the program** (a release folder), or
+    **A drive or folder…**.
+- **A build attunes to its project.** When the exe sits at
+  `<project>\target\{release,debug}\` and `<project>\Cargo.toml` exists,
+  the program folder is `<project>`: `roots.toml` and `library\` live
+  there (both gitignored since #297), so `cargo clean` never reaches them.
+  Exactly two fixed levels are checked; nothing walks. A release folder is
+  unchanged.
+- **The plan first.** Every top-level item, its size and where it lands:
+  `content\` → `library\accounts\me\content\`, `assets\` →
+  `…\assets\`, `.userdata\` → `…\.userdata\` whole (the `.aidata`
+  split stays in ST4). `cargo xtask move-library --dry-run <source>` prints
+  the same plan and touches nothing.
+- **Move it:** copy, check each file's size and hash, write `library.json`
+  and `roots.toml`, open the app. The old folders are left untouched:
+  sources are never mutated, which for ST1b replaces §4.5's "label".
+  Deleting them is the operator's call. On any failure the new copy is
+  removed and nothing else has changed.
+- **Drills stay off the library:** the twelve EguiPilotAI fixtures with no
+  scratch `CONTENT_ROOT` get one in this pass.
 
 ## 5. Wiring
 
@@ -313,6 +356,7 @@ operator data is never overwritten during initialization or staging.
 | Write `library.json` into a linked library (on an external drive) | the drive's identity, without `-sys` deps | Confirm |
 | A linked library outside the program folder | the feature itself | Confirm |
 | Remove the parent walk and CWD lookups (inventory #29), and OS temp (#31) | the portable folder never reaches outside itself | Fix (ST1) |
+| A build's program folder is its project: an exe at `<project>\target\<profile>\` with `<project>\Cargo.toml` uses `<project>` for `roots.toml` and `library\` | the library stored inside the project (R291) | **Ruled** 2026-10-26 (ST1b) |
 
 ## 6. Proof
 

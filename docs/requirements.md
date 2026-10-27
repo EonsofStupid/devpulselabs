@@ -1144,6 +1144,14 @@ Source: the operator's note on the portable-storage sign-off, Claude Code sessio
 
 Note: The design rule for ST: the program folder plus its library carry everything they need (no install, registry or machine-wide state). On each machine it adapts — its library on whatever drive letter it got, that machine's screens, the depot's tools — without writing anything machine-specific into the library.
 
+### R291 · 2026-10-26
+
+> stored inside the project properly what part of portable? you let the person decide
+
+Source: the operator's answer in the Claude Code session of 2026-10-26, asked where their real library should live once ST1 (#297) stopped finding today's folders (first recorded here). **Operator rulings the same day:** "Move them next" (today's folders move right after ST1, before ST2) and "Approve" (ST1b, `docs/plans/portable-storage.md` §4.7).
+
+Note: The design that follows: the person chooses where a library lives, never the app. A build attunes to its project: an exe in `<project>\target\<profile>\` treats the project as its program folder, so `roots.toml` and `library\` sit in the project, out of reach of `cargo clean`. For THE checkout the default is `D:\projects\devpulselabs\library`.
+
 ### R178 · 2026-07-23
 
 > record demonstration using eguiPilot
@@ -1612,6 +1620,25 @@ RM1 landed the library as data:
 - 11 built-in roles and 5 rooms, each citing its research sources;
 - the operator's own role and room files, loaded from `.userdata/chat/library/`;
 - a read-only "Rooms & roles" view in the chat window.
+
+### R290 · 2026-10-26
+
+> so look, clyffy, our a2ui, all of that where we have clyffy specialized to also bring up UI that shows the task he has to work with other users.  DevPULSE should be smart so when you run it on the system it checks for installed AI and then links properly to them to work with them and have council, and prepared state, agenthub,
+
+Source: the operator's message in the Claude Code session of 2026-10-26 (first recorded here; the message ends there). **Operator rulings the same day:**
+- "A hub for my AIs": **AgentHub** is a place in the app that lists every AI found on this machine — installed or not, signed in, and what each is working on right now.
+- "All of these": **prepared state** means each AI arrives briefed (what is open — the show, lesson or route — and what has been decided), is warmed up at startup so the first message just works, and its work can pause and resume, on this machine or another.
+- "Both": the **other users** Clyffy works with on a task are other AIs and other people.
+- "Storage first, then this": its own program, after portable storage (ST) and before LS4b.
+
+Note: What exists (read 2026-10-26):
+- presence probes for five AIs (`crates/chat/providers/{claude,codex,cursor,gemini,grok}`); Codex and Grok run; Claude Code has no runtime yet (R283);
+- the Clyffy house session, pinned and inert until sends land (BND1; R16a, R16b);
+- Council as data, the first room that will run (RM1, R284); it waits on Codex and Claude Code each working on their own (R33);
+- A2UI as vocabulary only; the coach's spotlight is the one surface built (`docs/plans/operator-coach-a2ui.md`);
+- D0.2, the startup dependency check, unbuilt.
+
+Working with other people means other machines and a network. That is new reach: it goes to `docs/plans/external-reach-inventory.md` for sign-off when the program is planned, and ST's non-goal (no network) stands until then.
 
 ## 7. Coach
 
