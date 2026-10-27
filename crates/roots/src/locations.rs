@@ -354,8 +354,7 @@ fn relative(path: &Path, base: &Path) -> Option<PathBuf> {
     {
         // Outside Windows a removable drive is a mount point: only a path
         // under the same mount as the library travels with it.
-        let mount = |parts: &[Component]| parts.iter().take(4).cloned().collect::<Vec<_>>();
-        if mount(&path_parts) != mount(&base_parts) {
+        if path_parts.iter().take(4).ne(base_parts.iter().take(4)) {
             return None;
         }
     }
