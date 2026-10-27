@@ -621,6 +621,17 @@ fn activity_provider_line(ev: &dpl_fabric::ProviderEvent) -> String {
     }
 }
 
+/// The library line under the top bar (ST2b).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LibraryNotice {
+    /// Pulled out mid-session: saves wait in memory until it is back.
+    Unplugged { label: String },
+    /// Back somewhere new: the work is saved there, and the open screens still
+    /// point at the old place, so the app offers Restart now (ruled
+    /// 2026-10-27).
+    Moved { label: String, place: String },
+}
+
 pub struct Shell {
     hubs: Vec<Box<dyn Hub>>,
     route: Route,
@@ -657,6 +668,10 @@ pub struct Shell {
     /// Full-bleed: all chrome hidden, content owns the viewport (old `\` /
     /// Maximize2 behavior). Esc or the floating exit chip leaves.
     full_bleed: bool,
+    /// The library banner, set by the app each frame (ST2b).
+    library_notice: Option<LibraryNotice>,
+    /// Restart now was tapped on the banner; the app takes it.
+    restart: bool,
     /// The inspector overlay (PANEL zone): OPTIONAL — closed by default so
     /// the content well keeps the full width; open, it floats OVER the
     /// well's right edge (docs/shell.md, "rightside overlay the content").
@@ -743,6 +758,8 @@ impl Shell {
             nav_count: 0,
             signal_count: 0,
             full_bleed: false,
+            library_notice: None,
+            restart: false,
             inspector_open: false,
             build: "",
             tooltip_mood: dpl_backdrop::random_mood_index(),
@@ -981,6 +998,7 @@ impl Shell {
 
         let tone = self.active_tone();
         let (top, go_fullbleed, toggle_inspector) = self.top_bar(ui, &fl);
+        self.library_banner(ui, &fl);
         if go_fullbleed {
             self.full_bleed = true;
         }
@@ -1088,6 +1106,86 @@ impl Shell {
     // ── TOP: identity + breadcrumb; backdrop tiles + full-bleed right ────
     /// Returns the zone rect, whether the full-bleed toggle was clicked,
     /// and whether the inspector-overlay toggle was clicked.
+    /// What the library banner says, or None to hide it (ST2b).
+    pub fn set_library_notice(&mut self, notice: Option<LibraryNotice>) {
+        self.library_notice = notice;
+    }
+
+    /// The library came back: every hub saves what it kept (ST2b).
+    pub fn library_back(&mut self) {
+        for hub in &mut self.hubs {
+            hub.library_back();
+        }
+    }
+
+    /// True once, after Restart now is tapped on the library banner.
+    pub fn take_restart(&mut self) -> bool {
+        std::mem::take(&mut self.restart)
+    }
+
+    /// The library banner under the top bar: amber, plain words, and Restart
+    /// now when the library came back somewhere new.
+    fn library_banner(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) {
+        let Some(notice) = self.library_notice.clone() else {
+            return;
+        };
+        let restart = &mut self.restart;
+        egui::Panel::top("dpl_library")
+            .show_separator_line(false)
+            .frame(
+                egui::Frame::new()
+                    .fill(Tone::Amber.tint())
+                    .inner_margin(egui::Margin::symmetric(14, 8)),
+            )
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    let text = match &notice {
+                        LibraryNotice::Unplugged { label } => format!(
+                            "Your library '{label}' was unplugged. Plug it back in to save — your open work is kept."
+                        ),
+                        LibraryNotice::Moved { label, place } => format!(
+                            "Your library '{label}' is back at {place}, and your work is saved there. Restart to keep working from there."
+                        ),
+                    };
+                    let line = ui.label(
+                        RichText::new(&text)
+                            .color(cl::ink::STRONG)
+                            .size(fl.fs_body()),
+                    );
+                    ui.pilot_track(
+                        &line,
+                        NodeMetadata::new(
+                            PilotId::new("shell.library").child(&PilotKey::new("notice")),
+                            Role::Alert,
+                            &text,
+                        ),
+                    );
+                    if matches!(notice, LibraryNotice::Moved { .. }) {
+                        let button = ui.add(
+                            egui::Button::new("Restart now")
+                                .min_size(egui::vec2(0.0, fl.tap_min())),
+                        );
+                        ui.pilot_track(
+                            &button,
+                            NodeMetadata::new(
+                                PilotId::new("shell.library").child(&PilotKey::new("restart")),
+                                Role::Button,
+                                "Restart now",
+                            ),
+                        );
+                        if cl::tip(
+                            button,
+                            "Close DevPULSE and open it again on your library's new place. Your work is already saved.",
+                        )
+                        .clicked()
+                        {
+                            *restart = true;
+                        }
+                    }
+                });
+            });
+    }
+
     fn top_bar(&mut self, ui: &mut egui::Ui, fl: &cl::Fluid) -> (Rect, bool, bool) {
         let (hub_label, sub_label, tone) = self.breadcrumb();
         let inspector_open = self.inspector_open;

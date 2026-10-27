@@ -44,14 +44,17 @@ const FLUSH_IDLE: Duration = Duration::from_millis(500);
 /// caps a single flush's size).
 const SEGMENT_MAX_ROWS: usize = 10_000;
 
+/// Where a write may go: the path to use, or why not.
+pub type WriteGuard = fn(&Path) -> Result<PathBuf, String>;
+
 /// Where a segment may go, installed once by the app as `dpl_roots::writable`
 /// (ST2b): while the library is unplugged nothing is written and the rows
 /// wait, up to one segment per domain. Unset, every folder is written as
 /// given.
-static WRITE_GUARD: OnceLock<fn(&Path) -> Result<PathBuf, String>> = OnceLock::new();
+static WRITE_GUARD: OnceLock<WriteGuard> = OnceLock::new();
 
 /// Install the write guard; the first call wins.
-pub fn set_write_guard(guard: fn(&Path) -> Result<PathBuf, String>) {
+pub fn set_write_guard(guard: WriteGuard) {
     let _ = WRITE_GUARD.set(guard);
 }
 

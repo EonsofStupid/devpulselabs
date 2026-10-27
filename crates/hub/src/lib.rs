@@ -73,6 +73,9 @@ pub trait Hub {
     /// Render this hub's surface for the given route. `route.hub` is
     /// guaranteed to equal `spec().id` by the shell's dispatch.
     fn ui(&mut self, ui: &mut egui::Ui, route: Route);
+    /// The library came back after being unplugged (ST2b): save again what
+    /// a refused save kept in memory. Most hubs keep nothing.
+    fn library_back(&mut self) {}
 }
 
 /// P0-ONLY shared surface. Every hub renders through this until its real

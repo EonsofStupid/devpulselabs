@@ -14,7 +14,7 @@ mod setup;
 
 pub use discovery::candidates_on_roots;
 pub use disk::read_marker;
-pub use guard::{generation, io_failed, is_unplugged, library, writable};
+pub use guard::{generation, io_failed, is_unplugged, label, library, writable};
 pub use handle::Roots;
 pub use migrate::{has_legacy, plan_move, MoveItem, MovePlan, MoveProgress, LEGACY_RINGS};
 pub use model::{

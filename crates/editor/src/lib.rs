@@ -811,6 +811,14 @@ impl Editor {
         self.saved = dpl_doc::save(&self.dir, &self.slide).map_err(|e| e.to_string());
     }
 
+    /// Save again if the last save was refused (ST2b: the library was
+    /// unplugged and the card waited in memory).
+    pub fn save_again(&mut self) {
+        if self.saved.is_err() {
+            self.save();
+        }
+    }
+
     /// Undo restores the earlier CONTENT as a new revision: history only
     /// moves forward, so a lesson pinned to a later rev is never handed an
     /// older document under the same number.

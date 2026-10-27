@@ -118,6 +118,8 @@ struct ShelfCard {
 struct LessonView {
     dir: PathBuf,
     lesson: Lesson,
+    /// The last save was refused; the lesson waits in memory (ST2b).
+    unsaved: bool,
     /// The name field's text.
     title: String,
     cards: Vec<Card>,
@@ -156,6 +158,7 @@ impl LessonView {
         let lesson = lesson::load_lesson(dir).map_err(|e| e.to_string())?;
         let mut view = Self {
             dir: dir.to_path_buf(),
+            unsaved: false,
             title: lesson.title.clone(),
             lesson,
             cards: Vec::new(),
@@ -209,6 +212,7 @@ impl LessonView {
     /// wrong, if anything.
     fn commit(&mut self, root: &Path) -> Option<String> {
         let saved = lesson::save_lesson(&self.dir, &self.lesson).err();
+        self.unsaved = saved.is_some();
         self.refresh(root);
         saved.map(|e| format!("Could not save the lesson: {e}"))
     }
@@ -353,6 +357,20 @@ fn tile_width(ui: &egui::Ui, most: f32) -> f32 {
 }
 
 impl Lessons {
+    /// The library is back (ST2b): the open lesson and the card being
+    /// changed in it save again if their last save was refused.
+    pub(crate) fn save_again(&mut self, root: &Path) {
+        let Some(view) = self.view.as_mut() else {
+            return;
+        };
+        if let Some((_, editor)) = view.editing.as_mut() {
+            editor.save_again();
+        }
+        if view.unsaved {
+            self.status = view.commit(root).unwrap_or_default();
+        }
+    }
+
     pub(crate) fn ui(&mut self, ui: &mut egui::Ui, fabric: &Option<dpl_fabric::Fabric>) {
         let root = dpl_roots::content_root();
         self.ui_in(ui, &root);

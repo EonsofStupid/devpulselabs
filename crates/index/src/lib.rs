@@ -108,10 +108,7 @@ impl Index {
         // unplugged or another drive holds its place.
         let userdata = dpl_roots::writable(&dpl_roots::userdata_root())?;
         let root = dpl_roots::content_root();
-        Self::open_adopting(
-            &userdata.join("index.db"),
-            &root.join("artifacts.db"),
-        )
+        Self::open_adopting(&userdata.join("index.db"), &root.join("artifacts.db"))
     }
 
     /// ADR-014 condition 6 — the ADDITIVE migration: when `path` doesn't

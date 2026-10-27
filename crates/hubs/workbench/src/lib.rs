@@ -439,6 +439,11 @@ impl Hub for WorkbenchHub {
         &SPEC
     }
 
+    fn library_back(&mut self) {
+        self.author.save_again();
+        self.lessons.save_again(&dpl_roots::content_root());
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, route: Route) {
         if route.sub == LIBRARY {
             self.library_surface(ui);

@@ -2945,6 +2945,16 @@ impl AuthorSurface {
     }
 }
 
+impl AuthorSurface {
+    /// The library is back (ST2b): the open card saves again if its last
+    /// save was refused.
+    pub(crate) fn save_again(&mut self) {
+        if let Some(card) = self.editing.as_mut() {
+            card.editor.save_again();
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod background_tests {
     use super::*;

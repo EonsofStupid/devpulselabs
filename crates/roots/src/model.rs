@@ -206,8 +206,13 @@ pub enum Publish {
 pub enum State {
     Unconfigured,
     Connected(Layout),
-    Disconnected { reason: String },
+    Disconnected {
+        reason: String,
+    },
     /// Open this session, then unplugged (ST2b). Readers keep the folders
     /// they had and find nothing there; writers are refused until it is back.
-    Unplugged { last: Layout, reason: String },
+    Unplugged {
+        last: Layout,
+        reason: String,
+    },
 }

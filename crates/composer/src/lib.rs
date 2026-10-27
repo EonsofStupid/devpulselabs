@@ -1600,7 +1600,7 @@ impl Composer {
                 self.edited_at = None;
             }
             Err(e) => {
-                self.status = format!("Autosave failed: {e:?}");
+                self.status = format!("Autosave failed: {e}");
                 self.edited_at = Some(Instant::now());
             }
         }

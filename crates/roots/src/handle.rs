@@ -81,9 +81,7 @@ impl Roots {
         match &self.state {
             State::Connected(layout) => Ok(layout.clone()),
             State::Unconfigured => Err("Choose where to keep your library".into()),
-            State::Disconnected { reason } | State::Unplugged { reason, .. } => {
-                Err(reason.clone())
-            }
+            State::Disconnected { reason } | State::Unplugged { reason, .. } => Err(reason.clone()),
         }
     }
 

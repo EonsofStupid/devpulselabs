@@ -832,7 +832,9 @@ static GLOBAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// is not.
 #[test]
 fn a_reconnect_installs_only_a_probe_no_choice_has_overtaken() {
-    let _turn = GLOBAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _turn = GLOBAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let base = scratch();
     let exe = program(&base, "program");
     let drive = imported(&program(&base, "drive")).library;
@@ -864,7 +866,9 @@ fn a_reconnect_installs_only_a_probe_no_choice_has_overtaken() {
 /// letter, a path cached before lands in the library there.
 #[test]
 fn an_unplugged_library_refuses_writes_and_comes_back_on_a_new_letter() {
-    let _turn = GLOBAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _turn = GLOBAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let base = scratch();
     let exe = program(&base, "program");
     let first = imported(&program(&base, "drive-a")).library;

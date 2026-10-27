@@ -484,14 +484,16 @@ pub fn load(dir: &Path) -> Result<Composition, CompError> {
     Ok(comp)
 }
 
+/// Where a write may go: the path to use, or why not.
+pub type WriteGuard = fn(&Path) -> Result<PathBuf, String>;
+
 /// Where a write may go, installed once by the app as `dpl_roots::writable`
 /// (ST2b), like `dpl_doc::set_write_guard`. Unset, every folder is written
 /// as given.
-static WRITE_GUARD: std::sync::OnceLock<fn(&Path) -> Result<PathBuf, String>> =
-    std::sync::OnceLock::new();
+static WRITE_GUARD: std::sync::OnceLock<WriteGuard> = std::sync::OnceLock::new();
 
 /// Install the write guard; the first call wins.
-pub fn set_write_guard(guard: fn(&Path) -> Result<PathBuf, String>) {
+pub fn set_write_guard(guard: WriteGuard) {
     let _ = WRITE_GUARD.set(guard);
 }
 

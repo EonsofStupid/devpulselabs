@@ -55,6 +55,11 @@ pub fn is_unplugged() -> bool {
         .unwrap_or(false)
 }
 
+/// The configured library's name, for the app's banner.
+pub fn label() -> Option<String> {
+    Some(global().read().ok()?.as_ref()?.config()?.label.clone())
+}
+
 /// The open library's folder, for the app to compare after a reconnect.
 pub fn library() -> Option<PathBuf> {
     global()
@@ -169,10 +174,7 @@ fn unplug(library: &Path, label: &str) {
     }
     if let Ok(mut roots) = global().write() {
         if let Some(roots) = roots.as_mut() {
-            if roots
-                .layout()
-                .is_ok_and(|layout| layout.library == library)
-            {
+            if roots.layout().is_ok_and(|layout| layout.library == library) {
                 roots.unplug(format!(
                     "Your library '{label}' was unplugged from {}.",
                     library.display()

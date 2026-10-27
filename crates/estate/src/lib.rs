@@ -20,8 +20,8 @@
 use fjall::{Config, Database, Keyspace, KeyspaceCreateOptions, PersistMode};
 use moka::sync::Cache;
 use serde::{de::DeserializeOwned, Serialize};
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 /// `Tree::State` key — last shell route as `"hub/sub"` (registry-validated).
 pub const KEY_SHELL_ROUTE: &str = "shell/route";
@@ -55,26 +55,19 @@ impl Tree {
     }
 }
 
-/// One project's estate: a Fjall keyspace of partitions + a Moka read cache.
-/// Clone-cheap is not offered — an estate is opened once and shared by `&`.
-pub struct Estate {
+/// The open Fjall database and its trees, swapped whole by [`Estate::reopen`].
+struct Stores {
     db: Database,
     docs: Keyspace,
     state: Keyspace,
     manifest: Keyspace,
     agents: Keyspace,
-    /// Read cache keyed by "<tree>/<key>" — bytes shared as `Arc<[u8]>`.
-    cache: Cache<String, Arc<[u8]>>,
-    /// Set when [`Estate::open`] found a store it could not read and stepped
-    /// it aside. The caller LOGS this — the ceiling (fjall, moka, serde,
-    /// serde_json) admits no logger, and a reset that only whispers into a
-    /// `warn!` nobody reads is how durable state silently stays off forever.
-    stepped_aside: Option<std::path::PathBuf>,
 }
 
-impl Estate {
-    /// Open (creating if absent) the estate rooted at `dir`.
-    pub fn open(dir: &Path) -> Result<Self, String> {
+impl Stores {
+    /// Open (creating if absent) at `dir`; also returns where an unreadable
+    /// older store was stepped aside, if one was.
+    fn open(dir: &Path) -> Result<(Self, Option<PathBuf>), String> {
         // fjall 3 uses a new on-disk format and REFUSES a v2 store outright
         // (`InvalidVersion`) rather than migrating it. That is the right
         // default for a database holding authored work — but this estate does
@@ -89,7 +82,7 @@ impl Estate {
         let db = match Database::open(Config::new(dir)) {
             Ok(db) => db,
             Err(fjall::Error::InvalidVersion(found)) if dir.exists() => {
-                let aside = Self::aside_path(dir);
+                let aside = Estate::aside_path(dir);
                 std::fs::rename(dir, &aside).map_err(|e| {
                     format!(
                         "estate {}: unreadable format ({found:?}) and stepping it aside to {} failed: {e}",
@@ -114,34 +107,16 @@ impl Estate {
             parts.push(p);
         }
         let mut it = parts.into_iter();
-        Ok(Self {
-            docs: it.next().unwrap(),
-            state: it.next().unwrap(),
-            manifest: it.next().unwrap(),
-            agents: it.next().unwrap(),
-            cache: Cache::new(8192),
-            db,
+        Ok((
+            Self {
+                docs: it.next().unwrap(),
+                state: it.next().unwrap(),
+                manifest: it.next().unwrap(),
+                agents: it.next().unwrap(),
+                db,
+            },
             stepped_aside,
-        })
-    }
-
-    /// The store this estate could not read, moved out of the way at open —
-    /// `None` on every normal launch. The caller logs it; nothing reads it
-    /// back. No-clobber, so a second stale store never overwrites the first.
-    pub fn stepped_aside(&self) -> Option<&Path> {
-        self.stepped_aside.as_deref()
-    }
-
-    /// `<dir>.stale`, then `.stale-2`, `.stale-3`… — never an existing path.
-    fn aside_path(dir: &Path) -> std::path::PathBuf {
-        let first = dir.with_extension("stale");
-        if !first.exists() {
-            return first;
-        }
-        (2..)
-            .map(|n| dir.with_extension(format!("stale-{n}")))
-            .find(|p| !p.exists())
-            .expect("an unused suffix exists")
+        ))
     }
 
     fn partition(&self, tree: Tree) -> &Keyspace {
@@ -152,6 +127,82 @@ impl Estate {
             Tree::Agents => &self.agents,
         }
     }
+}
+
+/// One project's estate: a Fjall keyspace of partitions + a Moka read cache.
+/// Clone-cheap is not offered — an estate is opened once and shared by `&`.
+pub struct Estate {
+    /// `None` only inside [`Estate::reopen`], between closing and opening.
+    stores: RwLock<Option<Stores>>,
+    /// Read cache keyed by "<tree>/<key>" — bytes shared as `Arc<[u8]>`.
+    cache: Cache<String, Arc<[u8]>>,
+    /// Set when [`Estate::open`] found a store it could not read and stepped
+    /// it aside. The caller LOGS this — the ceiling (fjall, moka, serde,
+    /// serde_json) admits no logger, and a reset that only whispers into a
+    /// `warn!` nobody reads is how durable state silently stays off forever.
+    stepped_aside: Option<PathBuf>,
+}
+
+impl Estate {
+    /// Open (creating if absent) the estate rooted at `dir`.
+    pub fn open(dir: &Path) -> Result<Self, String> {
+        let (stores, stepped_aside) = Stores::open(dir)?;
+        Ok(Self {
+            stores: RwLock::new(Some(stores)),
+            cache: Cache::new(8192),
+            stepped_aside,
+        })
+    }
+
+    /// Close the store and open it again at `dir` (ST2b): after the library
+    /// was unplugged its open files are dead. Everyone holding this estate
+    /// keeps working. The old database closes first, because Fjall locks
+    /// its folder.
+    pub fn reopen(&self, dir: &Path) -> Result<(), String> {
+        let mut stores = self
+            .stores
+            .write()
+            .map_err(|_| "estate lock poisoned".to_string())?;
+        *stores = None;
+        self.cache.invalidate_all();
+        *stores = Some(Stores::open(dir)?.0);
+        Ok(())
+    }
+
+    /// The store this estate could not read, moved out of the way at open —
+    /// `None` on every normal launch. The caller logs it; nothing reads it
+    /// back. No-clobber, so a second stale store never overwrites the first.
+    pub fn stepped_aside(&self) -> Option<&Path> {
+        self.stepped_aside.as_deref()
+    }
+
+    /// `<dir>.stale`, then `.stale-2`, `.stale-3`… — never an existing path.
+    fn aside_path(dir: &Path) -> PathBuf {
+        let first = dir.with_extension("stale");
+        if !first.exists() {
+            return first;
+        }
+        (2..)
+            .map(|n| dir.with_extension(format!("stale-{n}")))
+            .find(|p| !p.exists())
+            .expect("an unused suffix exists")
+    }
+
+    /// Run `read` against one tree of the open store.
+    fn with<R>(
+        &self,
+        tree: Tree,
+        read: impl FnOnce(&Keyspace) -> Result<R, String>,
+    ) -> Result<R, String> {
+        let stores = self
+            .stores
+            .read()
+            .map_err(|_| "estate lock poisoned".to_string())?;
+        let stores = stores
+            .as_ref()
+            .ok_or_else(|| "estate is reopening".to_string())?;
+        read(stores.partition(tree))
+    }
 
     fn cache_key(tree: Tree, key: &str) -> String {
         format!("{}/{key}", tree.name())
@@ -160,9 +211,10 @@ impl Estate {
     /// Write bytes; updates the cache. Durability is batched — call
     /// [`Estate::persist`] at a save point (or rely on Fjall's recovery).
     pub fn put(&self, tree: Tree, key: &str, bytes: &[u8]) -> Result<(), String> {
-        self.partition(tree)
-            .insert(key, bytes)
-            .map_err(|e| format!("estate put {}/{key}: {e}", tree.name()))?;
+        self.with(tree, |part| {
+            part.insert(key, bytes)
+                .map_err(|e| format!("estate put {}/{key}: {e}", tree.name()))
+        })?;
         self.cache
             .insert(Self::cache_key(tree, key), Arc::from(bytes));
         Ok(())
@@ -174,11 +226,11 @@ impl Estate {
         if let Some(v) = self.cache.get(&ck) {
             return Ok(Some(v));
         }
-        match self
-            .partition(tree)
-            .get(key)
-            .map_err(|e| format!("estate get {}/{key}: {e}", tree.name()))?
-        {
+        let found = self.with(tree, |part| {
+            part.get(key)
+                .map_err(|e| format!("estate get {}/{key}: {e}", tree.name()))
+        })?;
+        match found {
             Some(slice) => {
                 let arc: Arc<[u8]> = Arc::from(&slice[..]);
                 self.cache.insert(ck, arc.clone());
@@ -190,9 +242,10 @@ impl Estate {
 
     /// Delete a key (and evict it from cache).
     pub fn remove(&self, tree: Tree, key: &str) -> Result<(), String> {
-        self.partition(tree)
-            .remove(key)
-            .map_err(|e| format!("estate remove {}/{key}: {e}", tree.name()))?;
+        self.with(tree, |part| {
+            part.remove(key)
+                .map_err(|e| format!("estate remove {}/{key}: {e}", tree.name()))
+        })?;
         self.cache.invalidate(&Self::cache_key(tree, key));
         Ok(())
     }
@@ -222,16 +275,26 @@ impl Estate {
     pub fn keys(&self, tree: Tree) -> Vec<String> {
         // v3 has no `keys()`: iteration yields a `Guard` that lends the key
         // without forcing the value off disk, so `key()` IS the cheap read.
-        self.partition(tree)
-            .iter()
-            .filter_map(|guard| guard.key().ok())
-            .filter_map(|k| String::from_utf8(k.to_vec()).ok())
-            .collect()
+        self.with(tree, |part| {
+            Ok(part
+                .iter()
+                .filter_map(|guard| guard.key().ok())
+                .filter_map(|k| String::from_utf8(k.to_vec()).ok())
+                .collect())
+        })
+        .unwrap_or_default()
     }
 
     /// Flush to disk durably — call at editor save points.
     pub fn persist(&self) -> Result<(), String> {
-        self.db
+        let stores = self
+            .stores
+            .read()
+            .map_err(|_| "estate lock poisoned".to_string())?;
+        stores
+            .as_ref()
+            .ok_or_else(|| "estate is reopening".to_string())?
+            .db
             .persist(PersistMode::SyncAll)
             .map_err(|e| format!("estate persist: {e}"))
     }
@@ -344,5 +407,21 @@ mod tests {
             e2.get_json::<String>(Tree::State, "open-tab").unwrap(),
             Some("annotate".to_string())
         );
+    }
+
+    /// ST2b: after a reopen every holder of the estate still reads what was
+    /// written and can write again.
+    #[test]
+    fn reopen_keeps_every_holder_working() {
+        let dir = scratch("reopen");
+        let estate = Arc::new(Estate::open(&dir).unwrap());
+        let holder = Arc::clone(&estate);
+        estate.put(Tree::State, "k", b"before").unwrap();
+        estate.persist().unwrap();
+        estate.reopen(&dir).unwrap();
+        assert_eq!(&*holder.get(Tree::State, "k").unwrap().unwrap(), b"before");
+        holder.put(Tree::State, "k", b"after").unwrap();
+        assert_eq!(&*estate.get(Tree::State, "k").unwrap().unwrap(), b"after");
+        assert_eq!(estate.keys(Tree::State), ["k"]);
     }
 }

@@ -679,15 +679,18 @@ pub fn parse_slide(raw: &str) -> Result<Slide, DocError> {
     }
 }
 
+/// Where a write may go: the path to use, or why not.
+pub type WriteGuard = fn(&Path) -> Result<PathBuf, String>;
+
 /// Where a write may go, installed once by the app as `dpl_roots::writable`
 /// (ST2b). While the library is unplugged, or another drive holds its place,
 /// writes are refused and the edit stays in memory; a folder cached before
 /// a reconnect on another drive letter comes back moved onto the library.
 /// Unset (tests, tools), every folder is written as given.
-static WRITE_GUARD: OnceLock<fn(&Path) -> Result<PathBuf, String>> = OnceLock::new();
+static WRITE_GUARD: OnceLock<WriteGuard> = OnceLock::new();
 
 /// Install the write guard; the first call wins.
-pub fn set_write_guard(guard: fn(&Path) -> Result<PathBuf, String>) {
+pub fn set_write_guard(guard: WriteGuard) {
     let _ = WRITE_GUARD.set(guard);
 }
 
