@@ -86,6 +86,22 @@ R291 ("stored inside the project properly … you let the person decide"):
 ST4 keeps account switching and the split of `.userdata/` into `.userdata/`
 and `.aidata/`.
 
+## Amendment 2026-10-27 — a library that isn't connected (ST2a)
+
+- **`roots.toml` remembers where a linked library reappears.** Found on
+  another drive letter, the new `last_path` is written back. The new text
+  goes to `roots.toml.new` and is renamed over the old file only once
+  complete, so a failure leaves the old file whole. An imported library and
+  a seam never write it.
+- **While a linked library is away, the app looks for it** every two
+  seconds, off the UI thread: the remembered path, then the same path on
+  every other drive letter or mount point — never a deep scan. When it is
+  found, the app opens with no tap. A probe that read an older `roots.toml`
+  than the person's latest choice is never installed.
+- **The person can point at it (Locate…) or choose another library.** That
+  replaces `roots.toml` only after they confirm; the library on the drive is
+  only read.
+
 Precedent: Unreal `Saved`/`Intermediate`/`Content`, Resolve
 cache/media-pool/gallery, Lightroom ingest/catalog/library. Embedded
 Turso (metadata) + in-process Arrow/DataFusion over Parquet (analytics)

@@ -1,7 +1,8 @@
 //! Portable library root ownership; the dependency ceiling is serde, serde_json, toml.
 //!
 //! Discovery is read-only. Only explicit setup creates identity/configuration.
-//! ST1 supplies snapshots and marker checks; ST2 owns live IO/store lifetimes.
+//! ST1 supplies snapshots and marker checks; ST2a watches for a library that
+//! isn't connected and remembers where it reappears; ST2b owns live IO.
 
 mod discovery;
 mod disk;
@@ -15,14 +16,16 @@ pub use disk::read_marker;
 pub use handle::Roots;
 pub use migrate::{has_legacy, plan_move, MoveItem, MovePlan, MoveProgress, LEGACY_RINGS};
 pub use model::{
-    AccountId, Config, DrillRoots, Layout, LibraryId, Marker, Mode, State, CONFIG_FILE,
+    AccountId, Config, DrillRoots, Layout, LibraryId, Marker, Mode, Publish, State, CONFIG_FILE,
     MARKER_FILE, SCHEMA_VERSION,
 };
 pub use setup::{setup_at, stage_roots};
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
-use std::sync::{OnceLock, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
+use std::time::Duration;
 
 static ROOTS: OnceLock<RwLock<Option<Roots>>> = OnceLock::new();
 
@@ -157,12 +160,162 @@ fn process_roots() -> Roots {
 /// Install a fresh handle before any stores open. Repeating this is intended
 /// for the startup Retry action, not for switching open stores mid-session.
 pub fn initialize() -> Result<Layout, String> {
-    let roots = process_roots();
+    let mut roots = process_roots();
     let result = roots.layout();
-    *global()
+    let mut installed = global()
         .write()
-        .map_err(|_| "Library root state could not be locked")? = Some(roots);
+        .map_err(|_| "Library root state could not be locked")?;
+    remember(&mut roots);
+    *installed = Some(roots);
     result
+}
+
+/// A linked library found at a new path keeps it in `roots.toml`. Failing
+/// to write that never stops the library opening; it is said instead.
+fn remember(roots: &mut Roots) {
+    if let Err(error) = roots.remember() {
+        roots.notice = Some(format!(
+            "Your library was found in a new place, but roots.toml couldn't be updated ({error}). It will be looked for again next time."
+        ));
+    }
+}
+
+/// What the last `initialize` noticed without failing, for the app to log.
+pub fn notice() -> Option<String> {
+    global().read().ok()?.as_ref()?.notice.clone()
+}
+
+/// One look for a library that isn't connected, for the Disconnected
+/// screen's watch. The probe runs outside the lock, so a slow or empty drive
+/// never blocks a frame. Its result is installed only when it connects and
+/// no `roots.toml` was written meanwhile: the screen's own choice always
+/// wins. A seam never probes.
+pub fn reconnect() -> Option<Layout> {
+    reconnect_with(process_roots)
+}
+
+fn reconnect_with(probe: impl FnOnce() -> Roots) -> Option<Layout> {
+    let writes = disk::CONFIG_WRITES.load(Ordering::Acquire);
+    if let Some(roots) = global().read().ok()?.as_ref() {
+        if roots.is_drill() {
+            return None;
+        }
+        if let State::Connected(layout) = roots.state() {
+            return Some(layout.clone());
+        }
+    }
+    let mut roots = probe();
+    let State::Connected(layout) = roots.state().clone() else {
+        return None;
+    };
+    let mut installed = global().write().ok()?;
+    if disk::CONFIG_WRITES.load(Ordering::Acquire) != writes {
+        return None;
+    }
+    remember(&mut roots);
+    *installed = Some(roots);
+    Some(layout)
+}
+
+/// Looks for the library every two seconds on its own thread, then calls
+/// `found` once it is connected. Dropping the watch stops it.
+pub struct Watch {
+    stop: Arc<AtomicBool>,
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+    }
+}
+
+pub fn watch(found: impl FnOnce() + Send + 'static) -> Result<Watch, String> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopped = Arc::clone(&stop);
+    std::thread::Builder::new()
+        .name("dpl-roots-watch".into())
+        .spawn(move || loop {
+            // Short naps, so a dropped watch ends within a tenth of a second.
+            for _ in 0..20 {
+                if stopped.load(Ordering::Acquire) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            if reconnect().is_some() {
+                if !stopped.load(Ordering::Acquire) {
+                    found();
+                }
+                return;
+            }
+        })
+        .map_err(|e| format!("The library watch could not start: {e}"))?;
+    Ok(Watch { stop })
+}
+
+/// The configured library while it isn't connected, for the Disconnected
+/// screen to name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Status {
+    pub label: String,
+    pub linked: bool,
+    /// Where it was last seen.
+    pub last_path: PathBuf,
+    pub reason: String,
+}
+
+pub fn status() -> Option<Status> {
+    let roots = global().read().ok()?;
+    let roots = roots.as_ref()?;
+    let (State::Disconnected { reason }, Some(config)) = (roots.state(), roots.config()) else {
+        return None;
+    };
+    Some(Status {
+        label: config.label.clone(),
+        linked: config.mode == Mode::Linked,
+        last_path: config.library_path(&roots.program).ok()?,
+        reason: reason.clone(),
+    })
+}
+
+/// What a folder the person points at (Locate…) holds. Nothing is written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Located {
+    /// This program's own library, in a new place.
+    Same(PathBuf),
+    /// A different library: the screen asks before switching to it.
+    Other { library: PathBuf, label: String },
+}
+
+/// `program` is `program_folder()` outside tests.
+pub fn locate(program: &Path, folder: &Path) -> Result<Located, String> {
+    if !folder.is_absolute() {
+        return Err("Paste the full path of your library's folder.".into());
+    }
+    let library = disk::absolute(folder, program)?;
+    if !library.join(MARKER_FILE).is_file() {
+        return Err(format!(
+            "{} isn't a DevPULSE library: it has no {MARKER_FILE}. Choose the folder that holds {MARKER_FILE}.",
+            library.display()
+        ));
+    }
+    let marker = read_marker(&library)?;
+    let account = AccountId::default();
+    handle::validate_layout(&Layout::for_library(&library, &account), &account)?;
+    Ok(match disk::read_config(program) {
+        Ok(config) if config.id == marker.id => Located::Same(library),
+        _ => Located::Other {
+            library,
+            label: marker.label,
+        },
+    })
+}
+
+/// Point `program` at the library in `folder` (Locate…): `roots.toml` is
+/// replaced whole and the folder is only read. The caller then opens it
+/// with `initialize`.
+pub fn link_to(program: &Path, folder: &Path) -> Result<(), String> {
+    setup::stage(program, folder, Publish::Replace)
 }
 
 pub fn needs_setup() -> bool {
@@ -261,16 +414,27 @@ pub fn locate_asset(rel: &str) -> Option<PathBuf> {
     global().read().ok()?.as_ref()?.locate_asset(rel)
 }
 
-pub fn setup_imported(label: &str) -> Result<Layout, String> {
-    let program = program_dir()?;
-    setup_at(&program, &program.join("library"), Mode::Imported, label)?;
-    initialize()
+/// The first screen's choices write `program`'s `roots.toml`; the caller
+/// then opens the library with `initialize`. `publish` is `Replace` only
+/// for "Use a library on this machine" on the Disconnected screen; a first
+/// launch never replaces a `roots.toml`.
+pub fn setup_imported(program: &Path, label: &str, publish: Publish) -> Result<Layout, String> {
+    setup::setup_publishing(
+        program,
+        &program.join("library"),
+        Mode::Imported,
+        label,
+        publish,
+    )
 }
 
-pub fn setup_linked(path: &Path, label: &str) -> Result<Layout, String> {
-    let program = program_dir()?;
-    setup_at(&program, path, Mode::Linked, label)?;
-    initialize()
+pub fn setup_linked(
+    program: &Path,
+    path: &Path,
+    label: &str,
+    publish: Publish,
+) -> Result<Layout, String> {
+    setup::setup_publishing(program, path, Mode::Linked, label, publish)
 }
 
 /// Copy today's folders under `source` into a new library at `library` and
@@ -283,8 +447,9 @@ pub fn bring_in(
     library: &Path,
     label: &str,
     progress: &MoveProgress,
+    publish: Publish,
 ) -> Result<Layout, String> {
-    migrate::move_in(program, source, library, label, progress)
+    migrate::move_in(program, source, library, label, progress, publish)
 }
 
 #[cfg(test)]

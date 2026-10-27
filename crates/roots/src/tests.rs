@@ -566,7 +566,15 @@ fn bringing_in_copies_exactly_publishes_last_and_leaves_the_source() {
     let exe = program(&base, "program");
     let library = base.join("library");
     let progress = MoveProgress::default();
-    let layout = migrate::move_in(&exe, &source, &library, "My library", &progress).unwrap();
+    let layout = migrate::move_in(
+        &exe,
+        &source,
+        &library,
+        "My library",
+        &progress,
+        Publish::New,
+    )
+    .unwrap();
     assert_eq!(snapshot(&source), before, "the source is only read");
     assert_eq!(snapshot(&layout.content), snapshot(&source.join("content")));
     assert_eq!(snapshot(&layout.assets), snapshot(&source.join("assets")));
@@ -600,6 +608,7 @@ fn bringing_in_beside_the_program_is_imported() {
         &exe.join("library"),
         "My library",
         &MoveProgress::default(),
+        Publish::New,
     )
     .unwrap();
     assert_eq!(disk::read_config(&exe).unwrap().mode, Mode::Imported);
@@ -613,7 +622,14 @@ fn bringing_in_never_replaces_a_configuration() {
     let exe = program(&base, "program");
     fs::write(exe.join(CONFIG_FILE), b"mine").unwrap();
     let library = base.join("library");
-    let error = migrate::move_in(&exe, &source, &library, "L", &MoveProgress::default());
+    let error = migrate::move_in(
+        &exe,
+        &source,
+        &library,
+        "L",
+        &MoveProgress::default(),
+        Publish::New,
+    );
     assert!(error.is_err());
     assert!(!library.exists());
     assert_eq!(fs::read(exe.join(CONFIG_FILE)).unwrap(), b"mine");
@@ -639,8 +655,15 @@ fn a_failed_move_removes_what_it_made() {
             .share_mode(0)
             .open(source.join("assets/captures/shot.png"))
             .unwrap();
-        let error =
-            migrate::move_in(&exe, &source, &library, "L", &MoveProgress::default()).unwrap_err();
+        let error = migrate::move_in(
+            &exe,
+            &source,
+            &library,
+            "L",
+            &MoveProgress::default(),
+            Publish::New,
+        )
+        .unwrap_err();
         drop(held);
         assert!(error.contains("Nothing was changed"), "{error}");
         assert_eq!(library.exists(), pre_made);
@@ -650,4 +673,184 @@ fn a_failed_move_removes_what_it_made() {
         assert!(!exe.join(CONFIG_FILE).exists());
         assert_eq!(snapshot(&source), before);
     }
+}
+
+/// `exe` linked to the library at `last`, as a moved drive leaves it.
+fn linked_to(exe: &Path, library: &Path, last: &Path) {
+    let marker = read_marker(library).unwrap();
+    disk::create_config(
+        exe,
+        &Config {
+            v: 1,
+            mode: Mode::Linked,
+            id: marker.id,
+            label: marker.label,
+            account: AccountId::default(),
+            last_path: Some(last.to_path_buf()),
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_linked_library_found_on_another_drive_is_remembered() {
+    let base = scratch();
+    let exe = program(&base, "program");
+    let moved = imported(&program(&base, "drive-b")).library;
+    let gone = base.join("drive-a/library");
+    linked_to(&exe, &moved, &gone);
+    let mut roots = Roots::open(&exe, None);
+    assert!(matches!(roots.state(), State::Disconnected { .. }));
+    assert_eq!(
+        roots.remember(),
+        Ok(false),
+        "nothing found, nothing written"
+    );
+    assert_eq!(disk::read_config(&exe).unwrap().last_path, Some(gone));
+    roots
+        .refresh_with_candidates(std::slice::from_ref(&moved))
+        .unwrap();
+    assert_eq!(roots.remember(), Ok(true));
+    assert_eq!(roots.remember(), Ok(false), "written once");
+    assert_eq!(
+        disk::read_config(&exe).unwrap().last_path,
+        Some(moved.clone())
+    );
+    assert!(!exe.join("roots.toml.new").exists());
+    assert_eq!(Roots::open(&exe, None).layout().unwrap().library, moved);
+}
+
+#[test]
+fn an_imported_library_and_a_seam_never_rewrite_roots_toml() {
+    let base = scratch();
+    let layout = imported(&base);
+    let before = fs::read(base.join(CONFIG_FILE)).unwrap();
+    assert_eq!(Roots::open(&base, None).remember(), Ok(false));
+    let seam = DrillRoots {
+        content: layout.content.clone(),
+        assets: None,
+        userdata: None,
+    };
+    assert_eq!(Roots::open(&base, Some(seam)).remember(), Ok(false));
+    assert_eq!(fs::read(base.join(CONFIG_FILE)).unwrap(), before);
+}
+
+#[test]
+fn replacing_roots_toml_finishes_an_interrupted_replace() {
+    let base = scratch();
+    let exe = program(&base, "program");
+    let library = imported(&program(&base, "drive")).library;
+    linked_to(&exe, &library, &base.join("elsewhere/library"));
+    // An earlier replace that stopped before its rename.
+    fs::write(exe.join("roots.toml.new"), b"half").unwrap();
+    setup::stage(&exe, &library, Publish::Replace).unwrap();
+    assert_eq!(disk::read_config(&exe).unwrap().last_path, Some(library));
+    assert!(!exe.join("roots.toml.new").exists());
+}
+
+/// A `roots.toml` held open without sharing can't be renamed over; the
+/// replace then fails and the old file is exactly as it was.
+#[cfg(windows)]
+#[test]
+fn a_replace_that_cannot_finish_leaves_the_old_file() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let base = scratch();
+    let exe = program(&base, "program");
+    let library = imported(&program(&base, "drive")).library;
+    linked_to(&exe, &library, &base.join("elsewhere/library"));
+    let before = fs::read(exe.join(CONFIG_FILE)).unwrap();
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(exe.join(CONFIG_FILE))
+        .unwrap();
+    assert!(setup::stage(&exe, &library, Publish::Replace).is_err());
+    drop(held);
+    assert_eq!(fs::read(exe.join(CONFIG_FILE)).unwrap(), before);
+    assert!(!exe.join("roots.toml.new").exists());
+}
+
+#[test]
+fn locate_names_this_library_or_another_and_writes_nothing() {
+    let base = scratch();
+    let exe = program(&base, "program");
+    let ours = imported(&program(&base, "drive-b")).library;
+    linked_to(&exe, &ours, &base.join("drive-a/library"));
+    let theirs = imported(&program(&base, "drive-c")).library;
+    let plain = program(&base, "plain");
+    let config = fs::read(exe.join(CONFIG_FILE)).unwrap();
+    let (ours_before, theirs_before) = (snapshot(&ours), snapshot(&theirs));
+    assert_eq!(locate(&exe, &ours), Ok(Located::Same(ours.clone())));
+    assert_eq!(
+        locate(&exe, &theirs),
+        Ok(Located::Other {
+            library: theirs.clone(),
+            label: "My library".into()
+        })
+    );
+    assert!(locate(&exe, &plain)
+        .unwrap_err()
+        .contains("isn't a DevPULSE library"));
+    assert!(locate(&exe, Path::new("relative")).is_err());
+    assert_eq!(fs::read(exe.join(CONFIG_FILE)).unwrap(), config);
+    assert_eq!(snapshot(&ours), ours_before);
+    assert_eq!(snapshot(&theirs), theirs_before);
+    assert_eq!(fs::read_dir(&plain).unwrap().count(), 0);
+}
+
+#[test]
+fn another_library_replaces_roots_toml_only_when_asked() {
+    let base = scratch();
+    let exe = program(&base, "program");
+    let drive = imported(&program(&base, "drive")).library;
+    linked_to(&exe, &drive, &base.join("unplugged/library"));
+    let here = exe.join("library");
+    assert!(
+        setup::setup_publishing(&exe, &here, Mode::Imported, "Here", Publish::New)
+            .unwrap_err()
+            .contains("already exists")
+    );
+    assert!(!here.exists());
+    let layout =
+        setup::setup_publishing(&exe, &here, Mode::Imported, "Here", Publish::Replace).unwrap();
+    let config = disk::read_config(&exe).unwrap();
+    assert_eq!(
+        (config.mode, config.label.as_str()),
+        (Mode::Imported, "Here")
+    );
+    assert_eq!(Roots::open(&exe, None).layout().unwrap(), layout);
+    assert!(
+        read_marker(&drive).is_ok(),
+        "the drive's library is untouched"
+    );
+}
+
+/// The only test that touches the process-wide handle. A probe that
+/// connects is installed; one that raced a `roots.toml` write is not.
+#[test]
+fn a_reconnect_installs_only_a_probe_no_choice_has_overtaken() {
+    let base = scratch();
+    let exe = program(&base, "program");
+    let drive = imported(&program(&base, "drive")).library;
+    linked_to(&exe, &drive, &drive);
+    let away = base.join("away");
+    fs::rename(&drive, &away).unwrap();
+    *global().write().unwrap() = Some(Roots::open(&exe, None));
+    assert!(!needs_setup() && try_layout().is_err(), "unplugged");
+    // Plugged back in, but the screen wrote roots.toml while it probed.
+    fs::rename(&away, &drive).unwrap();
+    let raced = reconnect_with(|| {
+        disk::CONFIG_WRITES.fetch_add(1, Ordering::AcqRel);
+        Roots::open(&exe, None)
+    });
+    assert_eq!(raced, None);
+    assert!(try_layout().is_err(), "the raced probe was not installed");
+    // Tests running alongside write configurations of their own, which the
+    // guard counts too; a quiet moment comes within a few tries.
+    let layout = (0..100)
+        .find_map(|_| reconnect_with(|| Roots::open(&exe, None)))
+        .unwrap();
+    assert_eq!(layout.library, drive);
+    assert_eq!(try_layout().unwrap(), layout);
+    *global().write().unwrap() = None;
 }

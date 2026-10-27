@@ -1,8 +1,8 @@
 use crate::{discovery, disk, AccountId, Config, DrillRoots, Layout, Mode, State, CONFIG_FILE};
 use std::path::{Path, PathBuf};
 
-/// One library's current location. Resolving and refreshing are read-only;
-/// ST2 supplies polling and closes/reopens the app's long-lived stores.
+/// One library's current location. Resolving and refreshing only read;
+/// `remember` writes a linked library's new path back to `roots.toml`.
 #[derive(Clone, Debug)]
 pub struct Roots {
     pub(crate) program: PathBuf,
@@ -10,6 +10,10 @@ pub struct Roots {
     pub(crate) drill: bool,
     pub(crate) state: State,
     checked: Vec<PathBuf>,
+    /// `last_path` as `roots.toml` holds it on disk.
+    recorded: Option<PathBuf>,
+    /// What opening noticed without failing, for the app to log.
+    pub(crate) notice: Option<String>,
 }
 
 impl Roots {
@@ -20,6 +24,8 @@ impl Roots {
             drill: false,
             state: State::Unconfigured,
             checked: vec![program.join(CONFIG_FILE)],
+            recorded: None,
+            notice: None,
         };
         if !program.is_absolute() {
             roots.fail("The program directory must be absolute".into());
@@ -42,6 +48,7 @@ impl Roots {
         }
         match disk::read_config(program) {
             Ok(config) => {
+                roots.recorded = config.last_path.clone();
                 roots.config = Some(config);
                 let _ = roots.refresh_with_candidates(&[]);
             }
@@ -57,6 +64,8 @@ impl Roots {
             drill: false,
             state: State::Disconnected { reason: error },
             checked: Vec::new(),
+            recorded: None,
+            notice: None,
         }
     }
 
@@ -78,6 +87,34 @@ impl Roots {
 
     pub fn checked_roots(&self) -> &[PathBuf] {
         &self.checked
+    }
+
+    pub fn is_drill(&self) -> bool {
+        self.drill
+    }
+
+    pub fn config(&self) -> Option<&Config> {
+        self.config.as_ref()
+    }
+
+    /// A linked library found somewhere new (another drive letter) keeps
+    /// that path in `roots.toml`, so the next launch looks there first.
+    /// Returns true when the file was rewritten. An imported library and a
+    /// seam never write.
+    pub fn remember(&mut self) -> Result<bool, String> {
+        let Some(config) = self.config.as_ref() else {
+            return Ok(false);
+        };
+        if self.drill
+            || config.mode != Mode::Linked
+            || !matches!(self.state, State::Connected(_))
+            || config.last_path == self.recorded
+        {
+            return Ok(false);
+        }
+        disk::replace_config(&self.program, config)?;
+        self.recorded = config.last_path.clone();
+        Ok(true)
     }
 
     /// Check the remembered path first. Only a disconnected linked library

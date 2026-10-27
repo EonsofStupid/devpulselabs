@@ -2,6 +2,7 @@ use crate::model::{Config, Marker, CONFIG_FILE, MARKER_FILE};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(crate) fn absolute(path: &Path, base: &Path) -> Result<PathBuf, String> {
     if path.as_os_str().is_empty() {
@@ -141,8 +142,42 @@ pub(crate) fn create_json(path: &Path, value: &impl serde::Serialize) -> Result<
     create_file(path, json.as_bytes())
 }
 
+/// Counts every `roots.toml` written by this process, so a background probe
+/// that read the old one never installs over a newer choice.
+pub(crate) static CONFIG_WRITES: AtomicU64 = AtomicU64::new(0);
+
 pub(crate) fn create_config(program: &Path, config: &Config) -> Result<(), String> {
     config.validate()?;
     let raw = toml::to_string_pretty(config).map_err(|e| e.to_string())?;
-    create_file(&program.join(CONFIG_FILE), raw.as_bytes())
+    create_file(&program.join(CONFIG_FILE), raw.as_bytes())?;
+    CONFIG_WRITES.fetch_add(1, Ordering::AcqRel);
+    Ok(())
+}
+
+/// Replace `roots.toml` whole: the new text goes to `roots.toml.new` first
+/// and is renamed over the old file only once it is complete, so a failure
+/// leaves the old one exactly as it was.
+pub(crate) fn replace_config(program: &Path, config: &Config) -> Result<(), String> {
+    config.validate()?;
+    let raw = toml::to_string_pretty(config).map_err(|e| e.to_string())?;
+    let target = program.join(CONFIG_FILE);
+    let staged = program.join(format!("{CONFIG_FILE}.new"));
+    no_symlinks(&target)?;
+    // A `.new` left by an interrupted replace is this program's own
+    // unfinished copy, never the configuration in use.
+    match fs::symlink_metadata(&staged) {
+        Ok(meta) if meta.is_file() => {
+            fs::remove_file(&staged).map_err(|e| format!("{}: {e}", staged.display()))?
+        }
+        Ok(_) => return Err(format!("{} is not a file", staged.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("{}: {e}", staged.display())),
+    }
+    create_file(&staged, raw.as_bytes())?;
+    if let Err(e) = fs::rename(&staged, &target) {
+        let _ = fs::remove_file(&staged);
+        return Err(format!("Could not update {}: {e}", target.display()));
+    }
+    CONFIG_WRITES.fetch_add(1, Ordering::AcqRel);
+    Ok(())
 }

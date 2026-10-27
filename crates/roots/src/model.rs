@@ -194,6 +194,14 @@ pub struct DrillRoots {
     pub userdata: Option<PathBuf>,
 }
 
+/// How a choice reaches `roots.toml`: a first choice never replaces one; a
+/// change made on the Disconnected screen replaces it whole.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Publish {
+    New,
+    Replace,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
     Unconfigured,

@@ -87,34 +87,19 @@ fn main() -> eframe::Result {
         )
         .init();
     // Select and validate storage before any stores, upgrades or drills run.
-    // A missing drive must never become an empty library somewhere else.
-    // `--bring-in` opens the startup screen's move panel, for proof shots.
+    // A missing drive must never become an empty library somewhere else:
+    // without a library, the window opens on the library pages (ST2a).
+    // `--bring-in` opens the move page there, for proof shots.
     let bring_in = std::env::args().any(|arg| arg == "--bring-in");
-    if !storage_startup::prepare(bring_in)? {
-        return Ok(());
+    let library = storage_startup::ready();
+    match &library {
+        Ok(()) => open_library(),
+        Err(error) => tracing::warn!(%error, "library startup needs attention"),
     }
-    {
-        // LS2 (ruled 2026-10-21, "upgrade once, keep backups"): every old
-        // slide upgrades to dpl.slide/3 ONCE, its original kept beside it;
-        // inbox drafts move into the library. A slide that cannot upgrade is
-        // left exactly as it was, and named.
-        let (upgraded, failed) = dpl_doc::legacy::upgrade_content(&dpl_roots::content_root());
-        for slide in &upgraded {
-            tracing::info!(
-                from = %slide.from.display(),
-                to = %slide.to.display(),
-                id = %slide.id,
-                "slide upgraded to dpl.slide/3 (the original is kept beside it)"
-            );
-        }
-        for (dir, error) in &failed {
-            tracing::warn!(dir = %dir.display(), %error, "slide NOT upgraded — left as it was");
-        }
-        // Same honesty law, applied to AI accounting: name which providers
-        // report usage and which do not, so an empty cost column is
-        // explained rather than mysterious.
-        crate::ai_usage::log_census();
-    }
+    // Same honesty law, applied to AI accounting: name which providers
+    // report usage and which do not, so an empty cost column is explained
+    // rather than mysterious.
+    crate::ai_usage::log_census();
     // Managed ffmpeg (the original's tools.rs law, ported): resolve ONE
     // absolute binary at boot and inject it into every engine seam, so a
     // double-clicked exe with a stale Explorer PATH still previews,
@@ -520,6 +505,16 @@ fn main() -> eframe::Result {
         ))
     }
 
+    // The headless drills write into the library and open no window, so
+    // without a library they say why and stop.
+    if let Err(error) = &library {
+        let headless = ["--clone-seed", "--export-guide", "--brainstorm-drill"];
+        if args.iter().any(|arg| headless.contains(&arg.as_str())) {
+            eprintln!("{error}");
+            std::process::exit(2);
+        }
+    }
+
     // `--clone-seed <seed-id> <show> <episode>` — the headless clone
     // drill (X3): copy a seed into the real content tree through the
     // engine (`dpl_doc::clone_episode`) and exit; no window boots.
@@ -608,7 +603,10 @@ fn main() -> eframe::Result {
         });
     }
 
-    let options = native_options();
+    let mut options = native_options();
+    if library.is_err() {
+        options.viewport = options.viewport.with_title("DevPULSE Labs — your library");
+    }
 
     eframe::run_native(
         "DevPULSE Labs",
@@ -620,7 +618,7 @@ fn main() -> eframe::Result {
             egui_pilot_ai::install(&cc.egui_ctx);
             // Media blocks: file:// images resolve through these loaders.
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            let app = App::new(Boot {
+            let boot = Boot {
                 shot,
                 boot_route,
                 focus,
@@ -666,16 +664,177 @@ fn main() -> eframe::Result {
                 seam_port,
                 ledger,
                 ai_backfill: ai_backfill_on,
-            });
-            #[cfg(feature = "eguipilotai-devtools")]
-            let app = {
-                let mut app = app;
-                app.attach_pilot_runtime(cc);
-                app
             };
-            Ok(Box::new(app))
+            let mut root = Root {
+                stage: match library {
+                    Ok(()) => Stage::Opening,
+                    Err(error) => Stage::Library(Box::new(storage_startup::Startup::new(
+                        error,
+                        bring_in,
+                        &cc.egui_ctx,
+                    ))),
+                },
+                boot: Some(boot),
+                #[cfg(feature = "eguipilotai-devtools")]
+                pilot: pilot_runtime(cc),
+            };
+            if matches!(root.stage, Stage::Opening) {
+                root.open(&cc.egui_ctx);
+            }
+            Ok(Box::new(root))
         }),
     )
+}
+
+/// LS2 (ruled 2026-10-21, "upgrade once, keep backups"): every old slide
+/// upgrades to dpl.slide/3 ONCE, its original kept beside it; inbox drafts
+/// move into the library. A slide that cannot upgrade is left exactly as it
+/// was, and named. Runs once a library is open, before the app starts.
+fn open_library() {
+    let (upgraded, failed) = dpl_doc::legacy::upgrade_content(&dpl_roots::content_root());
+    for slide in &upgraded {
+        tracing::info!(
+            from = %slide.from.display(),
+            to = %slide.to.display(),
+            id = %slide.id,
+            "slide upgraded to dpl.slide/3 (the original is kept beside it)"
+        );
+    }
+    for (dir, error) in &failed {
+        tracing::warn!(dir = %dir.display(), %error, "slide NOT upgraded — left as it was");
+    }
+}
+
+/// The one window (ST2a): the library pages until a library opens, then the
+/// app in the same window. EguiPilotAI attaches once, at creation, so it
+/// reaches both.
+struct Root {
+    stage: Stage,
+    boot: Option<Boot>,
+    #[cfg(feature = "eguipilotai-devtools")]
+    pilot: Option<PilotRuntime>,
+}
+
+enum Stage {
+    Library(Box<storage_startup::Startup>),
+    /// The library is open; the app starts this frame.
+    Opening,
+    App(Box<App>),
+}
+
+impl Root {
+    /// Start the app on the open library, in this same window.
+    fn open(&mut self, ctx: &egui::Context) {
+        let Some(boot) = self.boot.take() else {
+            return;
+        };
+        let app = App::new(boot);
+        #[cfg(feature = "eguipilotai-devtools")]
+        let app = {
+            let mut app = app;
+            if let Some(runtime) = &self.pilot {
+                app.adopt_pilot(std::sync::Arc::clone(runtime));
+            }
+            app
+        };
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title("DevPULSE Labs".into()));
+        self.stage = Stage::App(Box::new(app));
+    }
+}
+
+impl eframe::App for Root {
+    fn on_exit(&mut self) {
+        if let Stage::App(app) = &mut self.stage {
+            eframe::App::on_exit(app.as_mut());
+        }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        let opened = match &mut self.stage {
+            Stage::App(app) => {
+                eframe::App::ui(app.as_mut(), ui, frame);
+                return;
+            }
+            Stage::Library(startup) => {
+                eframe::App::ui(startup.as_mut(), ui, frame);
+                startup.opened()
+            }
+            Stage::Opening => true,
+        };
+        if opened {
+            open_library();
+            self.open(ui.ctx());
+            ui.ctx().request_repaint();
+        }
+        // The app pumps the pilot itself; the library pages need it here.
+        #[cfg(feature = "eguipilotai-devtools")]
+        if let Some(runtime) = &self.pilot {
+            let mut runtime = runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            runtime.pump();
+            if !runtime.is_stopped() {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(1));
+            }
+        }
+    }
+}
+
+#[cfg(feature = "eguipilotai-devtools")]
+type PilotRuntime = std::sync::Arc<
+    std::sync::Mutex<egui_pilot_ai_runtime::RuntimeGuard<egui_pilot_ai_transport::StdioTransport>>,
+>;
+
+/// The private devtools runtime, attached to the one window at creation.
+/// `App::adopt_pilot` wires the app's half once a library is open.
+#[cfg(feature = "eguipilotai-devtools")]
+fn pilot_runtime(cc: &eframe::CreationContext<'_>) -> Option<PilotRuntime> {
+    if std::env::var_os("EGUIPILOTAI_STDIO").as_deref() != Some(std::ffi::OsStr::new("1")) {
+        return None;
+    }
+    let Some(session) = std::env::var("EGUIPILOTAI_SESSION").ok() else {
+        tracing::error!("EGUIPILOTAI_SESSION is required for private test launch");
+        return None;
+    };
+    let Some(session_nonce) = std::env::var("EGUIPILOTAI_NONCE").ok() else {
+        tracing::error!("EGUIPILOTAI_NONCE is required for private test launch");
+        return None;
+    };
+    let Some(artifact_root) = std::env::var_os("EGUIPILOTAI_ARTIFACT_ROOT") else {
+        tracing::error!("EGUIPILOTAI_ARTIFACT_ROOT is required for private test launch");
+        return None;
+    };
+    let mut config = egui_pilot_ai_runtime::RuntimeConfig::new(
+        env!("DPL_BUILD"),
+        std::path::PathBuf::from(artifact_root),
+    );
+    config.session.0 = session;
+    config.session_nonce = session_nonce;
+    config.max_commands_per_frame = 32;
+    config.renderer_identity = cc.wgpu_render_state.as_ref().map(|state| {
+        let info = state.adapter.get_info();
+        egui_pilot_ai_runtime::protocol::RendererIdentity {
+            os: std::env::consts::OS.into(),
+            backend: format!("{:?}", info.backend),
+            adapter: info.name,
+            device_type: format!("{:?}", info.device_type),
+            driver: format!("{} {}", info.driver, info.driver_info),
+            renderer_version: "egui-wgpu-0.35".into(),
+            surface_format: format!("{:?}", state.target_format),
+            pixels_per_point: cc.egui_ctx.pixels_per_point(),
+            font_bundle: "devpulse-coldlight-v1".into(),
+            dithering: false,
+        }
+    });
+    let guard = egui_pilot_ai_runtime::RuntimeGuard::attach(
+        &cc.egui_ctx,
+        egui_pilot_ai_transport::StdioTransport::stdio(64),
+        config,
+    );
+    guard.pilot().set_coach_palette(App::coach_palette());
+    tracing::info!("EguiPilotAI private devtools runtime attached");
+    Some(std::sync::Arc::new(std::sync::Mutex::new(guard)))
 }
 
 /// Shared window geometry and adapter policy for startup and the main app.
@@ -802,13 +961,7 @@ struct App {
     drill_frames: u32,
     drill_started: Option<std::time::Instant>,
     #[cfg(feature = "eguipilotai-devtools")]
-    pilot_runtime: Option<
-        std::sync::Arc<
-            std::sync::Mutex<
-                egui_pilot_ai_runtime::RuntimeGuard<egui_pilot_ai_transport::StdioTransport>,
-            >,
-        >,
-    >,
+    pilot_runtime: Option<PilotRuntime>,
     #[cfg(feature = "eguipilotai-devtools")]
     coach_signals: Option<coach_signals::CoachSignals>,
     /// Every signal id a touchpoint may wait for in this build, resolved from
@@ -1317,69 +1470,31 @@ impl App {
         }
     }
 
+    /// The app's half of the pilot: what a coach may wait for, the coach
+    /// tap into the fabric, and chat's windows.
     #[cfg(feature = "eguipilotai-devtools")]
-    fn attach_pilot_runtime(&mut self, cc: &eframe::CreationContext<'_>) {
-        if std::env::var_os("EGUIPILOTAI_STDIO").as_deref() != Some(std::ffi::OsStr::new("1")) {
-            return;
+    fn adopt_pilot(&mut self, runtime: PilotRuntime) {
+        {
+            let guard = runtime
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard
+                .pilot()
+                .declare_coach_signals(self.coach_catalog.clone());
+            // The reverse seam: every coach lifecycle fact becomes a stamped
+            // COACH-domain signal. The tap is a witness — the devtools pipe
+            // still drains its own copy.
+            let fabric = self.fabric.clone();
+            guard.pilot().set_coach_event_tap(move |event| {
+                if let Some(event) = coach_fabric::to_fabric(event) {
+                    fabric.publish_coach(event);
+                }
+            });
         }
-        let Some(session) = std::env::var("EGUIPILOTAI_SESSION").ok() else {
-            tracing::error!("EGUIPILOTAI_SESSION is required for private test launch");
-            return;
-        };
-        let Some(session_nonce) = std::env::var("EGUIPILOTAI_NONCE").ok() else {
-            tracing::error!("EGUIPILOTAI_NONCE is required for private test launch");
-            return;
-        };
-        let Some(artifact_root) = std::env::var_os("EGUIPILOTAI_ARTIFACT_ROOT") else {
-            tracing::error!("EGUIPILOTAI_ARTIFACT_ROOT is required for private test launch");
-            return;
-        };
-        let mut config = egui_pilot_ai_runtime::RuntimeConfig::new(
-            env!("DPL_BUILD"),
-            std::path::PathBuf::from(artifact_root),
-        );
-        config.session.0 = session;
-        config.session_nonce = session_nonce;
-        config.max_commands_per_frame = 32;
-        config.renderer_identity = cc.wgpu_render_state.as_ref().map(|state| {
-            let info = state.adapter.get_info();
-            egui_pilot_ai_runtime::protocol::RendererIdentity {
-                os: std::env::consts::OS.into(),
-                backend: format!("{:?}", info.backend),
-                adapter: info.name,
-                device_type: format!("{:?}", info.device_type),
-                driver: format!("{} {}", info.driver, info.driver_info),
-                renderer_version: "egui-wgpu-0.35".into(),
-                surface_format: format!("{:?}", state.target_format),
-                pixels_per_point: cc.egui_ctx.pixels_per_point(),
-                font_bundle: "devpulse-coldlight-v1".into(),
-                dithering: false,
-            }
-        });
-        let guard = egui_pilot_ai_runtime::RuntimeGuard::attach(
-            &cc.egui_ctx,
-            egui_pilot_ai_transport::StdioTransport::stdio(64),
-            config,
-        );
-        guard.pilot().set_coach_palette(Self::coach_palette());
-        guard
-            .pilot()
-            .declare_coach_signals(self.coach_catalog.clone());
-        // The reverse seam: every coach lifecycle fact becomes a stamped
-        // COACH-domain signal. The tap is a witness — the devtools pipe
-        // still drains its own copy.
-        let fabric = self.fabric.clone();
-        guard.pilot().set_coach_event_tap(move |event| {
-            if let Some(event) = coach_fabric::to_fabric(event) {
-                fabric.publish_coach(event);
-            }
-        });
-        let runtime = std::sync::Arc::new(std::sync::Mutex::new(guard));
         self.chat
             .attach_pilot_runtime(std::sync::Arc::clone(&runtime));
         self.pilot_runtime = Some(runtime);
         self.coach_signals = Some(coach_signals::CoachSignals::subscribe(&self.fabric));
-        tracing::info!("EguiPilotAI private devtools runtime attached");
     }
 
     /// Forward this frame's app signals to the coach so a touchpoint can wait

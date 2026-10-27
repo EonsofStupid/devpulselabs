@@ -20,6 +20,14 @@ folders. The operator ruled "Move them next", and, on where (R291):
 then "Approve" for ST1b (§4.7). The order is now ST1 (done, #297) →
 **ST1b** → ST2 → ST5 → ST3 → ST4 (accounts and the `.aidata` split).
 
+**ST2 approved 2026-10-27** (§4e), as two PRs, ST2a then ST2b:
+- Q-ST2-1, a new drive letter mid-session: "Save, then Restart now";
+- Q-ST2-2, the heartbeat: "Only when something saves". Nothing runs while
+  connected; an unplug is noticed at the next save or failed read under the
+  root;
+- Q-ST2-3, a temporary `subst` drive letter for ST2b's proof: "Yes, use
+  subst".
+
 **§5b signed off, all four:** `roots.toml` beside the exe; the marker check
 on each drive while disconnected; `library.json` written into a linked
 library; and removing the parent walk, the CWD lookup and the OS temp use.
@@ -366,12 +374,208 @@ label, linked `last_path`, and active account `me`. Marker fields are
 `v`, `id`, `label`, `created`. New-file publication is exclusive; existing
 operator data is never overwritten during initialization or staging.
 
+### 4e. ST2 execution queue — grounded 2026-10-27
+
+Read in THE checkout at `2d75c27` (#299): `crates/roots/src/{lib,handle,
+discovery,disk,model}.rs`, `crates/app/src/{main,storage_startup}.rs`,
+`crates/egui-pilot-ai-{transport,runtime}/src/lib.rs`,
+`crates/estate/src/lib.rs`, `.eguipilotai.toml`, and a census of every
+`dpl_roots::` call the app can reach (22 files).
+
+What the reading found:
+- **The startup screen is its own `eframe` run** (`run_and_return`) with its
+  own `egui::Context`. The pilot runtime attaches only to the main app's
+  (`main.rs:1321`), and a runtime's handshake belongs to one guard, so
+  handing the stdio transport across would need a second handshake. One
+  window removes the problem instead of working around it.
+- **`last_path` is never written:** a reconnect updates it in memory
+  (`handle.rs:155-159`), and `disk` can create `roots.toml` but never
+  replace it.
+- **Leaving Connected panics:** `content_root()` and its siblings `expect` a
+  connected root (`lib.rs:192-195`). At least eight surfaces call them every
+  frame: the author dashboard, lessons, the episode picker, the gallery, the
+  Shows picker, slide media and backdrops.
+- **There is no single save path.** The private crash-safe writers in
+  `dpl-doc`, `dpl-comp` and `dpl-workflows` carry most saves, plus about a
+  dozen one-off writers. The three document crates' ceilings forbid a
+  `dpl-roots` edge.
+- **About 25 struct fields cache library paths:** `Editor.dir`,
+  `Composer.dir`, `SeamState.root`, `ShowsHub.content_root` and others.
+- **The app can't be rebuilt in-process.** The seam thread has no shutdown
+  and holds the estate `Arc`, so fjall's lock and port 7341 stay held — the
+  shape of known-broken #13.
+- **There is no banner or notice API.** The hooks are the status-bar cell
+  registry (`shell/src/status.rs:94`) and `ShellEvent`
+  (`fabric/src/lib.rs:43`).
+
+**ST2a — at launch: not connected, then reconnected by itself** (one PR)
+
+1. **`dpl-roots`: watch, locate and remember.** The ceiling is unchanged.
+   - `disk::replace_config` creates `roots.toml.new` exclusively, syncs it,
+     then renames it over `roots.toml`. It refuses links.
+   - A reconnect at a new path writes the new `last_path`. This applies to
+     linked libraries only: an imported library never rewrites, and a seam
+     never writes.
+   - `reconnect()` refreshes a clone of the handle outside the lock, then
+     swaps it in only if the configuration is unchanged. A 26-letter probe
+     never blocks a frame.
+   - `watch(wake)` is one background thread (`dpl-roots-watch`) that probes
+     every 2 s while the library is not connected; `wake` repaints. It never
+     runs under a seam.
+   - `locate(folder)` reads the marker there:
+     - the same id connects and remembers the path;
+     - another library returns `Located::Other { label }` for the screen to
+       ask about;
+     - nothing is written into the folder.
+   - `status()` gives the screen the label, the last path and the reason.
+2. **One window** (`main.rs`, `storage_startup.rs`).
+   - `prepare()` and `run_and_return` go. `main()` asks `ready()` without a
+     window.
+   - The three headless drills (`--clone-seed`, `--export-guide`,
+     `--brainstorm-drill`) refuse plainly without a library: exit 2, and no
+     window.
+   - The boot steps that need the library (the LS2 slide upgrade, the AI
+     census, `--preset`) move into one `open_library()`. It runs before
+     `App::new`, whether the library was ready at launch or opened on the
+     screen.
+   - There is one `eframe::run_native`. Its root app shows the library
+     screens until a library opens, then `App` in the same window.
+     `on_exit` is forwarded.
+   - The pilot runtime attaches once, at creation, and is pumped every frame
+     in both stages. `attach_pilot_runtime` splits in two: the transport and
+     the renderer identity at creation; the coach catalog, the fabric tap
+     and chat when `App` adopts it.
+3. **The Disconnected screen.** The `unavailable` page grows.
+   - It says "Your library 'DevPULSE drive' isn't connected." and "Plug it in and
+     it reconnects by itself.", with where it was last seen and a quiet
+     "Looking…". When the watch finds the library, the app opens with no
+     tap.
+   - **Locate…** is a path field with **Check**, like Change where… on the
+     Bring in page. A different library asks "That's 'Spare library'. Open it
+     instead?" before anything changes.
+   - **Use a library on this machine** offers the first screen's choices.
+     Finishing one replaces `roots.toml`, after a line saying the old
+     library won't reconnect by itself any more and that Locate… brings it
+     back.
+   - **Quit.**
+   - A broken configuration keeps the honest "couldn't be opened" page with
+     Try again, and the watch retries it too. That covers a malformed file,
+     a different library at the path, and two copies.
+4. **Proof (ST2a).**
+   - **Unit (`dpl-roots`):**
+     - the watch step finds the library on another "drive" (temp folders
+       standing in, through `refresh_with_candidates`) and writes the new
+       `last_path`;
+     - an imported library and a seam never write;
+     - `replace_config` leaves the old file whole when it can't finish;
+     - `locate` never silently adopts another library.
+   - **Headless (`egui_kittest`):**
+     - the page opens the library when its marker appears;
+     - Locate… on another library asks first;
+     - Use a library on this machine replaces `roots.toml` only once
+       confirmed.
+   - **EguiPilotAI on the real exe:**
+     - Profile `st2-portable` launches a copy of the devtools exe in
+       `target/st2-proof/portable/`. That is its own program folder, so it
+       has no seam. It is linked to a library last seen at `P:\library`.
+     - Scenario `tests/eguipilotai/st2-disconnected.toml`: with no `P:`, the
+       page's nodes are present and Locate… opens its field.
+     - While the page waits, the scratch drive folder comes back as `Q:`
+       (`subst`, removed after the run). The app must open by itself, in
+       the same window, and remember `Q:\library`. (Amended 2026-10-27:
+       a new letter proves more than renaming the folder back; Locate…'s
+       path is proven headless, since a typed path is machine-specific.)
+   - **Shots** at 1440×900 and 1100×700.
+
+**ST2b — mid-session: unplugged, nothing lost, nothing written to the wrong
+place** (one PR, after ST2a)
+
+5. **`dpl-roots`: the guard.**
+   - A new state, `Unplugged { last, reason }`. The path functions keep
+     returning `last`, so per-frame readers find nothing instead of
+     panicking.
+   - `writable(path)` checks the marker at the current library, at most
+     every 500 ms. While unplugged it refuses with "Your library 'DevPULSE drive'
+     was unplugged — plug it back in to save."
+   - A failed check flips the state to Unplugged and wakes the watch. So
+     does `io_failed(path, error)`, for an IO failure under the root: a save,
+     or a listing that can't read the content folder.
+   - No heartbeat (Q-ST2-2, ruled): nothing runs while connected.
+6. **Every writer asks** (the census list).
+   - **The three document writers** use an installed guard:
+     `set_write_guard(fn(&Path) -> Result<PathBuf, String>)` in `dpl-doc`,
+     `dpl-comp` and `dpl-workflows`. That adds no dependency, so the
+     ceilings hold.
+   - **`dpl-index`:** `Index::open_default`.
+   - **App and chat:**
+     - ChromeChoices (`main.rs:1719`) and the AI backfill
+       (`ai_backfill.rs:80`);
+     - the chat policies (`chat.rs:286`, `2387`, `2439`);
+     - the room library folders (`chat.rs:4553`);
+     - the chat brainstorm (`chat.rs:2665`);
+     - the Imagine cache (`imagine` `lib.rs:170`, `206`);
+     - the profile and account stores, on each operation.
+   - **ViziWiz:**
+     - the landing policy (`lib.rs:1466`, `1477`);
+     - the start of a capture (`inbox()`, `298`);
+     - the freeze file (`editor.rs:50`).
+   - **Composer:**
+     - its saved state and prefer-reference (`lib.rs:106`, `1611`);
+     - the render's temp folder (`lib.rs:5847`);
+     - import and promote (`import.rs:164`, `192`, `222`, `290`);
+     - `libraries.json` (`browse.rs:308`, `322`).
+   - **Present:** `present-screens.json` (`lib.rs:521`).
+   - **Workbench:** moves and writes (`lib.rs:1001`, `studio.rs:217`,
+     `author.rs:2081`, `2346`).
+   - **The seam** refuses changes while unplugged.
+   - **The ledger writer** holds its rows until the library is back.
+7. **The banner** (`dpl-shell`).
+   - `ShellEvent::Library(Unplugged | Reconnected)` drives a full-width
+     ColdLight banner under the top bar: "Your library 'DevPULSE drive' was
+     unplugged. Plug it back in to save — your open work is kept."
+   - A Library status cell sits alongside it.
+   - A recording running at the moment of the unplug ends as a failed job,
+     with its reason.
+8. **Kept edits.** A refused save keeps the work in memory: the card
+   editor, lessons, the brainstorm and the comp autosave already hold it. On
+   reconnect, each one whose save was refused saves again.
+9. **Reconnect.**
+   - **The same path** is the usual case, since Windows gives a replugged
+     drive its letter back:
+     - the estate reopens in place (`Estate::reopen` behind an inner lock,
+       so chat, composer and the seam keep their `Arc`);
+     - the ledger flushes, kept edits save, and the banner clears.
+   - **A new path mid-session (Q-ST2-1, ruled):** kept edits save at the new path,
+     because `writable` rebases a path under the earlier location. Then the
+     banner offers **Restart now**, and the app restarts on the new letter.
+     Carrying on without a restart would mean re-pointing about 25 cached
+     paths and making the seam stoppable: a pass of its own, if wanted.
+10. **Proof (ST2b).**
+    - **Unit:**
+      - `writable` refuses while unplugged, rebases, and never returns a
+        path on another library;
+      - each document crate's guard refuses;
+      - the estate reopens.
+    - **Real exe (Q-ST2-3, ruled):**
+      - a scratch library on a temporary `subst` drive letter, linked;
+      - with the app open, `subst /d`, then a typed card edit → the save is
+        refused with those words and the banner appears;
+      - the same letter back → the edit saves and the banner clears;
+      - a different letter → the edit saves there and Restart now appears;
+      - shots of the banner at both sizes.
+    - **The operator's own USB check** comes last (§6).
+
 | Where | Change | Pass |
 |---|---|---|
 | **new `crates/roots` (`dpl-roots`)** | ENGINE layer, egui-free: `roots.toml`, the marker, the layout, the `Roots` handle (connected/disconnected), the drive check; ceiling serde, serde_json, toml | ST1–ST2 |
 | `crates/engine-capture` | `content_root()` / `assets_root()` / `userdata_root()` deleted; its callers move to `dpl-roots` in one pass (no re-export shim) | ST1 |
 | the 13 dependents, `crates/app` (boot, the honesty log) | read the `Roots` handle; the Disconnected screen and banner | ST1–ST2 |
 | `composer`, `viziwiz` | OS temp → `common\temp`; `composer-state.json` → `.userdata` | ST1 |
+| `crates/app` `main.rs` | one window: the library screens and the app in one `eframe` run; the pilot runtime attaches once | ST2a |
+| `dpl-doc`, `dpl-comp`, `dpl-workflows` | an installed write guard in each crash-safe writer (no new dependency) | ST2b |
+| `dpl-estate` | `reopen` in place, so the `Arc` holders keep working | ST2b |
+| `dpl-shell`, `dpl-fabric` | the library banner and status cell; `ShellEvent::Library` | ST2b |
+| the census's one-off writers (§4e step 6) | ask `dpl_roots::writable` first | ST2b |
 | chat, analytics, imagine | their files move to `.aidata` | ST4 |
 | `crates/xtask` | `stage-roots` (THE checkout's `roots.toml`), `move-library [--dry-run]`; the structure audit's `EGUI_FREE` and `CEILINGS` rows | ST1, ST4 |
 | docs | `architecture.md` (the new crate, same commit as the audit), ADR-014 amendment (the layout), requirements R287, status | each pass |
@@ -386,6 +590,8 @@ operator data is never overwritten during initialization or staging.
 | A linked library outside the program folder | the feature itself | Confirm |
 | Remove the parent walk and CWD lookups (inventory #29), and OS temp (#31) | the portable folder never reaches outside itself | Fix (ST1) |
 | A build's program folder is its project: an exe at `<project>\target\<profile>\` with `<project>\Cargo.toml` uses `<project>` for `roots.toml` and `library\` | the library stored inside the project (R291) | **Ruled** 2026-10-26 (ST1b) |
+| Rewrite `roots.toml` (an exclusive `.new`, then a rename) when the library is found at a new path, Located, or replaced by Use a library on this machine | §4.3's "updates the last path"; the old file is never left half-written | Covered by row 1 (ST2a) |
+| For ST2b's proof only: a temporary `subst` drive letter over a scratch folder, removed after each run | the only way to unplug and replug a drive letter under a running app without hardware or admin (Windows can't rename a folder while files in it are open) | **Ruled** 2026-10-27 (Q-ST2-3) |
 
 ## 6. Proof
 
@@ -414,7 +620,19 @@ operator data is never overwritten during initialization or staging.
   worse on a slow drive. That needs its own fix first, or ST2 handles it
   plainly.
 - **Polling cost:** a stat on each drive letter every few seconds while
-  disconnected, and nothing while connected.
+  disconnected, and nothing while connected (Q-ST2-2, ruled).
+- **An empty card reader or DVD drive** can make Windows show "There is no
+  disk in the drive" when a letter is probed. The fix, `SetErrorMode`, is
+  FFI, which the workspace denies outside `dpl-lottie-render`. The probe
+  runs off the UI thread so it can never freeze the window. ST2a checks this
+  on this machine. If a dialog appears, that is a question for the operator
+  (an architecture amendment), not a quiet workaround.
+- **fjall after a real unplug:** its background workers may fail on a dead
+  handle. ST2b's `subst` proof shows whether the estate can be dropped and
+  reopened cleanly; a panic there blocks ST2b until fixed.
+- **The headless drills without a library** used to open the startup
+  window. With one window they exit 2 and say why, which is more honest for
+  a command that opens no window.
 
 ## 8. Evidence
 
@@ -460,6 +678,51 @@ in the same process. Details and boundaries:
   `CONTENT_ROOT` of its own, now runs in `target/eguipilotai/default`.
 - **Owed to the operator:** the real move — open the rebuilt exe, tap Bring
   in my existing library…, check the card, tap Move it.
+
+**ST2a, 2026-10-27:**
+- **Unit:** `dpl-roots` has 34 tests, 7 of them new:
+  - a linked library found on another "drive" is written back to
+    `roots.toml` once, and the next open finds it there;
+  - an imported library and a seam never rewrite;
+  - a replace finishes over an interrupted one's `.new`;
+  - a replace that can't finish leaves the old file byte for byte
+    (Windows, held open without sharing);
+  - Locate names this library or another and writes nothing;
+  - another library replaces `roots.toml` only with `Publish::Replace`;
+  - a background reconnect installs its probe only if no `roots.toml` was
+    written meanwhile. This is the one test that touches the process-wide
+    handle; other tests' writes count against it too, so it retries.
+- **The pages, headless** (`egui_kittest`, 5 tests): the two ST1b tests,
+  plus:
+  - the Disconnected page names the library and opens with no tap when the
+    watch finds it;
+  - Locate… on the library itself opens it where it is now, and on another
+    library asks first, with `roots.toml` unchanged until the person taps
+    Open;
+  - Use a library on this machine replaces `roots.toml` only once a choice
+    finishes, and the drive's library is left as it was.
+- **One window, real exe:** the pilot now attaches at creation and reaches
+  both stages.
+  - `jobs-board` passes on the main app.
+  - `shell-navigation` fails at its third step, on a "Test Lab" rail item
+    that no longer exists. The scenario dates from the toolkit's first
+    commit, so the failure isn't caused by this pass; it is left as
+    found.
+- **The Disconnected page, real exe, scratch only** (`target/st2-proof/`;
+  prep in the session scratchpad, `st2a_prep.sh`):
+  - shots at 1440×900 and 1100×700 in `docs/proof/portable-storage-st2a/`;
+  - those runs wrote nothing to either folder.
+- **EguiPilotAI `st2-disconnected`: pass, twice**, the second time on the
+  final build. With no `P:`, the page's nodes are present and Locate…
+  opens its field. Six seconds in, `subst Q: target\st2-proof\drive`; the
+  app opened by itself in the same window and wrote
+  `last_path = 'Q:\library'`. `Q:` was removed after each run.
+  - Captures: `locate-1440x900.png`, `reconnected-on-q-1440x900.png`.
+- **Headless drills:** `--clone-seed` without a library printed the reason
+  and exited 2, with no window.
+- **The empty-drive dialog (§7)** didn't appear in any run. This machine
+  has only `C:` and `D:`, so a card reader is still unchecked: the
+  operator's USB check covers it.
 
 ## Questions for the operator
 
