@@ -381,6 +381,8 @@ impl ProfileStore {
     }
 
     async fn connect(path: &Path) -> Result<turso::Connection, ProfileError> {
+        // ST2b: opening creates the file, so never while unplugged.
+        let path = dpl_roots::writable(path).map_err(ProfileError::Storage)?;
         let database = turso::Builder::new_local(&path.to_string_lossy())
             .build()
             .await

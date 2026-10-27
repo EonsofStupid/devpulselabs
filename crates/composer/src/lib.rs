@@ -109,7 +109,9 @@ fn reference_pref_load() -> bool {
     reference_pref_path().exists()
 }
 fn reference_pref_save(on: bool) {
-    let path = reference_pref_path();
+    let Ok(path) = dpl_roots::writable(&reference_pref_path()) else {
+        return;
+    };
     if on {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -1598,7 +1600,7 @@ impl Composer {
                 self.edited_at = None;
             }
             Err(e) => {
-                self.status = format!("Autosave failed: {e:?}");
+                self.status = format!("Autosave failed: {e}");
                 self.edited_at = Some(Instant::now());
             }
         }
@@ -1607,12 +1609,14 @@ impl Composer {
     /// Remember this comp as the one to reopen next run.
     fn remember_last(&self, dir: &Path) {
         let rel = Self::short(dir);
-        state::save(
-            &dpl_roots::userdata_root(),
-            &state::EditorState {
-                last_comp: Some(rel.clone()),
-            },
-        );
+        if let Ok(userdata) = dpl_roots::writable(&dpl_roots::userdata_root()) {
+            state::save(
+                &userdata,
+                &state::EditorState {
+                    last_comp: Some(rel.clone()),
+                },
+            );
+        }
         // Dual-write into the estate (seam GET /state lastComp). Best-effort —
         // composer-state.json remains the reopen path this pass.
         if let Some(est) = &self.estate {
@@ -5844,7 +5848,7 @@ fn render_comp_resolving(
 ) -> Result<(), String> {
     use dpl_engine_media::{OverlayClip, OverlayInput};
     static SEQ_N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let seq_root = dpl_roots::temp_root().join(format!(
+    let seq_root = dpl_roots::writable(&dpl_roots::temp_root())?.join(format!(
         "dpl-comp-render-{}-{}",
         std::process::id(),
         SEQ_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)

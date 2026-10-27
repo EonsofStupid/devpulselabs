@@ -518,7 +518,9 @@ impl PresentHub {
                 slides: slides.min,
                 presenter,
             };
-            if let Err(e) = save_places(&places_file(), &machine(), places) {
+            if let Err(e) = dpl_roots::writable(&places_file())
+                .and_then(|file| save_places(&file, &machine(), places))
+            {
                 self.error = Some(format!("could not remember the screens: {e}"));
             }
         }

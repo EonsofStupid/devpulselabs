@@ -91,6 +91,11 @@ fn main() -> eframe::Result {
     // without a library, the window opens on the library pages (ST2a).
     // `--bring-in` opens the move page there, for proof shots.
     let bring_in = std::env::args().any(|arg| arg == "--bring-in");
+    // ST2b: every document write asks the library first, so nothing is
+    // written while it is unplugged or onto a drive that took its letter.
+    dpl_doc::set_write_guard(dpl_roots::writable);
+    dpl_comp::set_write_guard(dpl_roots::writable);
+    dpl_ledger::set_write_guard(dpl_roots::writable);
     let library = storage_startup::ready();
     match &library {
         Ok(()) => open_library(),
@@ -608,7 +613,7 @@ fn main() -> eframe::Result {
         options.viewport = options.viewport.with_title("DevPULSE Labs — your library");
     }
 
-    eframe::run_native(
+    let ran = eframe::run_native(
         "DevPULSE Labs",
         options,
         Box::new(move |cc| {
@@ -683,7 +688,19 @@ fn main() -> eframe::Result {
             }
             Ok(Box::new(root))
         }),
-    )
+    );
+    if RESTART.load(std::sync::atomic::Ordering::Acquire) {
+        // The same program and arguments, started as this one ends.
+        let restarted = std::env::current_exe().and_then(|exe| {
+            let mut command = std::process::Command::new(exe);
+            command.args(std::env::args_os().skip(1));
+            dpl_proc::quiet(&mut command).spawn()
+        });
+        if let Err(error) = restarted {
+            tracing::error!(%error, "DevPULSE could not restart; open it again");
+        }
+    }
+    ran
 }
 
 /// LS2 (ruled 2026-10-21, "upgrade once, keep backups"): every old slide
@@ -704,6 +721,10 @@ fn open_library() {
         tracing::warn!(dir = %dir.display(), %error, "slide NOT upgraded — left as it was");
     }
 }
+
+/// Restart now was tapped (ST2b): once the window has closed and every store
+/// flushed, `main` opens the app again on the library's new place.
+static RESTART: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The one window (ST2a): the library pages until a library opens, then the
 /// app in the same window. EguiPilotAI attaches once, at creation, so it
@@ -930,6 +951,15 @@ struct Boot {
 
 struct App {
     shell: Shell,
+    /// The estate every holder shares, kept here so a reconnect can reopen
+    /// it in place (ST2b).
+    estate: Option<std::sync::Arc<dpl_estate::Estate>>,
+    /// Where the library was when the app opened, and how many times a
+    /// library had opened then: a new count means it came back (ST2b).
+    library_at: Option<std::path::PathBuf>,
+    library_opened: u64,
+    /// Looks for the library while it is unplugged.
+    library_watch: Option<dpl_roots::Watch>,
     /// The last-written ColdLight picks, so a write only happens when the
     /// operator actually changed something.
     chrome_choices: ChromeChoices,
@@ -1434,6 +1464,10 @@ impl App {
 
         Self {
             shell,
+            estate,
+            library_at: dpl_roots::library(),
+            library_opened: dpl_roots::generation(),
+            library_watch: None,
             chrome_choices,
             fabric,
             waker_installed: false,
@@ -1467,6 +1501,53 @@ impl App {
             #[cfg(feature = "eguipilotai-devtools")]
             coach_catalog,
             ledger,
+        }
+    }
+
+    /// A library unplugged mid-session (ST2b). Saves already refuse; here
+    /// the banner shows and the watch looks for it. Back where it was, the
+    /// estate reopens and kept edits save; back somewhere new, kept edits
+    /// save there and the banner offers Restart now (ruled 2026-10-27).
+    fn watch_library(&mut self, ctx: &egui::Context) {
+        let label = dpl_roots::label().unwrap_or_default();
+        if dpl_roots::is_unplugged() {
+            if self.library_watch.is_none() {
+                tracing::warn!(library = %label, "library unplugged; saves wait until it is back");
+                let ctx = ctx.clone();
+                self.library_watch = dpl_roots::watch(move || ctx.request_repaint())
+                    .map_err(|error| tracing::warn!(%error, "the library won't be looked for"))
+                    .ok();
+            }
+            self.shell
+                .set_library_notice(Some(dpl_shell::LibraryNotice::Unplugged { label }));
+            return;
+        }
+        if dpl_roots::generation() != self.library_opened {
+            self.library_opened = dpl_roots::generation();
+            self.library_watch = None;
+            let now = dpl_roots::library();
+            if now == self.library_at {
+                if let Some(estate) = &self.estate {
+                    if let Err(error) = estate.reopen(&dpl_roots::userdata_root().join("estate")) {
+                        tracing::warn!(%error, "estate could not reopen after the library came back");
+                    }
+                }
+                self.shell.set_library_notice(None);
+                tracing::info!(library = %label, "library back; kept edits saving");
+            } else {
+                let place = now
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default();
+                tracing::info!(library = %label, %place, "library back somewhere new; Restart now offered");
+                self.shell
+                    .set_library_notice(Some(dpl_shell::LibraryNotice::Moved { label, place }));
+            }
+            self.shell.library_back();
+        }
+        if self.shell.take_restart() {
+            RESTART.store(true, std::sync::atomic::Ordering::Release);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
 
@@ -1832,6 +1913,7 @@ impl ChromeChoices {
     }
 
     fn save(&self, userdata: &std::path::Path) -> std::io::Result<()> {
+        let userdata = &dpl_roots::writable(userdata).map_err(std::io::Error::other)?;
         let bytes = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
         let temporary = userdata.join(format!("{CHROME_CHOICES_FILE}.tmp"));
         std::fs::write(&temporary, bytes)?;
@@ -1881,6 +1963,7 @@ impl eframe::App for App {
         }
         self.chat.root_close_requested(ui.ctx());
         fit_window(ui.ctx());
+        self.watch_library(ui.ctx());
         self.shell.ui(ui);
 
         // The picker lives in the shell and mutates coldlight's table; the app

@@ -1238,6 +1238,11 @@ impl AuthorSurface {
         // Newest first. `None` (no readable mtime) sorts last, exactly as the
         // hand-rolled descending comparator did.
         all.sort_by_key(|(_, when)| std::cmp::Reverse(*when));
+        // Nothing at all may mean the library was unplugged (ST2b): one look
+        // only when the list is empty, so a full library costs nothing.
+        if all.is_empty() && !root.is_dir() {
+            dpl_roots::io_failed(&root);
+        }
         all
     }
 
@@ -2937,6 +2942,16 @@ impl AuthorSurface {
         let dir = dpl_doc::library_slide_dir(&dpl_roots::content_root(), &slide.id);
         dpl_doc::save(&dir, &slide).map_err(|e| e.to_string())?;
         Ok((slide.id, dir))
+    }
+}
+
+impl AuthorSurface {
+    /// The library is back (ST2b): the open card saves again if its last
+    /// save was refused.
+    pub(crate) fn save_again(&mut self) {
+        if let Some(card) = self.editing.as_mut() {
+            card.editor.save_again();
+        }
     }
 }
 

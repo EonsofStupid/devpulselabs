@@ -102,6 +102,27 @@ and `.aidata/`.
   replaces `roots.toml` only after they confirm; the library on the drive is
   only read.
 
+## Amendment 2026-10-27 — unplugged mid-session (ST2b)
+
+- **Every write asks the library first.** `dpl_roots::writable(path)`
+  checks the library's identity (`library.json`, at most every half second)
+  before anything is written inside it:
+  - the document writers of `dpl-doc`, `dpl-comp`, `dpl-workflows` and
+    `dpl-ledger` reach it through a guard the app installs, so their
+    ceilings are unchanged;
+  - every other writer calls it directly.
+
+  While the library is unplugged, or another drive holds its letter, the
+  write is refused in plain words. Nothing runs while it is connected: an
+  unplug is noticed at the next write, or when a read under the root fails.
+- **Readers keep their folders.** The path functions return the last
+  folders instead of failing, so open screens find nothing rather than
+  crash, and the edits they hold stay in memory.
+- **On reconnect, kept edits save.**
+  - Back where it was, the estate reopens in place and the banner clears.
+  - Back somewhere new, a path cached from before is moved onto the new
+    place, and the banner offers Restart now.
+
 Precedent: Unreal `Saved`/`Intermediate`/`Content`, Resolve
 cache/media-pool/gallery, Lightroom ingest/catalog/library. Embedded
 Turso (metadata) + in-process Arrow/DataFusion over Parquet (analytics)

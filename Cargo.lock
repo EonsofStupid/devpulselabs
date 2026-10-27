@@ -1788,6 +1788,7 @@ dependencies = [
  "dpl-chat-window",
  "dpl-chat-windows",
  "dpl-coldlight",
+ "dpl-comp",
  "dpl-composer",
  "dpl-doc",
  "dpl-engine-capture",

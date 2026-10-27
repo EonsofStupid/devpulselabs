@@ -26,7 +26,8 @@ executable = "target/st2-proof/portable/devpulselabs.exe"
 platforms = ["windows"]
 arguments = ["--mood", "0", "--no-seam"]
 adapter_policy = "hardware-then-software"
-timeout_ms = 30000
+# ST2b's unplug-and-replug timeline runs about 45 s.
+timeout_ms = 90000
 
 [profiles.st2-portable.environment]
 EGUIPILOTAI_ADAPTER_POLICY = "hardware-then-software"
@@ -64,6 +65,14 @@ CONTENT_ROOT = "target/eguipilotai/default/content"
 # executable = "target/release/devpulselabs"
 # platforms = ["macos"]
 # arguments = []
+
+# ST2b: the author surface on `st2-portable`'s scratch library (no
+# CONTENT_ROOT, like its profile; tests/eguipilotai/st2-unplugged.toml).
+[fixtures.st2-author]
+arguments = ["--route", "workbench/author"]
+
+[fixtures.st2-author-1100]
+arguments = ["--route", "workbench/author", "--window", "1100x700"]
 
 [fixtures.test-lab]
 arguments = ["--route", "workbench/test-lab", "--mood", "0"]
