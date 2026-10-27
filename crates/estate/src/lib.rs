@@ -28,6 +28,11 @@ pub const KEY_SHELL_ROUTE: &str = "shell/route";
 /// `Tree::State` key — WiredFRONT last-opened comp (content-root rel path).
 pub const KEY_WIREDFRONT_LAST_COMP: &str = "wiredfront/last-comp";
 
+/// Resolve an estate directory before writing. The application owns library
+/// identity; the estate keeps that policy outside its dependency ceiling.
+/// Guards must not call back into the estate they protect.
+pub type WriteGuard = Arc<dyn Fn(&Path) -> Result<PathBuf, String> + Send + Sync>;
+
 /// The named partitions of the estate — one keyspace, several trees, so a
 /// doc read never scans agent sessions. Additive: new concerns claim a new
 /// partition, they never squat an existing one.
@@ -57,6 +62,7 @@ impl Tree {
 
 /// The open Fjall database and its trees, swapped whole by [`Estate::reopen`].
 struct Stores {
+    dir: PathBuf,
     db: Database,
     docs: Keyspace,
     state: Keyspace,
@@ -109,6 +115,7 @@ impl Stores {
         let mut it = parts.into_iter();
         Ok((
             Self {
+                dir: dir.to_path_buf(),
                 docs: it.next().unwrap(),
                 state: it.next().unwrap(),
                 manifest: it.next().unwrap(),
@@ -134,6 +141,7 @@ impl Stores {
 pub struct Estate {
     /// `None` only inside [`Estate::reopen`], between closing and opening.
     stores: RwLock<Option<Stores>>,
+    write_guard: Option<WriteGuard>,
     /// Read cache keyed by "<tree>/<key>" — bytes shared as `Arc<[u8]>`.
     cache: Cache<String, Arc<[u8]>>,
     /// Set when [`Estate::open`] found a store it could not read and stepped
@@ -146,9 +154,24 @@ pub struct Estate {
 impl Estate {
     /// Open (creating if absent) the estate rooted at `dir`.
     pub fn open(dir: &Path) -> Result<Self, String> {
-        let (stores, stepped_aside) = Stores::open(dir)?;
+        Self::open_with_guard(dir, None)
+    }
+
+    /// Open with a library identity guard. A refusal creates no files. The
+    /// guard also runs before mutations, explicit flushes and reopen.
+    pub fn open_guarded(dir: &Path, guard: WriteGuard) -> Result<Self, String> {
+        Self::open_with_guard(dir, Some(guard))
+    }
+
+    fn open_with_guard(dir: &Path, write_guard: Option<WriteGuard>) -> Result<Self, String> {
+        let dir = match &write_guard {
+            Some(guard) => guard(dir)?,
+            None => dir.to_path_buf(),
+        };
+        let (stores, stepped_aside) = Stores::open(&dir)?;
         Ok(Self {
             stores: RwLock::new(Some(stores)),
+            write_guard,
             cache: Cache::new(8192),
             stepped_aside,
         })
@@ -163,9 +186,15 @@ impl Estate {
             .stores
             .write()
             .map_err(|_| "estate lock poisoned".to_string())?;
+        // A rejected destination must leave the current handles and cache
+        // intact. Only an explicit reopen may adopt a rebased directory.
+        let dir = match &self.write_guard {
+            Some(guard) => guard(dir)?,
+            None => dir.to_path_buf(),
+        };
         *stores = None;
         self.cache.invalidate_all();
-        *stores = Some(Stores::open(dir)?.0);
+        *stores = Some(Stores::open(&dir)?.0);
         Ok(())
     }
 
@@ -208,10 +237,40 @@ impl Estate {
         format!("{}/{key}", tree.name())
     }
 
+    fn check_write(&self, stores: &Stores) -> Result<(), String> {
+        if let Some(guard) = &self.write_guard {
+            if guard(&stores.dir)? != stores.dir {
+                return Err(
+                    "Your library is back somewhere new. Restart now before saving estate state."
+                        .into(),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Keep the checked directory and its handles under the same lock, so a
+    /// concurrent reopen cannot substitute a store between check and write.
+    fn with_write<R>(
+        &self,
+        tree: Tree,
+        write: impl FnOnce(&Keyspace) -> Result<R, String>,
+    ) -> Result<R, String> {
+        let stores = self
+            .stores
+            .read()
+            .map_err(|_| "estate lock poisoned".to_string())?;
+        let stores = stores
+            .as_ref()
+            .ok_or_else(|| "estate is reopening".to_string())?;
+        self.check_write(stores)?;
+        write(stores.partition(tree))
+    }
+
     /// Write bytes; updates the cache. Durability is batched — call
     /// [`Estate::persist`] at a save point (or rely on Fjall's recovery).
     pub fn put(&self, tree: Tree, key: &str, bytes: &[u8]) -> Result<(), String> {
-        self.with(tree, |part| {
+        self.with_write(tree, |part| {
             part.insert(key, bytes)
                 .map_err(|e| format!("estate put {}/{key}: {e}", tree.name()))
         })?;
@@ -242,7 +301,7 @@ impl Estate {
 
     /// Delete a key (and evict it from cache).
     pub fn remove(&self, tree: Tree, key: &str) -> Result<(), String> {
-        self.with(tree, |part| {
+        self.with_write(tree, |part| {
             part.remove(key)
                 .map_err(|e| format!("estate remove {}/{key}: {e}", tree.name()))
         })?;
@@ -291,9 +350,11 @@ impl Estate {
             .stores
             .read()
             .map_err(|_| "estate lock poisoned".to_string())?;
-        stores
+        let stores = stores
             .as_ref()
-            .ok_or_else(|| "estate is reopening".to_string())?
+            .ok_or_else(|| "estate is reopening".to_string())?;
+        self.check_write(stores)?;
+        stores
             .db
             .persist(PersistMode::SyncAll)
             .map_err(|e| format!("estate persist: {e}"))
@@ -423,5 +484,81 @@ mod tests {
         holder.put(Tree::State, "k", b"after").unwrap();
         assert_eq!(&*estate.get(Tree::State, "k").unwrap().unwrap(), b"after");
         assert_eq!(estate.keys(Tree::State), ["k"]);
+    }
+
+    #[test]
+    fn denied_open_creates_no_estate() {
+        let dir = scratch("guard-denied-open");
+        let guard: WriteGuard = Arc::new(|_| Err("library unplugged".into()));
+        assert!(Estate::open_guarded(&dir, guard).is_err());
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn refused_writes_and_reopen_keep_the_saved_state() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = scratch("guard-refusal");
+        let other = scratch("guard-refused-reopen");
+        let available = Arc::new(AtomicBool::new(true));
+        let state = Arc::clone(&available);
+        let guard: WriteGuard = Arc::new(move |path| {
+            if state.load(Ordering::Acquire) {
+                Ok(path.to_path_buf())
+            } else {
+                Err("library unplugged".into())
+            }
+        });
+        let estate = Estate::open_guarded(&dir, guard).unwrap();
+        estate.put(Tree::State, "k", b"saved").unwrap();
+        estate.persist().unwrap();
+
+        available.store(false, Ordering::Release);
+        assert!(estate.put(Tree::State, "k", b"refused").is_err());
+        assert!(estate.put(Tree::State, "new", b"refused").is_err());
+        assert!(estate.remove(Tree::State, "k").is_err());
+        assert!(estate.persist().is_err());
+        assert!(estate.reopen(&other).is_err());
+        assert!(!other.exists());
+        assert_eq!(&*estate.get(Tree::State, "k").unwrap().unwrap(), b"saved");
+        assert!(estate.get(Tree::State, "new").unwrap().is_none());
+
+        // A denied reopen did not discard the existing handles. Re-enable
+        // writes and flush before reopening to prove its disk state too.
+        available.store(true, Ordering::Release);
+        estate.persist().unwrap();
+        estate.reopen(&dir).unwrap();
+        assert_eq!(&*estate.get(Tree::State, "k").unwrap().unwrap(), b"saved");
+        assert!(estate.get(Tree::State, "new").unwrap().is_none());
+        estate.put(Tree::State, "k", b"back").unwrap();
+        estate.persist().unwrap();
+    }
+
+    #[test]
+    fn rebased_guard_never_authorizes_old_database_handles() {
+        let first = scratch("guard-first-path");
+        let second = scratch("guard-second-path");
+        let destination = Arc::new(RwLock::new(first.clone()));
+        let state = Arc::clone(&destination);
+        let guard: WriteGuard = Arc::new(move |_| Ok(state.read().unwrap().clone()));
+        let estate = Estate::open_guarded(&first, guard).unwrap();
+        estate.put(Tree::State, "k", b"first").unwrap();
+        estate.persist().unwrap();
+
+        *destination.write().unwrap() = second.clone();
+        assert!(estate.put(Tree::State, "k", b"wrong place").is_err());
+        assert!(estate.remove(Tree::State, "k").is_err());
+        assert!(estate.persist().is_err());
+        assert!(!second.exists());
+
+        // Explicit reopen adopts the resolved destination and invalidates
+        // the old cache. Refused writes left the first database unchanged.
+        estate.reopen(&first).unwrap();
+        assert!(estate.get(Tree::State, "k").unwrap().is_none());
+        estate.put(Tree::State, "k", b"second").unwrap();
+        estate.persist().unwrap();
+        let previous = Estate::open(&first).unwrap();
+        assert_eq!(&*previous.get(Tree::State, "k").unwrap().unwrap(), b"first");
+        assert_eq!(&*estate.get(Tree::State, "k").unwrap().unwrap(), b"second");
     }
 }

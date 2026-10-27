@@ -1125,28 +1125,30 @@ impl App {
         }
         // Ring-0 estate (Fjall+Moka): durable shell route + WiredFRONT
         // lastComp for the agent seam. Open failure never kills the app.
-        let estate: Option<std::sync::Arc<dpl_estate::Estate>> = match dpl_estate::Estate::open(
-            &dpl_roots::userdata_root().join("estate"),
-        ) {
-            Ok(e) => {
-                if let Some(aside) = e.stepped_aside() {
-                    // Says it ONCE, plainly, and names where the old store
-                    // went. The estate only ever held `shell/route` and
-                    // `wiredfront/last-comp`, so the cost is that the app
-                    // reopens on the default route — not lost work.
-                    tracing::warn!(
-                        stale = %aside.display(),
-                        "estate was unreadable (older on-disk format) — moved aside and started fresh; \
-                         the remembered route and last comp reset"
-                    );
+        let estate: Option<std::sync::Arc<dpl_estate::Estate>> =
+            match dpl_estate::Estate::open_guarded(
+                &dpl_roots::userdata_root().join("estate"),
+                std::sync::Arc::new(dpl_roots::writable),
+            ) {
+                Ok(e) => {
+                    if let Some(aside) = e.stepped_aside() {
+                        // Says it ONCE, plainly, and names where the old store
+                        // went. The estate only ever held `shell/route` and
+                        // `wiredfront/last-comp`, so the cost is that the app
+                        // reopens on the default route — not lost work.
+                        tracing::warn!(
+                            stale = %aside.display(),
+                            "estate was unreadable (older on-disk format) — moved aside and started fresh; \
+                             the remembered route and last comp reset"
+                        );
+                    }
+                    Some(std::sync::Arc::new(e))
                 }
-                Some(std::sync::Arc::new(e))
-            }
-            Err(e) => {
-                tracing::warn!(%e, "estate open failed — durable seam state disabled");
-                None
-            }
-        };
+                Err(e) => {
+                    tracing::warn!(%e, "estate open failed — durable seam state disabled");
+                    None
+                }
+            };
         // The harness path into the SESSIONS player (S2).
         let mut wiredfront = dpl_hub_wiredfront::WiredfrontHub::default();
         // WIRE THE FABRIC BEFORE THE DRILLS (W8 fix): harness mutations
@@ -1920,6 +1922,16 @@ impl ChromeChoices {
         std::fs::rename(temporary, userdata.join(CHROME_CHOICES_FILE))
     }
 
+    /// Advance the saved snapshot only after the disk accepted the choice.
+    /// A refused save leaves the live choice dirty for the reconnect frame.
+    fn save_changed(&mut self, picks: Self, userdata: &std::path::Path) -> std::io::Result<()> {
+        if picks.surfaces != self.surfaces {
+            picks.save(userdata)?;
+            *self = picks;
+        }
+        Ok(())
+    }
+
     /// What coldlight is wearing right now.
     fn snapshot() -> Self {
         Self {
@@ -1970,12 +1982,13 @@ impl eframe::App for App {
         // notices the change and writes it. Comparing a handful of short
         // strings once a frame is cheaper than threading an event through two
         // crates, and it cannot miss a pick.
-        let picks = ChromeChoices::snapshot();
-        if picks.surfaces != self.chrome_choices.surfaces {
-            if let Err(error) = picks.save(&dpl_roots::userdata_root()) {
+        if !dpl_roots::is_unplugged() {
+            if let Err(error) = self
+                .chrome_choices
+                .save_changed(ChromeChoices::snapshot(), &dpl_roots::userdata_root())
+            {
                 eprintln!("coldlight: could not remember the preset pick: {error}");
             }
-            self.chrome_choices = picks;
         }
         let ctx = ui.ctx().clone();
         self.chat.frame(&ctx, self.shell.route());
@@ -2232,6 +2245,34 @@ mod tests {
     use dpl_chat_core::{ActivationState, Capability};
     use dpl_chat_runtime::ProviderRegistration;
     use dpl_chat_store::{HistoryCatalog, HistoryLimits, JsonlHistorySource};
+
+    #[test]
+    fn chrome_choices_retry_a_failed_save_when_storage_returns() {
+        use super::ChromeChoices;
+        let dir = std::env::temp_dir().join(format!(
+            "dpl-chrome-reconnect-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let picks = || ChromeChoices {
+            surfaces: [("shell".to_owned(), "orchid-haze".to_owned())].into(),
+        };
+        let mut saved = ChromeChoices::default();
+        assert!(saved.save_changed(picks(), &dir).is_err());
+        assert!(
+            saved.surfaces.is_empty(),
+            "failed writes must remain pending"
+        );
+        assert!(!dir.exists(), "a refused save must not create a stand-in");
+
+        std::fs::create_dir(&dir).unwrap();
+        saved.save_changed(picks(), &dir).unwrap();
+        assert_eq!(ChromeChoices::load(&dir).surfaces, picks().surfaces);
+        assert_eq!(saved.surfaces, picks().surfaces);
+    }
 
     /// A catalog holding a Claude source and nothing else. The root is this
     /// crate's own directory: `has_source` keys on the DECODER's provider id,
