@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 use std::path::{Component, Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, PoisonError, RwLock};
 
 /// The first part of every linked file's name.
 pub const PREFIX: &str = "locations";
@@ -56,6 +57,21 @@ pub(crate) struct Store<'a> {
 /// The record as last read or written, so the per-frame `resolve` never
 /// reads the file: keyed by the `.userdata` it came from.
 static CACHE: RwLock<Option<(PathBuf, Vec<Location>)>> = RwLock::new(None);
+
+/// Where each location was at the last look (ST5a′): lists and painters read
+/// this, so no frame ever waits on a drive. Keyed by its `.userdata`.
+static PLACED: RwLock<Option<(PathBuf, Vec<Placed>)>> = RwLock::new(None);
+
+/// Counts every look that found a location gone, back, or somewhere new.
+static CHANGES: AtomicU64 = AtomicU64::new(0);
+
+/// One edit of the record at a time: the watch's thread and a tap can both
+/// change it.
+static EDIT: Mutex<()> = Mutex::new(());
+
+pub fn changes() -> u64 {
+    CHANGES.load(Ordering::Acquire)
+}
 
 impl Store<'_> {
     fn file(&self) -> PathBuf {
@@ -105,6 +121,7 @@ impl Store<'_> {
         std::fs::write(&staged, json).map_err(|e| format!("{}: {e}", staged.display()))?;
         std::fs::rename(&staged, &file).map_err(|e| format!("{}: {e}", file.display()))?;
         self.remember(locations);
+        self.publish(self.place(locations.to_vec()));
         Ok(())
     }
 
@@ -138,6 +155,7 @@ impl Store<'_> {
         if migrate::inside(self.library, &folder) {
             return Err("Your library is inside that folder; choose a folder beside it.".into());
         }
+        let _edit = EDIT.lock().unwrap_or_else(PoisonError::into_inner);
         let mut locations = self.load()?;
         if let Some(known) = locations.iter().find(|l| self.full(l) == folder) {
             return Err(format!(
@@ -164,34 +182,77 @@ impl Store<'_> {
         Ok(location)
     }
 
-    /// Every location, online where its folder is, offline where it isn't.
+    /// Every location, online where its folder is, offline where it isn't:
+    /// looked at now, and kept as the last look.
     pub fn list(&self) -> Result<Vec<Placed>, String> {
-        Ok(self
-            .load()?
+        let placed = self.place(self.load()?);
+        self.publish(placed.clone());
+        Ok(placed)
+    }
+
+    fn place(&self, locations: Vec<Location>) -> Vec<Placed> {
+        locations
             .into_iter()
             .map(|location| {
                 let full = self.full(&location);
                 let at = full.is_dir().then_some(full);
                 Placed { location, at }
             })
-            .collect())
+            .collect()
+    }
+
+    /// Keep `placed` as the last look, counting it when anything moved.
+    fn publish(&self, placed: Vec<Placed>) {
+        let mut last = PLACED.write().unwrap_or_else(PoisonError::into_inner);
+        let same = last
+            .as_ref()
+            .is_some_and(|(from, was)| from == self.userdata && *was == placed);
+        if !same {
+            *last = Some((self.userdata.to_path_buf(), placed));
+            CHANGES.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
+    /// `pick` from the last look, without touching a drive; the first ask
+    /// looks.
+    fn with_placed<R>(&self, pick: impl FnOnce(&[Placed]) -> R) -> Result<R, String> {
+        if let Some((from, placed)) = PLACED.read().ok().as_deref().and_then(Option::as_ref) {
+            if from == self.userdata {
+                return Ok(pick(placed));
+            }
+        }
+        Ok(pick(&self.list()?))
+    }
+
+    /// Every location as at the last look.
+    pub fn placed(&self) -> Result<Vec<Placed>, String> {
+        self.with_placed(<[Placed]>::to_vec)
     }
 
     /// Look for each offline location in `elsewhere(its last path)` — the
-    /// same place on other drive letters — and keep the first that holds
-    /// the files it is known by. Returns how many came back.
+    /// same place on other drives — and keep the first that holds the files
+    /// it is known by. Returns how many came back.
     pub fn refresh_with(&self, elsewhere: impl Fn(&Path) -> Vec<PathBuf>) -> Result<usize, String> {
+        // Look without holding the record: a drive can be slow to answer.
+        let moved: Vec<(String, PathBuf)> = self
+            .load()?
+            .iter()
+            .filter(|location| !self.full(location).is_dir())
+            .filter_map(|location| {
+                elsewhere(&self.full(location))
+                    .into_iter()
+                    .find(|candidate| candidate.is_dir() && matches(candidate, &location.sample))
+                    .map(|place| (location.id.clone(), place))
+            })
+            .collect();
+        if moved.is_empty() {
+            return Ok(0);
+        }
+        let _edit = EDIT.lock().unwrap_or_else(PoisonError::into_inner);
         let mut locations = self.load()?;
         let mut found = 0;
-        for location in &mut locations {
-            let full = self.full(location);
-            if full.is_dir() {
-                continue;
-            }
-            if let Some(place) = elsewhere(&full)
-                .into_iter()
-                .find(|candidate| candidate.is_dir() && matches(candidate, &location.sample))
-            {
+        for (id, place) in moved {
+            if let Some(location) = locations.iter_mut().find(|l| l.id == id) {
                 location.path = self.stored(&place);
                 found += 1;
             }
@@ -211,6 +272,7 @@ impl Store<'_> {
         }
         let folder = disk::absolute(folder, folder)?;
         disk::no_symlinks(&folder)?;
+        let _edit = EDIT.lock().unwrap_or_else(PoisonError::into_inner);
         let mut locations = self.load()?;
         let location = locations
             .iter_mut()
@@ -230,6 +292,7 @@ impl Store<'_> {
 
     /// Forget a location. Its folder and files are never touched.
     pub fn remove(&self, id: &str) -> Result<(), String> {
+        let _edit = EDIT.lock().unwrap_or_else(PoisonError::into_inner);
         let mut locations = self.load()?;
         let before = locations.len();
         locations.retain(|l| l.id != id);
@@ -239,18 +302,27 @@ impl Store<'_> {
         self.save(&locations)
     }
 
-    /// `locations/<id>/<path inside>` to the file where its location is now.
+    /// `locations/<id>/<path inside>` to the file where its location was at
+    /// the last look. An offline location's drive is never touched.
     pub fn resolve(&self, reference: &Path) -> Option<PathBuf> {
         let (id, inside) = split(reference)?;
-        let location = self.load().ok()?.into_iter().find(|l| l.id == id)?;
-        let file = self.full(&location).join(inside);
+        let folder = self
+            .with_placed(|placed| placed.iter().find(|p| p.location.id == id)?.at.clone())
+            .ok()??;
+        let file = folder.join(inside);
         file.is_file().then_some(file)
     }
 
     /// The location a reference names, online or not, for the offline note.
     pub fn of(&self, reference: &Path) -> Option<Location> {
         let (id, _) = split(reference)?;
-        self.load().ok()?.into_iter().find(|l| l.id == id)
+        self.with_placed(|placed| {
+            placed
+                .iter()
+                .find(|p| p.location.id == id)
+                .map(|p| p.location.clone())
+        })
+        .ok()?
     }
 }
 

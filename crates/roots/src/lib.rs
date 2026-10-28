@@ -269,15 +269,22 @@ fn location_store_paths() -> Result<Layout, String> {
         .ok_or_else(|| "Your library isn't open".to_string())
 }
 
-/// Every location (ST5), online where its folder is and offline where it
-/// isn't.
+/// Every location (ST5), online where its folder was at the last look and
+/// offline where it wasn't. No drive is touched once anything has looked
+/// (`watch_locations`, `refresh_locations`), so a frame may ask.
 pub fn locations() -> Result<Vec<Placed>, String> {
     let layout = location_store_paths()?;
     locations::Store {
         library: &layout.library,
         userdata: &layout.userdata,
     }
-    .list()
+    .placed()
+}
+
+/// Counts each time a location went offline, came back or turned up
+/// somewhere new: a list that saw another count reads `locations()` again.
+pub fn locations_changed() -> u64 {
+    locations::changes()
 }
 
 /// Join `folder` to the library in place as a location. Nothing inside it
@@ -312,15 +319,18 @@ pub fn remove_location(id: &str) -> Result<(), String> {
     .remove(id)
 }
 
-/// Look for offline locations at the same place on other drive letters or
-/// mount points; returns how many came back.
+/// Look at every location now: an offline one is looked for at the same
+/// place on the other drive letters or mounts, and what is seen becomes the
+/// last look. Returns how many came back somewhere new.
 pub fn refresh_locations() -> Result<usize, String> {
     let layout = location_store_paths()?;
-    locations::Store {
+    let store = locations::Store {
         library: &layout.library,
         userdata: &layout.userdata,
-    }
-    .refresh_with(discovery::drive_candidates)
+    };
+    let back = store.refresh_with(discovery::drive_candidates)?;
+    store.list()?;
+    Ok(back)
 }
 
 /// The location whose recorded folder is `folder`, from the record alone:
@@ -359,29 +369,29 @@ pub fn location_poster(reference: &str) -> Option<PathBuf> {
     Some(layout.cache.join(LOCATIONS).join(id).join(name))
 }
 
-/// While any location is offline, look for it every three seconds on its
-/// own thread and call `found` each time one comes back. It stops once
-/// every location is online, or when dropped.
-pub fn watch_locations(found: impl Fn() + Send + 'static) -> Result<Watch, String> {
+/// Look at every location every two seconds on its own thread, for as long
+/// as the watch is kept (ST5a′, asked 2026-10-28): one unplugged, plugged
+/// back in, or turning up on another drive calls `changed`. Windows, Linux
+/// (any architecture) and macOS alike; see `discovery`.
+pub fn watch_locations(changed: impl Fn() + Send + 'static) -> Result<Watch, String> {
     let stop = Arc::new(AtomicBool::new(false));
     let stopped = Arc::clone(&stop);
     std::thread::Builder::new()
         .name("dpl-roots-locations".into())
         .spawn(move || loop {
-            for _ in 0..30 {
+            for _ in 0..20 {
                 if stopped.load(Ordering::Acquire) {
                     return;
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
-            if refresh_locations().is_ok_and(|back| back > 0) {
-                found();
-            }
-            let all_online = locations()
-                .map(|placed| placed.iter().all(|p| p.at.is_some()))
-                .unwrap_or(true);
-            if all_online {
-                return;
+            let seen = locations::changes();
+            // No library open (the first screen, a switch) is not a change.
+            if refresh_locations().is_ok()
+                && locations::changes() != seen
+                && !stopped.load(Ordering::Acquire)
+            {
+                changed();
             }
         })
         .map_err(|e| format!("The location watch could not start: {e}"))?;
