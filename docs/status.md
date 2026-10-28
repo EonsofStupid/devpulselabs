@@ -13,9 +13,9 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-28, base main at `e60c140` (ST5a, #303), following
-the ST2 follow-through in #302. PC1a passed local verification in its isolated worktree;
-its release is rebuilt after the double-green merge.
+**Updated:** 2026-10-28, main at `855f674` (#304, ST5a′: Locations aware
+while running and across restarts). PC1a is pushed in PR #305 and includes
+that main update. Its isolated release is rebuilt after the double-green merge.
 
 **CI is warm** (#292, #293, 2026-10-24): the Windows lane went from 45–58
 minutes to about 7 (main after #293: 6m45s), Linux runs in about 2. A
@@ -27,13 +27,14 @@ the Proxmox host.
 
 **Project chat implementation (R292).** The operator authorized the reviewed
 design with **resume**. PC1a is implemented on isolated `feat/chat-project-storage`
-from `e60c140`: project-owned archives, recoverable drafts, native project
-selection and bounded machine discovery. Full `cargo green` passed (1,265 tests,
+from `e60c140`, now integrating `855f674`: project-owned archives, recoverable
+drafts, native project selection and bounded machine discovery.
+Before integration, full `cargo green` passed (1,265 tests,
 six existing ignored); feature checks passed 53 window and 11 host tests.
 Native A/B/A switching, restart, separate drafts and offline transcript reading
 passed at 1440×900 and 1100×700, including with the main window hidden.
 Evidence: [`proof/chat-project-storage/README.md`](proof/chat-project-storage/README.md).
-Push, double-green CI and merge remain the delivery gate.
+PR #305 is pushed; the integrated full gate, double-green CI and merge remain.
 PC1b follows for qualified
 provider-native resume, stable conversation links and standalone launch.
 No operator provider homes or credentials are changed by development. The
@@ -59,6 +60,15 @@ copied, and nothing is written inside it. Its videos and pictures join the
 media shelf and the pickers with cached posters. While the drive is away
 they show "offline — plug it in", never broken, and the drive is found
 again on any letter. Composer lists Locations with Locate… and Remove.
+**ST5a′ (#304)** (asked 2026-10-28: "aware if its been started and stopped …
+linux arm or windows or mac"):
+- **One app-wide watch** looks every 2 s while the library is open. A drive
+  pulled or plugged back in mid-session shows within seconds, on the shelf
+  and in Locations, with a plain status line.
+- **A drive changed while the app was stopped** shows at launch.
+- **Lists and painters read the last look,** never the drive.
+- **Drives are found** on other drive letters (Windows), through the
+  kernel's mount table (Linux, ARM too) and under `/Volumes` (macOS).
 ST2b (#301) covers a library pulled out mid-session:
 - every write asks first, so nothing lands on whatever drive takes its
   letter;
@@ -107,7 +117,7 @@ refreshed without touching content. The research is
 | LS4b | Lists and data: agenda, features, timeline, split, compare, stats, code and the infographics painted; list items selectable | |
 | LS4c | Interactive components as node trees and recipes, with touch sub-events | |
 | RL | Run a lesson (R287, ruled 2026-10-25, one pass): **Run** a lesson (the Lessons page, or from a card) or an episode (the episode wall, the Present hub) — locked, the pinned cards, the slides OS full screen and the presenter opening at once in its own window; touch for the big screen (tap anywhere for the next beat, the left edge back, swipe, long press for the navigator); the presenter drives (big Back / Next, tap a beat to jump, Swap screens); window places kept per machine. **On tap** (the card sheet's tab, and the Lessons editor): each line at the start or on a tap, the teleprompter's words per tap written to the card's `script.mdx` as you type, a preview at any tap; each lesson card says "1 tap · script". `--run-lesson <id>` | **done** (#296) |
-| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md`. ST1 **done** (#297); ST1b **done** (#299: a build's library in its project; Bring in my existing library…, R291); ST2 approved 2026-10-27 as two PRs — ST2a **done** (#300: one window; the Disconnected page reconnects by itself, on any letter); ST2b **done** (#301: unplugged mid-session — refused saves, the banner, kept edits, Restart now; follow-through #302); ST5 approved 2026-10-27 — ST5a **done** (#303: Locations linked in place, offline posters, found on any letter); then ST5b (one list: packs and libraries move in) → ST3 → ST4 |
+| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md`. ST1 **done** (#297); ST1b **done** (#299: a build's library in its project; Bring in my existing library…, R291); ST2 approved 2026-10-27 as two PRs — ST2a **done** (#300: one window; the Disconnected page reconnects by itself, on any letter); ST2b **done** (#301: unplugged mid-session — refused saves, the banner, kept edits, Restart now; follow-through #302); ST5 approved 2026-10-27 — ST5a **done** (#303: Locations linked in place, offline posters, found on any letter); ST5a′ (asked 2026-10-28: aware while running and across restarts, Windows/Linux incl. ARM/macOS) in review; then ST5b (one list: packs and libraries move in) → ST3 → ST4 |
 | AH | AgentHub (R290, ruled 2026-10-26): the app finds the AIs installed on the machine and links to them; a hub showing each one and what it is working on; each AI arrives briefed, warmed up and resumable; Clyffy brings up the task's UI to work on it with other AIs and other people; Council | after ST, before LS4b — its own program plan, for approval |
 | EX | Export a player (R288, ruled 2026-10-24): one folder — the player, the lesson, its videos copied in — that opens straight into Run mode; after LS4c | ruled direction — `docs/plans/export-player.md` |
 | LS4d | Your own templates ("save it as my template") | |
@@ -268,7 +278,7 @@ release) are still to come.
 ## Next, in order
 
 1. **Portable, linked storage** (`docs/plans/portable-storage.md`): ST1,
-   ST1b, ST2a/b and ST5a are done. Next is **ST5b**, one list: pinned packs
+   ST1b, ST2a/b and ST5a are done; ST5a′ is in review. Next is **ST5b**, one list: pinned packs
    and Browse libraries move into Locations once; `--pin-pack` goes; import
    by reference makes a location link instead of a symlink (§4f steps 7–9).
    Then ST3 → ST4. The operator's own USB drive check (§6) is owed.

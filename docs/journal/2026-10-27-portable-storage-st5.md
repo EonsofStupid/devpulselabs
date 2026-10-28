@@ -79,3 +79,34 @@ parallel session's ST2 follow-through: estate write guard, preference
 retries). The amendments and §8 evidence are in the plan. The next step is
 **ST5b** (§4f steps 7–9): migrate `sources.json` and `libraries.json` once,
 remove `--pin-pack`, and make import by reference produce a location link.
+
+## ST5a — landed
+
+#303 merged as `e60c140` on double-green (head `b661733`: green-linux
+2m4s, green-windows 8m26s). The release exe was rebuilt from it
+(2026-10-27 16:30:25, stamp `e60c140 · 2026-10-27 20:28z`).
+
+## ST5a′ — asked 2026-10-28, built
+
+The operator, after hearing that a drive pulled mid-session only showed on
+the shelf:
+
+> it should be aware if its been started and stopped as well whether linux
+> arm or windows or mac please
+
+The plan's §4f ST5a′ (L1–L4) was amended first, on
+`feat/portable-storage-st5a-live` from `e60c140`. The changes:
+- `dpl-roots` keeps the last look (a snapshot plus a change count), and
+  lists and painters read it.
+- One app-wide watch, started in `Root::open`, looks every 2 s.
+- Composer's own watch is deleted. Its list follows the count and says
+  what changed.
+- Drives are found through the kernel's mount table on Linux (any
+  architecture), under `/Volumes` on macOS, and by the shape of the path
+  when the drive is away.
+
+Evidence is in the plan's §8 (ST5a′), and the shots are in
+`docs/proof/portable-storage-st5a-live/`.
+
+**New landmine:** a `subst` pilot scenario launched from a background shell
+didn't see the letter. Run those proofs in the foreground.

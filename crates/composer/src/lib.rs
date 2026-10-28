@@ -165,10 +165,8 @@ pub struct Composer {
     locations: Option<Vec<dpl_roots::Placed>>,
     /// Folders being linked, indexed and postered off the UI thread.
     location_jobs: Vec<std::sync::mpsc::Receiver<Result<String, String>>>,
-    /// Looks for offline locations on other drive letters while any is away.
-    location_watch: Option<dpl_roots::Watch>,
-    /// Set by the watch when a location came back.
-    location_back: Arc<std::sync::atomic::AtomicBool>,
+    /// The app's location watch count `locations` was read at (ST5a′).
+    locations_seen: u64,
     /// The footage row highlighted in the project preview well.
     proj_sel: Option<usize>,
     /// The FOOTAGE palette's active tag filter (L3 — the enricher's tags
@@ -341,8 +339,7 @@ impl Default for Composer {
             packs: None,
             locations: None,
             location_jobs: Vec::new(),
-            location_watch: None,
-            location_back: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            locations_seen: 0,
             proj_sel: None,
             palette_tag: None,
             luts: None,
@@ -2205,27 +2202,23 @@ impl Composer {
         if !self.location_jobs.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(200));
         }
-        if self
-            .location_back
-            .swap(false, std::sync::atomic::Ordering::AcqRel)
-        {
-            self.locations = None;
-            self.status = "A location is back — its files play again.".into();
+        // The app's watch (ST5a′) looks every two seconds; a new count
+        // means a location went, came back or moved, and the list says so.
+        let seen = dpl_roots::locations_changed();
+        if seen != self.locations_seen {
+            self.locations_seen = seen;
+            let now = dpl_roots::locations().unwrap_or_default();
+            if let Some(news) = self
+                .locations
+                .as_deref()
+                .and_then(|was| location_news(was, &now))
+            {
+                self.status = news;
+            }
+            self.locations = Some(now);
         }
-        let placed = self
-            .locations
+        self.locations
             .get_or_insert_with(|| dpl_roots::locations().unwrap_or_default());
-        let offline = placed.iter().any(|p| p.at.is_none());
-        if offline && self.location_watch.is_none() {
-            let (back, ctx) = (Arc::clone(&self.location_back), ctx.clone());
-            self.location_watch = dpl_roots::watch_locations(move || {
-                back.store(true, std::sync::atomic::Ordering::Release);
-                ctx.request_repaint();
-            })
-            .ok();
-        } else if !offline {
-            self.location_watch = None;
-        }
     }
 
     fn open_browser(&mut self, start: PathBuf) {
@@ -6545,7 +6538,6 @@ fn short_name(rel: &str) -> String {
         .unwrap_or_else(|| rel.into())
 }
 
-/// A PROJECT section header line.
 /// Record `dir` as a location, index it in place, and make posters for its
 /// videos and pictures into the cache (ST5). Returns the line the status
 /// shows.
@@ -6580,6 +6572,27 @@ pub fn link_location(dir: &Path) -> Result<(dpl_roots::Location, String), String
     Ok((location, line))
 }
 
+/// What the last look changed, in plain words: the first location that went
+/// offline, came back, or turned up somewhere new (ST5a′).
+fn location_news(was: &[dpl_roots::Placed], now: &[dpl_roots::Placed]) -> Option<String> {
+    now.iter().find_map(|p| {
+        let before = was.iter().find(|w| w.location.id == p.location.id)?;
+        let label = &p.location.label;
+        match (&before.at, &p.at) {
+            (Some(_), None) => Some(format!(
+                "'{label}' went offline — plug it in to use its files."
+            )),
+            (None, Some(_)) => Some(format!("'{label}' is back — its files play again.")),
+            (Some(then), Some(at)) if then != at => Some(format!(
+                "'{label}' turned up at {} — its files play again.",
+                at.display()
+            )),
+            _ => None,
+        }
+    })
+}
+
+/// A PROJECT section header line.
 fn section_header(ui: &mut egui::Ui, label: &str) {
     ui.add_space(cl::space::S2);
     ui.label(RichText::new(label).small().strong().color(cl::ink::MUTED));
@@ -8171,5 +8184,40 @@ mod tests {
             .unwrap();
         assert_eq!(got.as_deref(), Some("inbox/estate-comp"));
         let _ = std::fs::remove_dir_all(&edir);
+    }
+
+    /// ST5a′: the status line names what the watch saw, in plain words.
+    #[test]
+    fn location_news_names_what_changed() {
+        let placed = |id: &str, at: Option<&str>| dpl_roots::Placed {
+            location: dpl_roots::Location {
+                id: id.into(),
+                label: format!("{id} drive"),
+                path: PathBuf::from("videos"),
+                sample: Vec::new(),
+            },
+            at: at.map(PathBuf::from),
+        };
+        let online = [
+            placed("a", Some("S:/videos")),
+            placed("b", Some("D:/clips")),
+        ];
+        let pulled = [placed("a", None), placed("b", Some("D:/clips"))];
+        let moved = [
+            placed("a", Some("T:/videos")),
+            placed("b", Some("D:/clips")),
+        ];
+        assert_eq!(location_news(&online, &online), None);
+        assert_eq!(
+            location_news(&online, &pulled).as_deref(),
+            Some("'a drive' went offline — plug it in to use its files.")
+        );
+        assert_eq!(
+            location_news(&pulled, &moved).as_deref(),
+            Some("'a drive' is back — its files play again.")
+        );
+        assert!(location_news(&online, &moved)
+            .is_some_and(|news| news.starts_with("'a drive' turned up at T:")));
+        assert_eq!(location_news(&[], &online), None, "a new one isn't news");
     }
 }

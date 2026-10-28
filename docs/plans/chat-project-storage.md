@@ -274,6 +274,12 @@ failure; never move/delete old histories to fit the new layout.
 
 ## 8. Qualification evidence and sources
 
+Delivery integration (2026-10-28): PR #305 is pushed at `0b0468a`. Main advanced
+to `855f674` (#304, ST5a′) during the pass. Integrate that change without altering
+its location watcher or this cut's peer project service; reconcile the shared
+status page to preserve both results, then rerun the full gate and double-green
+CI. The only textual merge conflict is the status header. No PC1b scope changes.
+
 Code grounding and gap review use the session-os roles with inherited models;
 the named Fable/Opus model roles are unavailable. Current main includes ST5a;
 there is no open chat-storage PR. No provider process, host profile, link or

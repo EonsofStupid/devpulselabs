@@ -1031,3 +1031,127 @@ fn a_different_folder_is_never_taken_for_a_location_without_asking() {
     assert_eq!(snapshot(&other), other_before, "files are never touched");
     assert!(store.remove(&id).is_err());
 }
+
+/// ST5a′: lists and painters read the last look, so no frame waits on a
+/// drive. A location seen gone resolves to nothing without its drive being
+/// asked; seen back, or turned up somewhere new, it resolves again, and
+/// each look that saw a change is counted.
+#[test]
+fn a_location_is_seen_going_coming_back_and_moving() {
+    let _turn = GLOBAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *global().write().unwrap() = None;
+    let base = scratch();
+    let layout = imported(&program(&base, "program"));
+    let store = locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    };
+    let videos = program(&base, "drive/videos");
+    fs::write(videos.join("intro.mp4"), vec![1u8; 300]).unwrap();
+    let location = store.add(&videos, "").unwrap();
+    let reference = location_reference(&location, Path::new("intro.mp4"));
+    assert_eq!(store.placed().unwrap()[0].at, Some(videos.clone()));
+    let start = locations::changes();
+    store.list().unwrap();
+    assert_eq!(
+        locations::changes(),
+        start,
+        "nothing moved, nothing counted"
+    );
+
+    // Pulled: the last look stands until something looks again.
+    fs::rename(base.join("drive"), base.join("away")).unwrap();
+    assert_eq!(store.placed().unwrap()[0].at, Some(videos.clone()));
+    store.list().unwrap();
+    assert!(locations::changes() > start);
+    assert_eq!(store.placed().unwrap()[0].at, None);
+
+    // Back: an offline location isn't asked until a look sees it.
+    fs::rename(base.join("away"), base.join("drive")).unwrap();
+    assert_eq!(store.resolve(Path::new(&reference)), None);
+    let gone = locations::changes();
+    store.list().unwrap();
+    assert!(locations::changes() > gone);
+    assert_eq!(
+        store.resolve(Path::new(&reference)),
+        Some(videos.join("intro.mp4"))
+    );
+
+    // Moved while away: found somewhere new by its files.
+    let other = base.join("other-drive");
+    fs::rename(base.join("drive"), &other).unwrap();
+    store.list().unwrap();
+    assert_eq!(store.refresh_with(|_| vec![other.join("videos")]), Ok(1));
+    assert_eq!(store.placed().unwrap()[0].at, Some(other.join("videos")));
+    assert_eq!(
+        store.resolve(Path::new(&reference)),
+        Some(other.join("videos/intro.mp4"))
+    );
+}
+
+/// ST5a′: where drives appear outside Windows. Linux's mount table (any
+/// architecture) names them exactly, escapes and all. A drive that's away
+/// has no entry, so its root is guessed from the path's shape: usbmount's
+/// `/media/usb0` one folder down, udisks's `/media/<user>/<label>` two, and
+/// macOS's `/Volumes/<name>` and `/mnt/<name>` one.
+#[test]
+fn drives_are_found_where_each_os_mounts_them() {
+    let table = "/dev/sda2 / ext4 rw,relatime 0 0\n\
+                 proc /proc proc rw 0 0\n\
+                 /dev/sdb1 /media/pi/MY\\040STICK vfat rw 0 0\n\
+                 /dev/sdc1 /media/usb0 vfat rw 0 0\n\
+                 /dev/sdd1 /run/media/ana/Footage exfat rw 0 0\n\
+                 drvfs /mnt/c 9p rw 0 0\n\
+                 tmpfs /mnt tmpfs rw 0 0\n";
+    let mounts = discovery::mounts_in(table);
+    let named: Vec<PathBuf> = [
+        "/media/pi/MY STICK",
+        "/media/usb0",
+        "/run/media/ana/Footage",
+        "/mnt/c",
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .collect();
+    assert_eq!(mounts, named);
+
+    let root = |path: &str| discovery::root_among(Path::new(path), &mounts);
+    assert_eq!(
+        root("/media/pi/MY STICK/videos"),
+        Some(PathBuf::from("/media/pi/MY STICK"))
+    );
+    assert_eq!(
+        root("/media/usb0/clips/a"),
+        Some(PathBuf::from("/media/usb0"))
+    );
+    assert_eq!(root("/home/pi/videos"), None);
+
+    let shapes = |path: &str| discovery::shape_roots(Path::new(path));
+    assert_eq!(
+        shapes("/media/pi/STICK/videos"),
+        vec![PathBuf::from("/media/pi"), PathBuf::from("/media/pi/STICK")]
+    );
+    assert_eq!(
+        shapes("/Volumes/Footage/clips"),
+        vec![PathBuf::from("/Volumes/Footage")]
+    );
+    assert_eq!(shapes("/mnt/d/videos"), vec![PathBuf::from("/mnt/d")]);
+    assert!(shapes("/home/u/videos").is_empty());
+
+    // usbmount's stick came back as usb1; udisks's as a new label.
+    let now = [
+        PathBuf::from("/media/usb1"),
+        PathBuf::from("/media/pi/STICK1"),
+    ];
+    let again = |last: &str| -> Vec<PathBuf> {
+        let last = Path::new(last);
+        discovery::shape_roots(last)
+            .iter()
+            .flat_map(|old| candidates_on_roots(last, old, &now))
+            .collect()
+    };
+    assert!(again("/media/usb0/clips").contains(&PathBuf::from("/media/usb1/clips")));
+    assert!(again("/media/pi/STICK/videos").contains(&PathBuf::from("/media/pi/STICK1/videos")));
+}

@@ -783,7 +783,11 @@ impl Root {
         let Some(boot) = self.boot.take() else {
             return;
         };
-        let app = App::new(boot);
+        let mut app = App::new(boot);
+        let repaint = ctx.clone();
+        app.location_watch = dpl_roots::watch_locations(move || repaint.request_repaint())
+            .map_err(|error| tracing::warn!(%error, "locations won't be watched"))
+            .ok();
         #[cfg(feature = "eguipilotai-devtools")]
         let app = {
             let mut app = app;
@@ -994,6 +998,9 @@ struct App {
     library_opened: u64,
     /// Looks for the library while it is unplugged.
     library_watch: Option<dpl_roots::Watch>,
+    /// Looks at every location every two seconds while the library is open
+    /// (ST5a′), and repaints when one went, came back or moved.
+    location_watch: Option<dpl_roots::Watch>,
     /// The last-written ColdLight picks, so a write only happens when the
     /// operator actually changed something.
     chrome_choices: ChromeChoices,
@@ -1506,6 +1513,7 @@ impl App {
             library_at: dpl_roots::library(),
             library_opened: dpl_roots::generation(),
             library_watch: None,
+            location_watch: None,
             chrome_choices,
             fabric,
             waker_installed: false,

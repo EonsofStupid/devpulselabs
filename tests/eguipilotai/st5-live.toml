@@ -1,0 +1,72 @@
+# ST5a′: a location's drive pulled and plugged back in while the app runs,
+# on the real exe. Profile `st5-live` with fixture `st5-editor` (or
+# `st5-editor-1100`): the ST5a proof's scratch library at
+# `target/st5-proof/lib`, whose one location, "videos", is recorded at
+# `T:\videos`. `T:` is a temporary `subst` of `target\st5-proof\drive`
+# made before the run. A background timeline, counted from the run's start:
+# - removes `T:` at 15 s;
+# - mounts the same folder as `U:` at 30 s.
+#
+# Composer's Locations row says online, then offline within seconds of the
+# pull, then online again once the watch finds the files on `U:`, with
+# nothing restarted. The commands are in docs/plans/portable-storage.md §8
+# (ST5a′); remove `U:` after the run.
+id = "st5-live"
+fixture = "st5-editor"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 6000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "online"
+
+[steps.expectation.target]
+id = "root/composer.project.location/loc-cdf3944112f38b269dd1a82082ba120f"
+
+[[steps]]
+kind = "capture"
+name = "online"
+
+# T: is removed at 15 s; the watch looks every 2 s.
+[[steps]]
+kind = "wait"
+milliseconds = 8000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "offline"
+
+[steps.expectation.target]
+id = "root/composer.project.location/loc-cdf3944112f38b269dd1a82082ba120f"
+
+[[steps]]
+kind = "capture"
+name = "pulled"
+
+# The same files are mounted as U: at 30 s; the watch finds them there.
+[[steps]]
+kind = "wait"
+milliseconds = 11000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "online"
+
+[steps.expectation.target]
+id = "root/composer.project.location/loc-cdf3944112f38b269dd1a82082ba120f"
+
+[[steps]]
+kind = "capture"
+name = "back-on-u"
