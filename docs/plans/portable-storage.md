@@ -41,6 +41,10 @@ then "Approve" for ST1b (§4.7). The order is now ST1 (done, #297) →
   audience sees the cached still, and the note shows only on the presenter
   screen and while authoring.
 
+**ST5a′ asked 2026-10-28** (§4f): locations stay aware while the app runs
+and across restarts, on Linux (ARM too), Windows and macOS. It lands before
+ST5b.
+
 **§5b signed off, all four:** `roots.toml` beside the exe; the marker check
 on each drive while disconnected; `library.json` written into a linked
 library; and removing the parent walk, the CWD lookup and the OS temp use.
@@ -731,7 +735,8 @@ What the reading found:
 - **At launch** (`open_library`), offline locations are looked for once on
   the other drive letters before anything paints. While any is still
   offline, Composer runs a watch that looks every 3 s. Nothing runs while
-  all are online.
+  all are online. *(Superseded by ST5a′ below: one app-wide watch, every
+  2 s, while the library is open.)*
 - **Posters are not stored in the index.** A linked row's poster is
   derived from its reference (`dpl_roots::location_poster`) and cached in
   `common/cache/locations/<id>/…jpg`. The media shelf shows that cached
@@ -744,6 +749,81 @@ What the reading found:
   hands it is already under the root.
 - **The pickers** list linked items through the index's `recent`, so on a
   large drive the oldest files sit past a picker's first page.
+
+**ST5a′ — aware while running and across restarts, on every OS** (one PR,
+before ST5b). The operator, 2026-10-28, after hearing that a drive pulled
+mid-session only showed on the shelf:
+
+> it should be aware if its been started and stopped as well whether linux
+> arm or windows or mac please
+
+What the reading found (THE checkout, `e60c140`):
+- **Mid-session, only Composer looked.** Its list was read once and kept
+  (`composer/src/lib.rs:2215`). Its watch started only once that list
+  already showed something offline (`:2219`), so a drive pulled while
+  everything was online was never noticed. With the Editor closed, nothing
+  watched at all.
+- **macOS isn't searched.** `discovery.rs:45-50` lists `/media/<user>/*`,
+  `/run/media/<user>/*` and `/mnt/*`, but not `/Volumes/*`.
+- **Linux guesses each drive's root from the path's shape** (`:68`):
+  two folders down under `/media`. usbmount's `/media/usb0` (common on a
+  headless Raspberry Pi) is one folder down, so its root is read wrong and
+  the drive is never found again.
+- **Painters reach into the drive every frame.** The shelf and slides call
+  `locate_asset` per card per frame, which stats the file. A dead Linux
+  mount can stall that.
+
+The steps:
+- **L1 — `dpl-roots` keeps the last look.**
+  - **The snapshot.** Where each location is now is published to a
+    snapshot. `locations()`, `location_of` and the resolve behind
+    `locate_asset` read it, so a frame never waits on a drive, and an
+    offline location resolves to nothing without being touched.
+    `locations_changed()` counts each change.
+  - **Changes publish at once.** Add, Locate, Remove and a found-elsewhere
+    publish immediately. The record's edits take one lock.
+  - **Looking happens off the lock,** so a slow drive never holds up a tap.
+- **L2 — one watch for the whole app.**
+  - `watch_locations` looks every 2 s for as long as a library is open, in
+    the same spot and on the other drives, and calls back on any change.
+  - The app starts it once, when the library opens (`Root::open`), and a
+    change repaints the window.
+  - Composer's own watch is deleted. Its list follows `locations_changed()`,
+    and its status line says "'videos' went offline — plug it in…" or
+    "'videos' is back…".
+  - At launch, `open_library` still looks once before anything paints.
+    That covers a drive changed while the app was stopped.
+- **L3 — where drives appear, per OS:**
+  - **Windows:** the other drive letters, unchanged.
+  - **Linux, any architecture (x86-64, ARM):** the kernel's mount table
+    (`/proc/self/mounts`, with `\040` escapes decoded) lists the mounts
+    under `/media`, `/run/media` and `/mnt`, exactly.
+  - **macOS:** `/Volumes/<name>`.
+  - **A drive that's away has no mount entry.** Its old root is guessed
+    from the path's shape: one or two folders under the base. Each guess
+    is checked by the location's files, as Q-ST5-1 rules.
+  - **No mount table** (macOS): the folders under each base stand in.
+- **L4 — proof:**
+  - **Unit:**
+    - the mount table parse;
+    - drive roots for `/media/usb0`, `/media/<user>/<label>`,
+      `/run/media/<user>/<label>`, `/mnt/<name>` and `/Volumes/<name>`,
+      present and away;
+    - the snapshot flipping offline, back, and to elsewhere, with the
+      change count moving.
+  - **Compile and lint for the other OSes:** `cargo clippy -p dpl-roots
+    --all-targets` for `aarch64-unknown-linux-gnu` and
+    `aarch64-apple-darwin`, through rustup's std for those targets. The
+    Linux lane runs the tests on x86-64.
+  - **Real exe** (Windows, `subst` as Q-ST2-3):
+    - the drive pulled while the app runs: offline within seconds;
+    - back on another letter while it runs: found;
+    - pulled while the app is stopped: offline at launch.
+  - Shots at 1440×900 and 1100×700.
+  - **No Mac or ARM hardware is here.** Those builds are compiled and
+    linted, not run.
+- **Unchanged:** the library itself still checks only when something saves
+  (Q-ST2-2).
 
 | Where | Change | Pass |
 |---|---|---|
@@ -772,6 +852,8 @@ What the reading found:
 | A build's program folder is its project: an exe at `<project>\target\<profile>\` with `<project>\Cargo.toml` uses `<project>` for `roots.toml` and `library\` | the library stored inside the project (R291) | **Ruled** 2026-10-26 (ST1b) |
 | Rewrite `roots.toml` (an exclusive `.new`, then a rename) when the library is found at a new path, Located, or replaced by Use a library on this machine | §4.3's "updates the last path"; the old file is never left half-written | Covered by row 1 (ST2a) |
 | For ST2b's proof only: a temporary `subst` drive letter over a scratch folder, removed after each run | the only way to unplug and replug a drive letter under a running app without hardware or admin (Windows can't rename a folder while files in it are open) | **Ruled** 2026-10-27 (Q-ST2-3) |
+| ST5a′: look at each location's folder every 2 s while a library is open; on Linux read the kernel's mount table (`/proc/self/mounts`), on macOS list `/Volumes` | to notice a drive pulled or plugged while running, on every OS | **Asked** 2026-10-28; read-only |
+| ST5a′ proof: rustup's std for `aarch64-unknown-linux-gnu` and `aarch64-apple-darwin` on this machine | to compile and lint `dpl-roots` for ARM Linux and macOS without that hardware | **Asked** 2026-10-28; dev machine only, removable with `rustup target remove` |
 
 ## 6. Proof
 
@@ -1013,6 +1095,49 @@ This follow-through changes no pixels and makes no fresh USB drill claim.
   (`media.rs` `offline`, the deck's audience mark); this build has no
   harness route that opens a library card. The operator's own drive check
   covers it.
+
+**ST5a′, 2026-10-28:**
+- **Unit:**
+  - `dpl-roots` has 39 tests, 2 new.
+    - **The last look:** a location pulled stays as last seen until a look
+      sees it gone, then resolves to nothing without its drive being asked.
+      Back, or turned up somewhere new, it resolves again, and each look
+      that saw a change is counted. A look that saw nothing new counts
+      nothing.
+    - **Where drives appear:** a mount table with a `\040` space decodes;
+      `/proc`, `/` and the bare `/mnt` are left out. Roots are named
+      exactly for `/media/<user>/<label>`, `/media/usb0`,
+      `/run/media/<user>/<label>` and `/mnt/<name>`. A drive that's away
+      is guessed from its path's shape, including `/Volumes/<name>`, and
+      found again as `/media/usb1` or under a new label.
+  - Composer: 1 new test, the status line's wording for offline, back and
+    moved.
+- **Other OSes:** `cargo clippy -p dpl-roots --all-targets -- -D warnings`
+  is clean for `aarch64-unknown-linux-gnu` and `aarch64-apple-darwin`
+  (rustup's std added on this machine), and for `wasm32-unknown-unknown`.
+  The Linux lane runs the tests on x86-64. No Mac or ARM hardware is here,
+  so those builds are compiled and linted, not run.
+- **Real exe** (the devtools debug exe; the ST5a scratch library
+  `target/st5-proof/lib`; `subst`):
+  - **EguiPilotAI `tests/eguipilotai/st5-live.toml`, profile `st5-live`,
+    passed** at 1440×900 (`st5-editor`) and 1100×700 (`st5-editor-1100`),
+    33 s each. A timeline removed `T:` at 15 s and mounted the same folder
+    as `U:` at 30 s, with no restart. The Locations row went online →
+    offline → online. The status line said "'videos' went offline — plug
+    it in to use its files.", then "'videos' is back — its files play
+    again.". `locations.json` followed to `U:\videos`.
+  - **The 1100×700 run started with the record at `U:\videos` and the drive
+    mounted as `T:`.** Launch found it there before the first look.
+  - **Pulled while stopped:** with no letter mounted, a fresh launch showed
+    Locations offline (with Locate…) and the shelf's posters marked "on
+    'videos' · offline — plug it in".
+  - Shots in `docs/proof/portable-storage-st5a-live/`. `subst` lists
+    nothing after the runs.
+- **Landmine:** run `subst` proofs in the foreground. A scenario launched
+  from a background shell didn't see the `subst` letter, and the location
+  read offline from the start. The same script in the foreground passed.
+- **Also fixed:** ST5a had left `section_header`'s doc line on top of
+  `link_location` (Composer).
 
 ## Questions for the operator
 

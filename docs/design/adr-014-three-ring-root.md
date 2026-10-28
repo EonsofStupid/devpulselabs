@@ -139,6 +139,16 @@ and `.aidata/`.
 - **Offline is never broken.** Posters are cached in
   `common/cache/locations/`. A missing location is looked for on the other
   drive letters at launch, and while it is away.
+- **Amended 2026-10-28 (ST5a′):**
+  - **One app-wide watch.** It looks at every location every 2 s for as
+    long as the library is open, so a drive pulled or plugged back in
+    while the app runs is noticed. A drive changed while the app was
+    stopped is noticed at launch.
+  - **Lists and painters read the last look,** never the drive.
+  - **Where drives appear:**
+    - Windows: the other drive letters;
+    - Linux, any architecture: the kernel's mount table;
+    - macOS: `/Volumes`.
 
 Precedent: Unreal `Saved`/`Intermediate`/`Content`, Resolve
 cache/media-pool/gallery, Lightroom ingest/catalog/library. Embedded
