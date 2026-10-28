@@ -46,12 +46,13 @@ brainstorm board document and emits its typed ops; the host owns all IO.
 
 | crate | direct deps are EXACTLY | why the ceiling exists |
 |---|---|---|
-| dpl-proc | ∅ | the quiet-spawn law is dependency-free |
+| dpl-proc | ∅ | quiet spawning and bounded child-output capture are dependency-free; named adapters still own executable/argument policy |
 | dpl-comp | serde, serde_json | AI-editable comp truth stays pure data |
 | dpl-workflows | serde, serde_json, dpl-comp, dpl-doc | workflows are documents, not code paths (D3); wire contract `schemas/*.v1.schema.json`, pinned by test (dev-dep jsonschema — dev-deps sit outside this ceiling; see workflow-doctrine.md) |
 | dpl-doc | serde, serde_json, dpl-coldlight | slide truth + the ONE styling edge (below) |
 | dpl-tools-deps | serde, serde_json, sha2 | the depot resolver trusts nothing else |
 | dpl-roots | serde, serde_json, toml | portable library configuration, identity and layout; no capture, egui, volume FFI or process dependencies |
+| dpl-chat-projects | serde, serde_json | project identities, bindings and durable chat archive; no egui, provider process, credentials or ambient workspace discovery |
 | dpl-landing | serde, serde_json | the landing policy is shared pure data |
 | dpl-estate | fjall, moka, serde, serde_json | Ring-0 persistence, no app types |
 | dpl-intent | ∅ | the operator-intent proof must never learn to serialize, clone, or arrive over a wire (signal-ledger plan §9.3) |

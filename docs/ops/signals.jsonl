@@ -69,3 +69,6 @@
 {"note":"Parent resume recorded ST1 complete; fetched main reveals ST1b, ST2a and ST2b already merged.","event":"resume.loaded","ts":"2026-10-27T15:42:06.6398656Z"}
 {"note":"Main 050bdee; #300/#301 merged double-green; no open storage PR.","event":"open.identified","ts":"2026-10-27T15:42:06.6398656Z"}
 {"note":"Grounded ST2 follow-through: retain failed Chrome save; guard estate API writes and refuse rebased old handles. Named skill models unavailable; inherited agents grounded/reviewed/executed.","n":1,"event":"plan.pass","ts":"2026-10-27T15:42:06.6398656Z"}
+{"note":"R292 reviewed implementation authorized by resume; PC1a storage/runtime/window/host execution active in isolated feat/chat-project-storage from e60c140.","event":"session.boot","ts":"2026-10-28T01:37:37.7082414Z"}
+{"note":"R292 reviewed implementation authorized by resume; PC1a storage/runtime/window/host execution active in isolated feat/chat-project-storage from e60c140.","event":"resume.loaded","ts":"2026-10-28T01:37:37.8681458Z"}
+{"note":"R292 reviewed implementation authorized by resume; PC1a storage/runtime/window/host execution active in isolated feat/chat-project-storage from e60c140.","event":"open.identified","ts":"2026-10-28T01:37:37.8849953Z"}

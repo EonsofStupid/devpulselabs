@@ -1640,6 +1640,34 @@ Note: What exists (read 2026-10-26):
 
 Working with other people means other machines and a network. That is new reach: it goes to `docs/plans/external-reach-inventory.md` for sign-off when the program is planned, and ST's non-goal (no network) stands until then.
 
+### R292 · 2026-10-27
+
+> devpulselabs chat is suppose to have awareness so when you run it on that computer it checks if its windows or linux and what AI have been installed, it also offers then to have portable chat setup so when they work in devpulselabs it ensures the chats are always saved to that project being worked on this is a symlink that can sit and be resumed later and another one activated
+
+Source: the operator's message in the Codex session of 2026-10-27.
+
+This clarifies R290's machine awareness and prepared state: offer project-owned
+portable chat storage, with a persistent project association and a switchable
+active link, so another project can be activated and the previous one resumed.
+The selected working project determines chat storage independently of the
+executable or media-library location; these locations may coincide when
+explicitly chosen. This statement does not change R290's delivery order.
+
+**Operator clarification, same session:**
+
+> stand alone AI apps too when supported, we basically want to offer the default ability so their work gets saved per project automatically organized to that workspace so they can easily work diligently and have organization upfront
+
+Scope includes supported standalone AI applications as well as sessions
+launched through DevPULSE. Project-based chat organization is the default
+setup offer; once enabled for a selected workspace, saving and organization
+are automatic rather than a manual export after each conversation. Switching
+the active project preserves previous projects for later resume. This does
+not assert that every provider supports storage redirection or native resume.
+
+The exact link locations and provider-specific save/resume mechanisms still
+need qualification. Grounding and proposed acceptance criteria live in
+`plans/chat-native-program.md` §4.7; this requirement is not an implementation claim.
+
 ## 7. Coach
 
 ### R195 · 2026-07-26 (doc authored 2026-07-26)

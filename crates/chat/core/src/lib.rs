@@ -646,7 +646,7 @@ impl RecoveryAction {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SessionState {
     ReadOnly,
     Idle,
@@ -656,7 +656,9 @@ pub enum SessionState {
     Expired,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum SessionGroup {
     Pinned,
     Active,
@@ -679,7 +681,7 @@ pub struct SessionSummary {
 /// The value is expected to be redacted before construction. This type keeps
 /// unknown provider data discoverable without retaining an unbounded raw
 /// record in application state.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BoundedNativePayload {
     pub schema: String,
     pub redacted_summary: String,
@@ -720,7 +722,7 @@ impl BoundedNativePayload {
 /// occupancy. A `None` means "this provider did not say", never zero —
 /// the distinction matters, because zero is a measurement and absent is
 /// not, and cost computed from a guessed zero would be a lie.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TokenUsage {
     /// FRESH input — tokens the provider actually processed anew.
     pub input_tokens: Option<u64>,
@@ -789,7 +791,7 @@ impl TokenUsage {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ChatEventContent {
     SessionStarted,
     /// The provider named the model it is actually running. Emitted from

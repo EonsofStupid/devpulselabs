@@ -16,6 +16,7 @@ members = [
     "crates/chat/imagine",
     "crates/chat/interactions",
     "crates/chat/profiles",
+    "crates/chat/projects",
     "crates/chat/renderers",
     "crates/chat/runtime",
     "crates/chat/social",
@@ -174,6 +175,7 @@ dpl-chat-interactions = { path = "crates/chat/interactions" }
 dpl-chat-profiles = { path = "crates/chat/profiles" }
 dpl-chat-renderers = { path = "crates/chat/renderers" }
 dpl-chat-runtime = { path = "crates/chat/runtime" }
+dpl-chat-projects = { path = "crates/chat/projects" }
 dpl-chat-social = { path = "crates/chat/social" }
 dpl-chat-store = { path = "crates/chat/store" }
 dpl-chat-testkit = { path = "crates/chat/testkit" }

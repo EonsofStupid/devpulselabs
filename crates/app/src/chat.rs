@@ -1,3 +1,5 @@
+pub(super) mod project;
+
 use dpl_chat_accounts::ActivationLedger;
 use dpl_chat_browser_auth::{BrowserAuthCoordinator, BrowserAuthError, BrowserAuthEvent};
 use dpl_chat_core::{
@@ -77,6 +79,8 @@ pub enum ChatProofMode {
     Commands,
     /// The Rooms & roles library open in the AI pane (RM1).
     Library,
+    Projects,
+    ProjectsCompact,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
@@ -100,6 +104,8 @@ impl ChatProofMode {
             "brainstorm" => Some(Self::Brainstorm),
             "commands" => Some(Self::Commands),
             "library" => Some(Self::Library),
+            "projects" => Some(Self::Projects),
+            "projects-compact" => Some(Self::ProjectsCompact),
             _ => None,
         }
     }
@@ -110,6 +116,7 @@ fn primary_viewport_id(generation: ViewportGeneration) -> egui::ViewportId {
 }
 
 struct Shared {
+    project: project::State,
     registry: ChatWindowRegistry,
     lifetime: PeerLifetime,
     window: ChatWindow,
@@ -558,9 +565,31 @@ impl ChatWindowCoordinator {
                     .update_geometry(id, Some([32, 32]), WindowGeometry::MINIMUM)
                     .expect("the authored compact proof geometry is valid");
             }
+            #[cfg(feature = "eguipilotai-devtools")]
+            if matches!(
+                proof_mode,
+                Some(ChatProofMode::Projects | ChatProofMode::ProjectsCompact)
+            ) {
+                let size = if proof_mode == Some(ChatProofMode::ProjectsCompact) {
+                    [1100, 700]
+                } else {
+                    [1440, 900]
+                };
+                registry
+                    .update_geometry(id, Some([32, 32]), size)
+                    .expect("project proof geometry");
+            }
             transition_opening(&mut registry, id);
         }
         let provider_runtime_enabled = authored_models.is_none();
+        #[cfg(feature = "eguipilotai-devtools")]
+        let project_storage_enabled = provider_runtime_enabled
+            || (matches!(
+                proof_mode,
+                Some(ChatProofMode::Projects | ChatProofMode::ProjectsCompact)
+            ) && std::env::var_os("DPL_CHAT_STATE_HOME").is_some());
+        #[cfg(not(feature = "eguipilotai-devtools"))]
+        let project_storage_enabled = provider_runtime_enabled;
         let (profile_store, provider_profiles) = if provider_runtime_enabled {
             match ProfileStore::open_default() {
                 Ok(store) => {
@@ -596,12 +625,18 @@ impl ChatWindowCoordinator {
             None => ChatWindow::new(runtime, initial_route, &catalog, routes),
         };
         window.replace_provider_profiles(provider_profiles);
-        window.set_room_library(load_room_library(&room_library_root()));
+        if dpl_roots::try_layout().is_ok() {
+            window.set_room_library(load_room_library(&room_library_root()));
+        } else {
+            window.set_room_library(dpl_chat_core::rooms::Library::builtin());
+        }
         // Trigger 0 of the content refresh policy (D1 plan §3.4): seed the
         // census at CONSTRUCTION. The window has more than one way to be
         // opened — `--chat-open` never raises a WindowRequest — so the open
         // path is a refresh, never the only read.
-        window.observe_content(read_content_view());
+        if dpl_roots::try_layout().is_ok() {
+            window.observe_content(read_content_view());
+        }
         #[cfg(feature = "eguipilotai-devtools")]
         if let Some(mode) = proof_mode {
             if mode != ChatProofMode::Approval {
@@ -803,8 +838,21 @@ impl ChatWindowCoordinator {
                 ChatProofMode::Approval
                 | ChatProofMode::Ai
                 | ChatProofMode::Compact
-                | ChatProofMode::Snapped => {}
+                | ChatProofMode::Snapped
+                | ChatProofMode::Projects
+                | ChatProofMode::ProjectsCompact => {}
             }
+        }
+        #[cfg(feature = "eguipilotai-devtools")]
+        if matches!(
+            proof_mode,
+            Some(ChatProofMode::Projects | ChatProofMode::ProjectsCompact)
+        ) {
+            let archive = window.project_archive().expect("authored project archive");
+            window
+                .restore_project_archive(&archive)
+                .expect("authored read-only project chats");
+            window.open_project_setup();
         }
         if open_at_boot {
             if let Some((interaction_id, placement)) = window.first_utility_interaction() {
@@ -823,49 +871,55 @@ impl ChatWindowCoordinator {
         let probe_grok_cached_subscription =
             provider_runtime_enabled && grok_activation.activation_capability_qualified();
         let mut saved_permission_modes = BTreeMap::new();
-        let activation_ledger = match ActivationLedger::open_default() {
-            Ok(ledger) => {
-                match ledger.get(dpl_chat_grok::PROVIDER) {
-                    Ok(Some(evidence)) => tracing::info!(
-                        state = ?evidence.state,
-                        version = %evidence.client_version,
-                        method = %evidence.auth_method,
-                        "loaded non-secret Grok activation evidence"
-                    ),
-                    Ok(None) => tracing::info!("no prior Grok activation evidence"),
-                    Err(error) => tracing::warn!(%error, "Grok activation evidence unreadable"),
-                }
-                match ledger.get(dpl_chat_codex::PROVIDER) {
-                    Ok(Some(evidence)) => tracing::info!(
-                        state = ?evidence.state,
-                        version = %evidence.client_version,
-                        method = %evidence.auth_method,
-                        "loaded non-secret Codex activation evidence"
-                    ),
-                    Ok(None) => tracing::info!("no prior Codex activation evidence"),
-                    Err(error) => tracing::warn!(%error, "Codex activation evidence unreadable"),
-                }
-                for provider in [dpl_chat_codex::PROVIDER] {
-                    match ledger.permission_mode(provider) {
-                        Ok(Some(mode)) => {
-                            saved_permission_modes.insert(provider, mode);
-                        }
-                        Ok(None) => {}
+        let activation_ledger = if !provider_runtime_enabled {
+            None
+        } else {
+            match ActivationLedger::open_default() {
+                Ok(ledger) => {
+                    match ledger.get(dpl_chat_grok::PROVIDER) {
+                        Ok(Some(evidence)) => tracing::info!(
+                            state = ?evidence.state,
+                            version = %evidence.client_version,
+                            method = %evidence.auth_method,
+                            "loaded non-secret Grok activation evidence"
+                        ),
+                        Ok(None) => tracing::info!("no prior Grok activation evidence"),
+                        Err(error) => tracing::warn!(%error, "Grok activation evidence unreadable"),
+                    }
+                    match ledger.get(dpl_chat_codex::PROVIDER) {
+                        Ok(Some(evidence)) => tracing::info!(
+                            state = ?evidence.state,
+                            version = %evidence.client_version,
+                            method = %evidence.auth_method,
+                            "loaded non-secret Codex activation evidence"
+                        ),
+                        Ok(None) => tracing::info!("no prior Codex activation evidence"),
                         Err(error) => {
-                            tracing::warn!(%provider, %error, "saved permission mode unreadable");
+                            tracing::warn!(%error, "Codex activation evidence unreadable")
                         }
                     }
+                    for provider in [dpl_chat_codex::PROVIDER] {
+                        match ledger.permission_mode(provider) {
+                            Ok(Some(mode)) => {
+                                saved_permission_modes.insert(provider, mode);
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                tracing::warn!(%provider, %error, "saved permission mode unreadable");
+                            }
+                        }
+                    }
+                    Some(ledger)
                 }
-                Some(ledger)
-            }
-            Err(error) => {
-                tracing::warn!(%error, "Chat activation ledger is unavailable");
-                None
+                Err(error) => {
+                    tracing::warn!(%error, "Chat activation ledger is unavailable");
+                    None
+                }
             }
         };
-        // The boot discovery already ran the official non-secret status probe;
-        // persist its truthful outcome so restarts and recovery stay
-        // intelligible. Ready remains advisory evidence, never an oracle.
+        // Persist only evidence supplied by an already configured coordinator.
+        // Production boots inert; project recovery discovers its workspace
+        // asynchronously. Ready is advisory evidence, never launch authority.
         if provider_runtime_enabled {
             if let Some(ledger) = activation_ledger.as_ref() {
                 let version = codex_activation.runtime_profile().map_or_else(
@@ -927,6 +981,7 @@ impl ChatWindowCoordinator {
         };
         window.set_assist(assist.enabled);
         let mut shared = Shared {
+            project: project::State::new(project_storage_enabled, provider_runtime_enabled),
             registry,
             lifetime: PeerLifetime::default(),
             window,
@@ -964,7 +1019,8 @@ impl ChatWindowCoordinator {
             roster: Vec::new(),
             route_table,
             clyffy: None,
-            presence: Some(crate::presence::probe_all(crate::presence::specs())),
+            presence: provider_runtime_enabled
+                .then(|| crate::presence::probe_all(crate::presence::specs())),
             estate,
             determinism: dpl_intent::DeterminismGate::default(),
             brainstorm: None,
@@ -1078,6 +1134,10 @@ impl ChatWindowCoordinator {
         }
     }
 
+    pub fn flush_project_on_exit(&self) {
+        project::flush_on_exit(&mut lock(&self.shared));
+    }
+
     pub fn attach_determinism(&self, gate: dpl_intent::DeterminismGate) {
         lock(&self.shared).determinism = gate;
     }
@@ -1093,7 +1153,9 @@ impl ChatWindowCoordinator {
     }
 
     pub fn root_close_requested(&self, ctx: &egui::Context) {
-        if !ctx.input(|input| input.viewport().close_requested()) {
+        if !ctx.input(|input| input.viewport().close_requested())
+            && !lock(&self.shared).project.pending_root_close
+        {
             return;
         }
         let decision = {
@@ -1104,10 +1166,22 @@ impl ChatWindowCoordinator {
         if decision == RootCloseDecision::HideMain {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        } else {
+            let mut shared = lock(&self.shared);
+            if project::can_close(&mut shared, ctx) {
+                if shared.project.pending_root_close {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                shared.project.pending_root_close = false;
+            } else {
+                shared.project.pending_root_close = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            }
         }
     }
 
     pub fn frame(&mut self, ctx: &egui::Context, current_route: Route) {
+        service_project(ctx, &self.shared);
         let mut open_requested = false;
         {
             let mut shared = lock(&self.shared);
@@ -1190,6 +1264,9 @@ impl ChatWindowCoordinator {
                     embedded_failure(ui, &shared);
                     return;
                 }
+                // Native peer callbacks continue when the main viewport is
+                // hidden. Never make project progress depend on root paint.
+                service_project(ui.ctx(), &shared);
                 let current_generation_is_live = {
                     let state = lock(&shared);
                     state
@@ -1239,13 +1316,15 @@ impl ChatWindowCoordinator {
                             tracing::warn!(%error, "Chat viewport geometry was rejected");
                         }
                     }
-                    let activation_changed = poll_provider_activations(&mut state);
-                    let runtime_changed = poll_grok_runtime(&mut state)
-                        | drive_grok_runtime(&mut state, Instant::now())
-                        | poll_seam_runtimes(&mut state)
-                        | drive_codex_runtime(&mut state)
-                        | poll_imagine(&mut state)
-                        | poll_brainstorm_assist(&mut state);
+                    let frozen = project::frozen(&state);
+                    let activation_changed = !frozen && poll_provider_activations(&mut state);
+                    let runtime_changed = !frozen
+                        && (poll_grok_runtime(&mut state)
+                            | drive_grok_runtime(&mut state, Instant::now())
+                            | poll_seam_runtimes(&mut state)
+                            | drive_codex_runtime(&mut state)
+                            | poll_imagine(&mut state)
+                            | poll_brainstorm_assist(&mut state));
                     let provider_runtime_live = state.grok_runtime.is_some()
                         || state.grok_runtime_retry_at.is_some()
                         || !state.runtimes.is_empty();
@@ -1291,6 +1370,9 @@ impl ChatWindowCoordinator {
                 }
                 if window_changed || activation_changed || runtime_changed {
                     ui.ctx().request_repaint_of(chat_viewport_id);
+                    // Either viewport can service the shared host; wake both
+                    // so saving never depends on which one remains visible.
+                    ui.ctx().request_repaint_of(egui::ViewportId::ROOT);
                 }
                 if login_running || provider_runtime_live {
                     ui.ctx()
@@ -1460,8 +1542,72 @@ fn read_content_spine(id: &ContentEpisodeId) -> Option<ContentSpine> {
     })
 }
 
+/// Idempotent shared host servicing for BOTH root and independent peer frames.
+/// Commands and close retries run outside the Shared lock because they enter
+/// the same host handlers as ordinary native UI actions.
+fn service_project(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>) {
+    let (verified, pending_chat_close, pending_root_close) = {
+        let mut state = lock(shared);
+        project::boot(&mut state, ctx);
+        project::poll(&mut state, ctx);
+        project::save(&mut state, ctx, false);
+        (
+            project::take_verified(&mut state),
+            state.project.pending_chat_close,
+            state.project.pending_root_close,
+        )
+    };
+    if let Some(intent) = verified {
+        apply_host_intent_inner(ctx, shared, intent);
+    }
+    if let Some(generation) = pending_chat_close {
+        close_chat(ctx, shared, generation);
+    }
+    if pending_root_close {
+        let mut state = lock(shared);
+        if project::can_close(&mut state, ctx) {
+            state.project.pending_root_close = false;
+            ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Close);
+        } else {
+            ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::CancelClose);
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+    }
+}
+
 fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: HostIntent) {
+    if project::frozen(&lock(shared)) {
+        return;
+    }
+    if matches!(
+        intent,
+        HostIntent::NewSession(_) | HostIntent::SendTurn { .. } | HostIntent::ActivateProvider(_)
+    ) {
+        project::verify_intent(&mut lock(shared), ctx, intent);
+        return;
+    }
+    apply_host_intent_inner(ctx, shared, intent);
+}
+
+fn apply_host_intent_inner(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: HostIntent) {
     match intent {
+        HostIntent::SetupProject { workspace, label } => project::request(
+            &mut lock(shared),
+            ctx,
+            project::Request::Setup { workspace, label },
+        ),
+        HostIntent::SaveProjectCopy { workspace, label } => project::request(
+            &mut lock(shared),
+            ctx,
+            project::Request::SaveCopy { workspace, label },
+        ),
+        HostIntent::OpenProject { workspace } => {
+            project::request(&mut lock(shared), ctx, project::Request::Open(workspace))
+        }
+        HostIntent::SelectProject(id) => {
+            project::request(&mut lock(shared), ctx, project::Request::Select(id))
+        }
+        HostIntent::RetryProjectSave => project::save(&mut lock(shared), ctx, true),
         HostIntent::OpenUtility {
             interaction_id,
             placement,
@@ -1569,6 +1715,9 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
         }
         HostIntent::NewSession(provider) => {
             let mut state = lock(shared);
+            if !project::require_ready(&mut state) {
+                return;
+            }
             if provider == dpl_chat_grok::PROVIDER {
                 send_grok_command(&state, dpl_chat_grok::GrokRuntimeCommand::NewSession);
             } else if state.runtimes.contains_key(&provider) {
@@ -1585,6 +1734,15 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
             text,
         } => {
             let mut state = lock(shared);
+            if !project::require_ready(&mut state) {
+                return;
+            }
+            if !project::live_session(&state, provider, session) {
+                state.window.set_composer_status(
+                    "This saved chat is read-only. Start a new chat for this project.",
+                );
+                return;
+            }
             if provider == dpl_chat_grok::PROVIDER {
                 send_grok_turn(&mut state, session, text);
             } else if state.runtimes.contains_key(&provider) {
@@ -2478,6 +2636,15 @@ impl ClyffySession {
 /// (signed-in). The binding defaults to the first activated provider
 /// and survives sign-outs (an inactive binding is shown, not erased).
 fn sync_clyffy(state: &mut Shared) {
+    if state.provider_runtime_enabled && !project::ready(state) {
+        state.window.observe_clyffy(dpl_chat_window::ClyffyView {
+            present: true,
+            active: false,
+            backing: None,
+            events: 0,
+        });
+        return;
+    }
     let activated: Vec<ProviderId> = state
         .window
         .provider_capabilities()
@@ -3123,6 +3290,9 @@ fn begin_grok_runtime_verification(
 }
 
 fn drive_grok_runtime(state: &mut Shared, now: Instant) -> bool {
+    if !state.provider_runtime_enabled || !project::ready(state) {
+        return false;
+    }
     if state.grok_runtime.is_some() {
         return false;
     }
@@ -3356,12 +3526,12 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                 {
                     tracing::warn!(%error, "Grok capabilities could not be projected");
                 }
-                if capabilities.list_sessions {
-                    send_grok_command(
-                        state,
-                        dpl_chat_grok::GrokRuntimeCommand::ListSessions { cursor: None },
-                    );
-                } else {
+                // Ambient native history is not this project's archive.
+                if state
+                    .window
+                    .provider_view(dpl_chat_grok::PROVIDER)
+                    .is_some_and(|view| view.registration.sessions.is_empty())
+                {
                     send_grok_command(state, dpl_chat_grok::GrokRuntimeCommand::NewSession);
                 }
             }
@@ -3622,7 +3792,7 @@ fn grok_session_summary(
         title: title.unwrap_or("Grok chat").to_owned(),
         workspace: working_directory
             .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "DevPULSE".to_owned()),
+            .unwrap_or_else(|| project::workspace_label(state)),
         group,
         state: SessionState::Idle,
     }
@@ -3943,7 +4113,10 @@ fn append_grok_event(state: &mut Shared, provider_session_id: &str, content: Cha
 /// or activation has not reached an activated state, so the frame loop can
 /// call it every frame.
 fn drive_codex_runtime(state: &mut Shared) -> bool {
-    if !state.provider_runtime_enabled || state.runtimes.contains_key(&dpl_chat_codex::PROVIDER) {
+    if !state.provider_runtime_enabled
+        || !project::ready(state)
+        || state.runtimes.contains_key(&dpl_chat_codex::PROVIDER)
+    {
         return false;
     }
     if !state.codex_activation.activation().is_activated() {
@@ -4083,8 +4256,14 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
                     .set_provider_permission_mode(provider, Some(mode));
                 send_seam_command(state, provider, RuntimeCommand::SetPermissionMode { mode });
             }
-            // A conversation needs a session; ask for one the moment we can.
-            send_seam_command(state, provider, RuntimeCommand::NewSession);
+            // A connection must not replace the restored, read-only chat.
+            if state
+                .window
+                .provider_view(provider)
+                .is_some_and(|view| view.registration.sessions.is_empty())
+            {
+                send_seam_command(state, provider, RuntimeCommand::NewSession);
+            }
         }
         RuntimeEvent::Account(account) => {
             // "Ready" is the ACCOUNT, not the process: a healthy app-server
@@ -4135,7 +4314,7 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
                     provider_session_id.clone()
                 },
                 provider_session_id: Some(ProviderSessionId(provider_session_id)),
-                workspace: "DevPULSE".to_owned(),
+                workspace: project::workspace_label(state),
                 group: SessionGroup::Active,
                 state: SessionState::Idle,
             };
@@ -5517,6 +5696,20 @@ fn close_chat(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, generation: View
             return;
         }
         let lifecycle = record.lifecycle.clone();
+        if !project::can_close(&mut state, ctx) {
+            state.project.pending_chat_close = Some(generation);
+            ctx.send_viewport_cmd_to(
+                primary_viewport_id(generation),
+                egui::ViewportCommand::CancelClose,
+            );
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            return;
+        }
+        state.project.pending_chat_close = None;
+        ctx.send_viewport_cmd_to(
+            primary_viewport_id(generation),
+            egui::ViewportCommand::Close,
+        );
         if !matches!(
             lifecycle,
             WindowLifecycle::Closing | WindowLifecycle::Closed

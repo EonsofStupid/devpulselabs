@@ -1781,6 +1781,7 @@ dependencies = [
  "dpl-chat-imagine",
  "dpl-chat-interactions",
  "dpl-chat-profiles",
+ "dpl-chat-projects",
  "dpl-chat-runtime",
  "dpl-chat-social",
  "dpl-chat-store",
@@ -2040,6 +2041,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-chat-projects"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dpl-chat-renderers"
 version = "0.1.0"
 dependencies = [
@@ -2053,6 +2062,8 @@ name = "dpl-chat-runtime"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2088,6 +2099,7 @@ dependencies = [
  "dpl-chat-core",
  "dpl-chat-interactions",
  "dpl-chat-profiles",
+ "dpl-chat-projects",
  "dpl-chat-runtime",
  "dpl-chat-social",
  "dpl-chat-store",
@@ -2099,6 +2111,7 @@ dependencies = [
  "egui",
  "egui-pilot-ai",
  "egui_kittest",
+ "serde_json",
 ]
 
 [[package]]

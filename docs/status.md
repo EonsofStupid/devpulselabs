@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-27
+updated: 2026-10-28
 active_lane: portable-storage
 dirty: false
 ---
@@ -13,9 +13,9 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-27, main at `45ac4f2` (#302: the ST2 follow-through,
-from a parallel session) with ST5a in #303. The release exe is rebuilt from
-main when #303 lands.
+**Updated:** 2026-10-28, base main at `e60c140` (ST5a, #303), following
+the ST2 follow-through in #302. PC1a passed local verification in its isolated worktree;
+its release is rebuilt after the double-green merge.
 
 **CI is warm** (#292, #293, 2026-10-24): the Windows lane went from 45–58
 minutes to about 7 (main after #293: 6m45s), Linux runs in about 2. A
@@ -24,6 +24,22 @@ ci-runners.md` "Scaling a runner"; attaching it is the operator's step on
 the Proxmox host.
 
 ## Now
+
+**Project chat implementation (R292).** The operator authorized the reviewed
+design with **resume**. PC1a is implemented on isolated `feat/chat-project-storage`
+from `e60c140`: project-owned archives, recoverable drafts, native project
+selection and bounded machine discovery. Full `cargo green` passed (1,265 tests,
+six existing ignored); feature checks passed 53 window and 11 host tests.
+Native A/B/A switching, restart, separate drafts and offline transcript reading
+passed at 1440×900 and 1100×700, including with the main window hidden.
+Evidence: [`proof/chat-project-storage/README.md`](proof/chat-project-storage/README.md).
+Push, double-green CI and merge remain the delivery gate.
+PC1b follows for qualified
+provider-native resume, stable conversation links and standalone launch.
+No operator provider homes or credentials are changed by development. The
+scope includes supported standalone AI apps and automatic workspace organization;
+neither scope nor this implementation authorization needs another confirmation.
+Storage's next separate cut remains ST5b.
 
 **Portable storage (ST).** ST1 landed (#297): the library has one owner
 (`dpl-roots`), `roots.toml` beside the program, a `library.json` marker, a

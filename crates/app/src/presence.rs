@@ -22,13 +22,35 @@
 //! | Cursor | `cursor-agent status` | not installed here — unverified |
 
 use dpl_chat_core::{PresenceSpec, PresenceVerdict, ProviderId};
-use std::io::Read as _;
+
 use std::process::{Command, Stdio};
+
+use std::time::Duration;
 
 /// Stop reading a tool's output after this much. A status command prints a
 /// line or a small JSON object; anything larger is a tool misbehaving, and
 /// an unbounded read would hand it the host's memory.
 const MAX_OUTPUT: usize = 16 * 1024;
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The OS of this running app, not a machine fact saved in a portable project.
+pub const fn platform_label() -> &'static str {
+    if cfg!(windows) {
+        "Windows"
+    } else if cfg!(target_os = "linux") {
+        "Linux"
+    } else {
+        "Other operating system"
+    }
+}
+
+fn unknown(provider: ProviderId, note: String) -> Presence {
+    Presence {
+        provider,
+        verdict: PresenceVerdict::Unknown,
+        note: Some(note),
+    }
+}
 
 /// One provider's answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,57 +67,60 @@ pub struct Presence {
 /// owns the thread.
 pub fn probe(provider: ProviderId, spec: &PresenceSpec) -> Presence {
     let mut command = Command::new(spec.program);
-    command
-        .args(spec.args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    command.args(spec.args);
+    probe_command(provider, spec, command, PROBE_TIMEOUT)
+}
 
-    // A presence sweep runs at every launch. Without this each probe would
-    // flash its own console window on Windows — five black rectangles across
-    // the operator's screen on boot.
-    let mut child = match dpl_proc::quiet(&mut command).spawn() {
-        Ok(child) => child,
-        Err(error) => {
-            // NotFound is the ordinary "this provider isn't on the machine"
-            // answer and is not a failure; anything else is worth naming.
-            let verdict = if error.kind() == std::io::ErrorKind::NotFound {
-                PresenceVerdict::NotInstalled
-            } else {
-                PresenceVerdict::Unknown
-            };
-            let note = match verdict {
-                PresenceVerdict::NotInstalled => {
-                    Some(format!("{} is not installed.", spec.program))
-                }
-                _ => Some(format!("{} could not be run: {error}", spec.program)),
-            };
+// Only the declared provider probe above supplies this command in production.
+// Tests substitute the current test executable, never a live AI or credential.
+fn probe_command(
+    provider: ProviderId,
+    spec: &PresenceSpec,
+    mut command: Command,
+    timeout: Duration,
+) -> Presence {
+    let captured = match dpl_proc::bounded_output(&mut command, timeout, MAX_OUTPUT) {
+        Ok(output) => output,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Presence {
                 provider,
-                verdict,
-                note,
+                verdict: PresenceVerdict::NotInstalled,
+                note: Some(format!("{} is not installed.", spec.program)),
             };
         }
+        Err(error) => {
+            let note = match error.kind() {
+                std::io::ErrorKind::TimedOut => {
+                    format!("{} status check timed out. Try again later.", spec.program)
+                }
+                std::io::ErrorKind::InvalidData => format!(
+                    "{} returned unreadable or excessive status output.",
+                    spec.program
+                ),
+                std::io::ErrorKind::WouldBlock => {
+                    "Earlier provider checks are still closing their output. Try again later."
+                        .into()
+                }
+                _ => format!("{} could not be run: {error}", spec.program),
+            };
+            return unknown(provider, note);
+        }
     };
-
-    let mut output = String::new();
-    if let Some(mut stdout) = child.stdout.take() {
-        let mut buffer = Vec::new();
-        let _ = std::io::Read::by_ref(&mut stdout)
-            .take(MAX_OUTPUT as u64)
-            .read_to_end(&mut buffer);
-        output.push_str(&String::from_utf8_lossy(&buffer));
-    }
-    if let Some(mut stderr) = child.stderr.take() {
-        let mut buffer = Vec::new();
-        let _ = std::io::Read::by_ref(&mut stderr)
-            .take(MAX_OUTPUT as u64)
-            .read_to_end(&mut buffer);
-        output.push_str(&String::from_utf8_lossy(&buffer));
-    }
-    let _ = child.wait();
-
-    let verdict = spec.classify(&output);
+    let status = captured.status;
+    let output = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&captured.stdout),
+        String::from_utf8_lossy(&captured.stderr)
+    );
+    let classified = spec.classify(&output);
+    // Several vendors use a nonzero exit for a normal signed-out verdict.
+    // An unsuccessful process must never be promoted to SignedIn merely
+    // because an error happened to repeat that phrase.
+    let verdict = if status.success() || classified == PresenceVerdict::SignedOut {
+        classified
+    } else {
+        PresenceVerdict::Unknown
+    };
     let note = match verdict {
         PresenceVerdict::SignedIn => None,
         PresenceVerdict::SignedOut => Some(format!(
@@ -103,6 +128,10 @@ pub fn probe(provider: ProviderId, spec: &PresenceSpec) -> Presence {
             spec.program
         )),
         PresenceVerdict::NotInstalled => Some(format!("{} is not installed.", spec.program)),
+        PresenceVerdict::Unknown if !status.success() => Some(format!(
+            "{} status command failed; sign-in could not be verified.",
+            spec.program
+        )),
         PresenceVerdict::Unknown => Some(format!(
             "{} ran but its status output was not recognized.",
             spec.program
@@ -117,9 +146,8 @@ pub fn probe(provider: ProviderId, spec: &PresenceSpec) -> Presence {
 
 /// Every provider that declares a probe, run on ONE background thread.
 ///
-/// One thread rather than one per provider: four short-lived processes in
-/// sequence cost less than four threads, and the answer is only needed once
-/// per launch. The receiver is polled from the frame loop, never awaited.
+/// One coordinator checks providers in sequence; each probe has two bounded
+/// pipe readers. The receiver is polled from the frame loop, never awaited.
 pub fn probe_all(
     specs: Vec<(ProviderId, PresenceSpec)>,
 ) -> std::sync::mpsc::Receiver<Vec<Presence>> {
@@ -232,6 +260,113 @@ const CODEX: PresenceSpec = PresenceSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
+
+    const FIXTURE_SPEC: PresenceSpec = PresenceSpec {
+        program: "presence-test-fixture",
+        args: &[],
+        signed_in: &["logged in"],
+        signed_out: &["not logged in"],
+        login: &[],
+    };
+
+    fn fixture_command(mode: &str) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "presence::tests::probe_process_fixture",
+                "--nocapture",
+            ])
+            .env("DPL_PRESENCE_TEST_FIXTURE", mode);
+        command
+    }
+
+    fn fixture_probe(mode: &str, timeout: Duration) -> Presence {
+        probe_command(
+            ProviderId("presence-test"),
+            &FIXTURE_SPEC,
+            fixture_command(mode),
+            timeout,
+        )
+    }
+
+    /// Runs only in a child copy of the test binary. No provider is launched
+    /// and no machine account or environment is changed in the parent.
+    #[test]
+    fn probe_process_fixture() {
+        use std::io::Write as _;
+        match std::env::var("DPL_PRESENCE_TEST_FIXTURE").as_deref() {
+            Ok("slow") => std::thread::sleep(Duration::from_secs(10)),
+            Ok("flood") => {
+                // stdout remains open while stderr exceeds its pipe buffer:
+                // sequential stdout-then-stderr reads would deadlock here.
+                let _ = std::io::stderr().write_all(&vec![b'x'; MAX_OUTPUT * 16]);
+                println!("logged in");
+            }
+            Ok("failure") => {
+                println!("logged in");
+                std::process::exit(1);
+            }
+            Ok("signed-out") => {
+                println!("not logged in");
+                std::process::exit(1);
+            }
+            Ok("signed-in") => println!("logged in"),
+            Ok("inherited-pipe") => {
+                let mut command = fixture_command("brief-pipe-holder");
+                command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+                let mut child = dpl_proc::quiet(&mut command).spawn().unwrap();
+                println!("logged in");
+                // The probe timeout kills this waiting parent; the brief
+                // descendant continues holding the inherited output pipes.
+                child.wait().unwrap();
+            }
+            Ok("brief-pipe-holder") => std::thread::sleep(Duration::from_secs(4)),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn a_hanging_probe_times_out_and_the_next_probe_can_run() {
+        let started = Instant::now();
+        let timed_out = fixture_probe("slow", Duration::from_millis(150));
+        assert_eq!(timed_out.verdict, PresenceVerdict::Unknown);
+        assert!(timed_out.note.unwrap().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(3));
+        assert_eq!(
+            fixture_probe("signed-in", Duration::from_secs(5)).verdict,
+            PresenceVerdict::SignedIn
+        );
+    }
+
+    #[test]
+    fn excessive_stderr_is_refused_without_waiting_for_stdout() {
+        let found = fixture_probe("flood", Duration::from_secs(5));
+        assert_eq!(found.verdict, PresenceVerdict::Unknown);
+        assert!(found.note.unwrap().contains("excessive"));
+    }
+
+    #[test]
+    fn a_failed_status_cannot_claim_signed_in_but_can_report_signed_out() {
+        assert_eq!(
+            fixture_probe("failure", Duration::from_secs(5)).verdict,
+            PresenceVerdict::Unknown
+        );
+        assert_eq!(
+            fixture_probe("signed-out", Duration::from_secs(5)).verdict,
+            PresenceVerdict::SignedOut
+        );
+    }
+
+    #[test]
+    fn an_inherited_pipe_cannot_extend_the_probe_deadline() {
+        let started = Instant::now();
+        let found = fixture_probe("inherited-pipe", Duration::from_millis(200));
+        assert_eq!(found.verdict, PresenceVerdict::Unknown);
+        assert!(found.note.unwrap().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(3));
+    }
 
     #[test]
     fn a_missing_cli_is_not_installed_never_signed_out() {
