@@ -6,7 +6,11 @@ use serde_json::Value;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct Generation(u64);
+
 pub(super) struct State {
+    generation: Generation,
     enabled: bool,
     boot_pending: bool,
     providers_enabled: bool,
@@ -74,6 +78,7 @@ fn state_home_from(get: impl Fn(&str) -> Option<PathBuf>) -> Result<PathBuf, Str
 impl State {
     pub(super) fn new(enabled: bool, providers_enabled: bool) -> Self {
         Self {
+            generation: Generation::default(),
             enabled,
             boot_pending: enabled,
             providers_enabled,
@@ -208,7 +213,8 @@ pub(super) fn require_ready(state: &mut Shared) -> bool {
 }
 
 fn idle(state: &Shared) -> bool {
-    !state.codex_activation.is_login_running()
+    !native::busy(state)
+        && !state.codex_activation.is_login_running()
         && !state.grok_activation.is_login_running()
         && !matches!(
             state.codex_activation.activation(),
@@ -460,12 +466,14 @@ fn activate(state: &mut Shared, registry: Registry, prepared: Prepared, choices:
     state.seam_sessions.clear();
     state.seam_turns.clear();
     state.seam_permissions.clear();
+    native::reset(state);
     state.ai_calls.clear();
     state.codex_attempt = None;
     state.grok_attempt = None;
     state.clyffy = None;
     restore_counters(state);
     state.project.registry = Some(registry);
+    state.project.generation = Generation(state.project.generation.0.saturating_add(1));
     state.project.active = Some(prepared.project);
     state.project.choices = choices;
     state.project.saved = state.window.project_archive().ok();
@@ -652,6 +660,25 @@ pub(super) fn verify_intent(state: &mut Shared, ctx: &egui::Context, intent: Hos
     if !require_ready(state) || !state.provider_runtime_enabled {
         return;
     }
+    let provider = match &intent {
+        HostIntent::LoadSession { provider, .. } | HostIntent::RefreshNativeSessions(provider) => {
+            if !native::qualified(state, *provider) {
+                state.window.set_composer_status("Native resume is not qualified for this project's provider profile. Your saved chat remains readable.");
+                return;
+            }
+            Some(*provider)
+        }
+        HostIntent::NewSession(provider)
+        | HostIntent::ActivateProvider(provider)
+        | HostIntent::SendTurn { provider, .. } => Some(*provider),
+        _ => None,
+    };
+    if provider.is_some_and(|provider| native::provider_busy(state, provider)) {
+        state
+            .window
+            .set_composer_status("Wait for saved chat loading to finish. Your draft is preserved.");
+        return;
+    }
     if let HostIntent::SendTurn {
         provider, session, ..
     } = &intent
@@ -692,6 +719,9 @@ pub(super) fn take_verified(state: &mut Shared) -> Option<HostIntent> {
 }
 
 pub(super) fn live_session(state: &Shared, provider: ProviderId, session: ChatSessionId) -> bool {
+    if native::provider_busy(state, provider) {
+        return false;
+    }
     let writable = state.window.provider_view(provider).is_some_and(|view| {
         view.registration.sessions.iter().any(|saved| {
             saved.id == session && matches!(saved.state, SessionState::Idle | SessionState::Failed)
@@ -713,6 +743,18 @@ pub(super) fn workspace_label(state: &Shared) -> String {
         || "Choose a project".into(),
         |project| project.label().into(),
     )
+}
+
+pub(super) fn generation(state: &Shared) -> Generation {
+    state.project.generation
+}
+
+pub(super) fn workspace(state: &Shared) -> Option<PathBuf> {
+    state
+        .project
+        .active
+        .as_ref()
+        .map(|project| project.workspace().to_owned())
 }
 
 // A boot has no workspace authority. Discovery replaces these inert adapters
@@ -770,6 +812,407 @@ pub(crate) fn unconfigured_grok() -> dpl_chat_grok::GrokActivationCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dpl_chat_runtime::seam::{
+        RuntimeCapabilities, RuntimeFailure, RuntimeHistoryItem, RuntimeSendError,
+        RuntimeSessionSummary,
+    };
+
+    struct NativeFixture {
+        commands: Arc<Mutex<Vec<RuntimeCommand>>>,
+    }
+
+    impl ProviderRuntime for NativeFixture {
+        fn provider(&self) -> ProviderId {
+            dpl_chat_codex::PROVIDER
+        }
+        fn try_send(&self, command: RuntimeCommand) -> Result<(), RuntimeSendError> {
+            lock(&self.commands).push(command);
+            Ok(())
+        }
+        fn try_event(&self) -> Result<Option<RuntimeEvent>, RuntimeSendError> {
+            Ok(None)
+        }
+        fn capabilities(&self) -> Option<RuntimeCapabilities> {
+            Some(RuntimeCapabilities {
+                load_session: true,
+                list_sessions: true,
+                permission_modes: false,
+            })
+        }
+    }
+
+    fn native_fixture(
+        tag: &str,
+    ) -> (
+        Shared,
+        egui::Context,
+        PathBuf,
+        Arc<Mutex<Vec<RuntimeCommand>>>,
+    ) {
+        let root = scratch(tag);
+        let ctx = egui::Context::default();
+        let mut state = host(&root.join("machine"));
+        setup(&mut state, &ctx, &root, "A");
+        state.project.boot_pending = false;
+        state.provider_runtime_enabled = true;
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        state.runtimes.insert(
+            dpl_chat_codex::PROVIDER,
+            Box::new(NativeFixture {
+                commands: Arc::clone(&commands),
+            }),
+        );
+        native::qualify_fixture(&mut state, dpl_chat_codex::PROVIDER);
+        state
+            .window
+            .set_provider_activation(dpl_chat_codex::PROVIDER, ActivationState::Ready)
+            .unwrap();
+        for id in [11, 12] {
+            state
+                .window
+                .upsert_provider_session(
+                    dpl_chat_codex::PROVIDER,
+                    SessionSummary {
+                        id: ChatSessionId(id),
+                        provider_id: dpl_chat_codex::PROVIDER,
+                        provider_session_id: Some(ProviderSessionId(format!("thread-{id}"))),
+                        title: format!("Saved {id}"),
+                        workspace: "A".into(),
+                        group: SessionGroup::Recent,
+                        state: SessionState::ReadOnly,
+                    },
+                )
+                .unwrap();
+            state
+                .window
+                .select_provider_session(dpl_chat_codex::PROVIDER, ChatSessionId(id))
+                .unwrap();
+            draft(&mut state, &format!("draft-{id}"));
+        }
+        state
+            .window
+            .select_provider_session(dpl_chat_codex::PROVIDER, ChatSessionId(11))
+            .unwrap();
+        state
+            .window
+            .append_provider_event(
+                dpl_chat_codex::PROVIDER,
+                ChatEvent {
+                    id: ChatEventId(22),
+                    provider_id: dpl_chat_codex::PROVIDER,
+                    session_id: ChatSessionId(11),
+                    turn_id: Some(TurnId("old-local-turn".into())),
+                    content: ChatEventContent::StatusUpdated("Saved local annotation".into()),
+                },
+            )
+            .unwrap();
+        (state, ctx, root.join("A"), commands)
+    }
+
+    fn loaded(workspace: &Path) -> RuntimeEvent {
+        RuntimeEvent::SessionLoaded {
+            session: RuntimeSessionSummary {
+                provider_session_id: "thread-11".into(),
+                title: Some("Native title".into()),
+                working_directory: workspace.into(),
+                updated_at: None,
+            },
+            items: vec![
+                RuntimeHistoryItem {
+                    provider_turn_id: "native-turn".into(),
+                    provider_item_id: "user-1".into(),
+                    updates: vec![RuntimeUpdate::UserText("Original question".into())],
+                },
+                RuntimeHistoryItem {
+                    provider_turn_id: "native-turn".into(),
+                    provider_item_id: "answer-1".into(),
+                    updates: vec![
+                        RuntimeUpdate::AssistantText("Saved answer".into()),
+                        RuntimeUpdate::ThoughtText("Prior reasoning summary".into()),
+                        RuntimeUpdate::Other("Future native item".into()),
+                    ],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn native_resume_saves_before_loading_preserves_ids_and_all_drafts_without_live_accounting() {
+        let (state, ctx, workspace, commands) = native_fixture("native-resume");
+        let before = state.window.project_archive().unwrap();
+        let shared = Arc::new(Mutex::new(state));
+        apply_host_intent(
+            &ctx,
+            &shared,
+            HostIntent::LoadSession {
+                provider: dpl_chat_codex::PROVIDER,
+                session: ChatSessionId(11),
+            },
+        );
+        peer_frames_until(&shared, &ctx, native::busy);
+        assert_eq!(
+            Project::open(&workspace)
+                .unwrap()
+                .load_state()
+                .unwrap()
+                .unwrap(),
+            before
+        );
+        assert_eq!(
+            *lock(&commands),
+            vec![RuntimeCommand::LoadSession {
+                provider_session_id: "thread-11".into()
+            }]
+        );
+        let mut state = lock(&shared);
+        project_seam_event(&mut state, dpl_chat_codex::PROVIDER, loaded(&workspace));
+        let view = state
+            .window
+            .provider_view(dpl_chat_codex::PROVIDER)
+            .unwrap();
+        assert_eq!(view.active_session, Some(ChatSessionId(11)));
+        assert_eq!(view.draft, "draft-11");
+        assert_eq!(view.registration.events.len(), 4);
+        assert!(
+            matches!(&view.registration.events[0].content, ChatEventContent::UserMessage(text) if text == "Original question")
+        );
+        assert!(view
+            .registration
+            .events
+            .iter()
+            .all(|event| event.turn_id == Some(TurnId("native-turn".into()))));
+        assert!(live_session(
+            &state,
+            dpl_chat_codex::PROVIDER,
+            ChatSessionId(11)
+        ));
+        assert!(state.ai_calls.is_empty());
+        assert!(state.seam_turns.is_empty());
+        state
+            .window
+            .select_provider_session(dpl_chat_codex::PROVIDER, ChatSessionId(12))
+            .unwrap();
+        assert_eq!(draft_text(&state), "draft-12");
+        // The pre-load revision still retains local annotations; no event is
+        // silently destroyed when the provider snapshot becomes current.
+        assert_eq!(
+            Project::open(&workspace)
+                .unwrap()
+                .load_state()
+                .unwrap()
+                .unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn failed_stale_wrong_project_and_duplicate_native_loads_never_replace_the_archive() {
+        for scenario in 0..4 {
+            let (mut state, _, workspace, _) = native_fixture(&format!("native-reject-{scenario}"));
+            let provider = dpl_chat_codex::PROVIDER;
+            let before = state.window.project_archive().unwrap();
+            native::request_load(&mut state, provider, ChatSessionId(11));
+            assert!(native::busy(&state));
+            match scenario {
+                0 => {
+                    project_seam_event(
+                        &mut state,
+                        provider,
+                        RuntimeEvent::Failure(RuntimeFailure::for_session(
+                            RuntimeFailureKind::Timeout,
+                            "load timed out",
+                            "thread-11",
+                        )),
+                    );
+                    assert!(!state.runtimes.contains_key(&provider));
+                    project_seam_event(&mut state, provider, loaded(&workspace));
+                }
+                1 => {
+                    state.project.generation.0 += 1;
+                    project_seam_event(&mut state, provider, loaded(&workspace));
+                }
+                2 => project_seam_event(&mut state, provider, loaded(&workspace.join("other"))),
+                _ => {
+                    let RuntimeEvent::SessionLoaded { session, mut items } = loaded(&workspace)
+                    else {
+                        unreachable!()
+                    };
+                    items.push(items[0].clone());
+                    project_seam_event(
+                        &mut state,
+                        provider,
+                        RuntimeEvent::SessionLoaded { session, items },
+                    );
+                }
+            }
+            assert_eq!(state.window.project_archive().unwrap(), before);
+            assert!(!live_session(&state, provider, ChatSessionId(11)));
+        }
+    }
+
+    #[test]
+    fn host_timeout_retires_the_old_receiver_before_any_retry_can_match_it() {
+        let (mut state, _, workspace, commands) = native_fixture("native-host-timeout");
+        let provider = dpl_chat_codex::PROVIDER;
+        let before = state.window.project_archive().unwrap();
+        native::request_load(&mut state, provider, ChatSessionId(11));
+        native::expire_fixture(&mut state, provider);
+        assert!(!state.runtimes.contains_key(&provider));
+        assert!(!native::qualified(&state, provider));
+        native::request_load(&mut state, provider, ChatSessionId(11));
+        project_seam_event(&mut state, provider, loaded(&workspace));
+        assert_eq!(lock(&commands).len(), 1);
+        assert_eq!(state.window.project_archive().unwrap(), before);
+        assert!(!live_session(&state, provider, ChatSessionId(11)));
+    }
+
+    #[test]
+    fn empty_native_pages_never_erase_a_known_saved_conversation() {
+        let (mut state, _, workspace, _) = native_fixture("native-empty-history");
+        let provider = dpl_chat_codex::PROVIDER;
+        state
+            .window
+            .append_provider_event(
+                provider,
+                ChatEvent {
+                    id: ChatEventId(23),
+                    provider_id: provider,
+                    session_id: ChatSessionId(11),
+                    turn_id: Some(TurnId("saved-turn".into())),
+                    content: ChatEventContent::UserMessage(
+                        "This conversation must remain visible".into(),
+                    ),
+                },
+            )
+            .unwrap();
+        let before = state.window.project_archive().unwrap();
+        native::request_load(&mut state, provider, ChatSessionId(11));
+        let RuntimeEvent::SessionLoaded { session, .. } = loaded(&workspace) else {
+            unreachable!()
+        };
+        project_seam_event(
+            &mut state,
+            provider,
+            RuntimeEvent::SessionLoaded {
+                session,
+                items: Vec::new(),
+            },
+        );
+        assert_eq!(state.window.project_archive().unwrap(), before);
+        assert_eq!(draft_text(&state), "draft-11");
+        assert!(!state.runtimes.contains_key(&provider));
+        assert!(!live_session(&state, provider, ChatSessionId(11)));
+    }
+
+    #[test]
+    fn reconnect_reloads_the_same_session_without_duplicate_events_or_a_new_thread() {
+        let (mut state, _, workspace, commands) = native_fixture("native-reconnect");
+        let provider = dpl_chat_codex::PROVIDER;
+        native::request_load(&mut state, provider, ChatSessionId(11));
+        project_seam_event(&mut state, provider, loaded(&workspace));
+        let first = state
+            .window
+            .provider_view(provider)
+            .unwrap()
+            .registration
+            .events;
+        native::stopped(&mut state, provider);
+        assert!(!live_session(&state, provider, ChatSessionId(11)));
+        native::qualify_fixture(&mut state, provider);
+        native::request_load(&mut state, provider, ChatSessionId(11));
+        project_seam_event(&mut state, provider, loaded(&workspace));
+        assert_eq!(
+            state
+                .window
+                .provider_view(provider)
+                .unwrap()
+                .registration
+                .events,
+            first
+        );
+        assert_eq!(
+            state.window.provider_view(provider).unwrap().active_session,
+            Some(ChatSessionId(11))
+        );
+        assert!(!lock(&commands)
+            .iter()
+            .any(|command| matches!(command, RuntimeCommand::NewSession)));
+    }
+
+    #[test]
+    fn native_listing_merges_without_erasing_archives_and_stops_repeated_cursors() {
+        let (mut state, _, workspace, commands) = native_fixture("native-list");
+        let provider = dpl_chat_codex::PROVIDER;
+        let original_events = state
+            .window
+            .provider_view(provider)
+            .unwrap()
+            .registration
+            .events;
+        native::request_list(&mut state, provider);
+        let summary = |native: &str, working_directory: PathBuf| RuntimeSessionSummary {
+            provider_session_id: native.into(),
+            title: Some(native.into()),
+            working_directory,
+            updated_at: None,
+        };
+        project_seam_event(
+            &mut state,
+            provider,
+            RuntimeEvent::SessionsPage {
+                sessions: vec![
+                    summary("thread-11", workspace.clone()),
+                    summary("native-extra", workspace.clone()),
+                    summary("foreign", workspace.join("elsewhere")),
+                ],
+                next_cursor: Some("page".into()),
+                replace: true,
+            },
+        );
+        let view = state.window.provider_view(provider).unwrap();
+        assert_eq!(view.registration.sessions.len(), 3);
+        assert_eq!(view.registration.events, original_events);
+        assert_eq!(view.draft, "draft-11");
+        project_seam_event(
+            &mut state,
+            provider,
+            RuntimeEvent::SessionsPage {
+                sessions: Vec::new(),
+                next_cursor: Some("page".into()),
+                replace: true,
+            },
+        );
+        assert!(!native::busy(&state));
+        assert_eq!(lock(&commands).len(), 2);
+        assert_eq!(
+            state
+                .window
+                .provider_view(provider)
+                .unwrap()
+                .registration
+                .sessions
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn transport_capabilities_alone_never_enable_native_resume() {
+        let (mut state, ctx, _, commands) = native_fixture("native-qualification");
+        let provider = dpl_chat_codex::PROVIDER;
+        assert!(!native::connected(&mut state, provider, true));
+        verify_intent(
+            &mut state,
+            &ctx,
+            HostIntent::LoadSession {
+                provider,
+                session: ChatSessionId(11),
+            },
+        );
+        assert!(state.project.worker.is_none());
+        assert!(lock(&commands).is_empty());
+        assert!(!native::qualified(&state, provider));
+    }
 
     fn scratch(tag: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(

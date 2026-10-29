@@ -21,6 +21,7 @@
 
 use crate::activation::{probe_version, profiled_command, CodexVersion};
 use crate::runtime::{METHODS_USED, NOTIFICATIONS_MAPPED, SERVER_REQUESTS_HANDLED};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -47,7 +48,23 @@ pub struct Protocol {
     pub client_requests: String,
     pub server_notifications: String,
     pub server_requests: String,
+    pub native_responses: BTreeMap<String, String>,
 }
+
+const NATIVE_SCHEMAS: &[(&str, &str)] = &[
+    (
+        "ThreadListResponse.json",
+        include_str!("../schema/ThreadListResponse.json"),
+    ),
+    (
+        "ThreadResumeResponse.json",
+        include_str!("../schema/ThreadResumeResponse.json"),
+    ),
+    (
+        "ThreadTurnsListResponse.json",
+        include_str!("../schema/ThreadTurnsListResponse.json"),
+    ),
+];
 
 /// What adoption asks of a candidate. The real one runs Windows and the
 /// candidate itself ([`SystemInspector`]); tests use fakes.
@@ -188,7 +205,68 @@ pub fn protocol_losses(protocol: &Protocol) -> Vec<String> {
             missing.push(format!("server request {request}"));
         }
     }
+    // Native resume imports persisted history and acknowledged authority. A
+    // method-name match cannot qualify that boundary. Until a new release is
+    // explicitly qualified, require the full structural response contract,
+    // including every referenced local definition. Documentation may change.
+    for (name, pinned) in NATIVE_SCHEMAS {
+        let candidate = protocol.native_responses.get(*name);
+        if candidate.and_then(|text| semantic_schema(text).ok()) != semantic_schema(pinned).ok() {
+            missing.push(format!("response contract {name}"));
+        }
+    }
+    let candidate: serde_json::Value =
+        serde_json::from_str(&protocol.client_requests).unwrap_or_default();
+    let pinned: serde_json::Value =
+        serde_json::from_str(include_str!("../schema/ClientRequest.json"))
+            .expect("vendored request schema");
+    for name in [
+        "ThreadListParams",
+        "ThreadResumeParams",
+        "ThreadTurnsListParams",
+    ] {
+        if semantic_value(candidate["definitions"][name].clone())
+            != semantic_value(pinned["definitions"][name].clone())
+        {
+            missing.push(format!("request contract {name}"));
+        }
+    }
     missing
+}
+
+fn semantic_schema(text: &str) -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::from_str(text).map(semantic_value)
+}
+
+fn semantic_value(mut value: serde_json::Value) -> serde_json::Value {
+    match &mut value {
+        serde_json::Value::Object(object) => {
+            for key in ["description", "title", "$schema", "examples"] {
+                object.remove(key);
+            }
+            for (key, child) in object {
+                if matches!(
+                    key.as_str(),
+                    "properties" | "definitions" | "$defs" | "patternProperties"
+                ) {
+                    if let serde_json::Value::Object(entries) = child {
+                        for schema in entries.values_mut() {
+                            *schema = semantic_value(schema.take());
+                        }
+                    }
+                } else if !matches!(key.as_str(), "default" | "enum" | "const") {
+                    *child = semantic_value(child.take());
+                }
+            }
+        }
+        serde_json::Value::Array(array) => {
+            for child in array {
+                *child = semantic_value(child.take());
+            }
+        }
+        _ => {}
+    }
+    value
 }
 
 /// Prove `executable`, then install its folder into the depot at
@@ -272,6 +350,9 @@ pub fn vendor_schema(executable: &Path, schema_dir: &Path) -> Result<CodexVersio
     ] {
         fs::write(schema_dir.join(name), text).map_err(|error| format!("{name}: {error}"))?;
     }
+    for (name, text) in &protocol.native_responses {
+        fs::write(schema_dir.join(name), text).map_err(|error| format!("{name}: {error}"))?;
+    }
     fs::write(
         schema_dir.join("VERSION"),
         format!(
@@ -286,6 +367,8 @@ pub fn vendor_schema(executable: &Path, schema_dir: &Path) -> Result<CodexVersio
 fn generate_protocol(executable: &Path, out: &Path) -> Result<Protocol, String> {
     fs::create_dir_all(out).map_err(|error| format!("{}: {error}", out.display()))?;
     let mut command = profiled_command(executable, out);
+    // Schema generation never borrows an ambient account/config profile.
+    command.env("CODEX_HOME", out.join("isolated-home"));
     command
         .args(["app-server", "generate-json-schema", "--out"])
         .arg(out)
@@ -307,6 +390,10 @@ fn generate_protocol(executable: &Path, out: &Path) -> Result<Protocol, String> 
         client_requests: read("ClientRequest.json")?,
         server_notifications: read("ServerNotification.json")?,
         server_requests: read("ServerRequest.json")?,
+        native_responses: NATIVE_SCHEMAS
+            .iter()
+            .map(|(name, _)| read(&format!("v2/{name}")).map(|text| ((*name).to_owned(), text)))
+            .collect::<Result<_, _>>()?,
     })
 }
 
@@ -411,17 +498,18 @@ mod tests {
         }
 
         fn protocol(&self, _executable: &Path) -> Result<Protocol, String> {
-            let names = |list: &[&str]| {
-                list.iter()
-                    .filter(|name| Some(**name) != self.drop_method)
-                    .map(|name| format!("\"{name}\""))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            };
+            let client = include_str!("../schema/ClientRequest.json");
             Ok(Protocol {
-                client_requests: names(METHODS_USED),
-                server_notifications: names(NOTIFICATIONS_MAPPED),
-                server_requests: names(SERVER_REQUESTS_HANDLED),
+                client_requests: self.drop_method.map_or_else(
+                    || client.to_owned(),
+                    |method| client.replace(&format!("\"{method}\""), "\"removed-method\""),
+                ),
+                server_notifications: include_str!("../schema/ServerNotification.json").to_owned(),
+                server_requests: include_str!("../schema/ServerRequest.json").to_owned(),
+                native_responses: NATIVE_SCHEMAS
+                    .iter()
+                    .map(|(name, text)| ((*name).to_owned(), (*text).to_owned()))
+                    .collect(),
             })
         }
     }
@@ -512,8 +600,33 @@ mod tests {
             client_requests: include_str!("../schema/ClientRequest.json").to_owned(),
             server_notifications: include_str!("../schema/ServerNotification.json").to_owned(),
             server_requests: include_str!("../schema/ServerRequest.json").to_owned(),
+            native_responses: NATIVE_SCHEMAS
+                .iter()
+                .map(|(name, text)| ((*name).to_owned(), (*text).to_owned()))
+                .collect(),
         };
         assert_eq!(protocol_losses(&vendored), Vec::<String>::new());
+    }
+
+    #[test]
+    fn response_field_or_dependency_changes_refuse_adoption_but_docs_do_not() {
+        let mut protocol = Fake::good().protocol(Path::new("unused")).unwrap();
+        let name = "ThreadResumeResponse.json";
+        let original = protocol.native_responses[name].clone();
+        let mut schema: serde_json::Value = serde_json::from_str(&original).unwrap();
+        schema["description"] = serde_json::json!("updated documentation");
+        protocol
+            .native_responses
+            .insert(name.into(), schema.to_string());
+        assert!(protocol_losses(&protocol).is_empty());
+        schema["definitions"]["Thread"]["properties"]["updatedAt"]["type"] =
+            serde_json::json!("string");
+        protocol
+            .native_responses
+            .insert(name.into(), schema.to_string());
+        assert!(protocol_losses(&protocol).contains(&format!("response contract {name}")));
+        protocol.native_responses.remove(name);
+        assert!(protocol_losses(&protocol).contains(&format!("response contract {name}")));
     }
 
     #[test]

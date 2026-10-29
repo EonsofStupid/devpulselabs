@@ -82,7 +82,15 @@ impl Registry {
         Ok(registry)
     }
 
-    fn verify(&self) -> Result<(), String> {
+    pub(crate) fn base(&self) -> &Path {
+        &self.base
+    }
+
+    pub(crate) fn identity(&self) -> &ProjectId {
+        &self.marker.id.0
+    }
+
+    pub(crate) fn verify(&self) -> Result<(), String> {
         disk::existing_directory(&self.base)?;
         let marker: Marker = disk::json(&self.base.join(MARKER), MAX_MARKER_BYTES)?;
         if marker != self.marker {

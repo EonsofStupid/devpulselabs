@@ -1948,6 +1948,7 @@ name = "dpl-chat-codex"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
+ "dpl-chat-projects",
  "dpl-chat-runtime",
  "dpl-chat-store",
  "dpl-proc",
