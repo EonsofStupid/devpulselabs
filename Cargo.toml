@@ -132,7 +132,7 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 # ThorVG (C++, vendored) — the native Lottie engine, linked ONLY by the
 # dpl-lottie-render subprocess helper (ADR-009 FFI leaf), never by the app.
-thorvg-sys = "0.3"
+thorvg-sys = "0.4"
 # The browser driver's CDP socket (ADR-013): pure-Rust WebSocket framing
 # over OUR TcpStream, localhost only — no TLS features, ever.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
