@@ -1255,19 +1255,21 @@ impl App {
         if let Some(id) = &dry_run_workflow {
             wiredfront.dry_run_workflow(id);
         }
-        // Chat coding providers work inside the canonical launch workspace,
-        // not DevPULSE's media/content store. The launcher (and later the
-        // named-project registry) owns this root; provider or conversation
-        // input can never replace it.
-        let provider_working_directory = std::env::current_dir().unwrap_or_default();
-        let codex_activation =
-            dpl_chat_codex::CodexActivationCoordinator::discover(&provider_working_directory);
-        let grok_activation =
-            dpl_chat_grok::GrokActivationCoordinator::discover(&provider_working_directory);
+        // No launch-directory authority: the project host discovers adapters
+        // off-thread after validating the selected project.
+        let codex_activation = chat::project::unconfigured_codex();
+        let grok_activation = chat::project::unconfigured_grok();
         // One census, read BEFORE the registrations so activation can be
         // derived from what is actually on this machine (H1 §3.1). The same
         // value is threaded into the chat window config below — the roots are
         // never walked twice.
+        #[cfg(feature = "eguipilotai-devtools")]
+        let history_catalog = if chat_authored {
+            dpl_chat_store::HistoryCatalog::default()
+        } else {
+            local_chat_history_catalog()
+        };
+        #[cfg(not(feature = "eguipilotai-devtools"))]
         let history_catalog = local_chat_history_catalog();
         // Chat providers register as data. The peer-window UI never names one;
         // only independently qualified subscription activation is projected.
@@ -2001,6 +2003,7 @@ impl ChromeChoices {
 
 impl eframe::App for App {
     fn on_exit(&mut self) {
+        self.chat.flush_project_on_exit();
         if let Some(tap) = self.ledger.take() {
             tap.flush_and_join();
         }

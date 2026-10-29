@@ -13,9 +13,9 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-28, main at `e60c140` (#303, ST5a: Locations), with
-ST5a′ (locations aware while running and across restarts, on every OS) in
-its own PR. The release exe is rebuilt from main when it lands.
+**Updated:** 2026-10-28, main at `855f674` (#304, ST5a′: Locations aware
+while running and across restarts). PC1a is pushed in PR #305 and includes
+that main update. Its isolated release is rebuilt after the double-green merge.
 
 **CI is warm** (#292, #293, 2026-10-24): the Windows lane went from 45–58
 minutes to about 7 (main after #293: 6m45s), Linux runs in about 2. A
@@ -24,6 +24,23 @@ ci-runners.md` "Scaling a runner"; attaching it is the operator's step on
 the Proxmox host.
 
 ## Now
+
+**Project chat implementation (R292).** The operator authorized the reviewed
+design with **resume**. PC1a is implemented on isolated `feat/chat-project-storage`
+from `e60c140`, now integrating `855f674`: project-owned archives, recoverable
+drafts, native project selection and bounded machine discovery.
+Before integration, full `cargo green` passed (1,265 tests,
+six existing ignored); feature checks passed 53 window and 11 host tests.
+Native A/B/A switching, restart, separate drafts and offline transcript reading
+passed at 1440×900 and 1100×700, including with the main window hidden.
+Evidence: [`proof/chat-project-storage/README.md`](proof/chat-project-storage/README.md).
+PR #305 is pushed; the integrated full gate, double-green CI and merge remain.
+PC1b follows for qualified
+provider-native resume, stable conversation links and standalone launch.
+No operator provider homes or credentials are changed by development. The
+scope includes supported standalone AI apps and automatic workspace organization;
+neither scope nor this implementation authorization needs another confirmation.
+Storage's next separate cut remains ST5b.
 
 **Portable storage (ST).** ST1 landed (#297): the library has one owner
 (`dpl-roots`), `roots.toml` beside the program, a `library.json` marker, a
@@ -43,7 +60,7 @@ copied, and nothing is written inside it. Its videos and pictures join the
 media shelf and the pickers with cached posters. While the drive is away
 they show "offline — plug it in", never broken, and the drive is found
 again on any letter. Composer lists Locations with Locate… and Remove.
-**ST5a′** (asked 2026-10-28: "aware if its been started and stopped …
+**ST5a′ (#304)** (asked 2026-10-28: "aware if its been started and stopped …
 linux arm or windows or mac"):
 - **One app-wide watch** looks every 2 s while the library is open. A drive
   pulled or plugged back in mid-session shows within seconds, on the shelf

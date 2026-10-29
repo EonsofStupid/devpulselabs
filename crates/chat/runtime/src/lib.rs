@@ -10,6 +10,7 @@ use dpl_chat_core::{
     ChatSessionId, ProviderId, ProviderManifest, RecoveryAction, RecoveryActionKind, SessionGroup,
     SessionState, SessionSummary, TurnId,
 };
+mod archive;
 pub mod seam;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -118,6 +119,8 @@ impl std::error::Error for RegistryError {}
 pub struct ChatRuntime {
     providers: Vec<ProviderEntry>,
     selected_provider: Option<ProviderId>,
+    // Opaque conversations do not register providers or import authority.
+    archived_unavailable_providers: Vec<serde_json::Value>,
 }
 
 impl ChatRuntime {
@@ -146,6 +149,7 @@ impl ChatRuntime {
         Ok(Self {
             providers,
             selected_provider,
+            archived_unavailable_providers: Vec::new(),
         })
     }
 

@@ -548,9 +548,9 @@ pub(crate) fn probe_version(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let output = command
-        .output()
-        .map_err(|error| CodexDiscoveryError::VersionProbe(public_io_reason(&error)))?;
+    let output =
+        dpl_proc::bounded_output(&mut command, std::time::Duration::from_secs(5), 16 * 1024)
+            .map_err(|error| CodexDiscoveryError::VersionProbe(public_io_reason(&error)))?;
     if !output.status.success() {
         return Err(CodexDiscoveryError::VersionProbe(format!(
             "the version command exited with status {}",
@@ -569,9 +569,17 @@ fn probe_login_status(profile: &CodexRuntimeProfile) -> Result<CodexLoginStatus,
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let output = command.output()?;
-    parse_login_status(&bounded_output(&output))
-        .ok_or_else(|| io::Error::other("the login status response was not recognized"))
+    let output =
+        dpl_proc::bounded_output(&mut command, std::time::Duration::from_secs(5), 16 * 1024)?;
+    let status = parse_login_status(&bounded_output(&output))
+        .ok_or_else(|| io::Error::other("the login status response was not recognized"))?;
+    if output.status.success() || status == CodexLoginStatus::SignedOut {
+        Ok(status)
+    } else {
+        Err(io::Error::other(
+            "the login status command failed; authentication was not verified",
+        ))
+    }
 }
 
 fn parse_login_status(output: &str) -> Option<CodexLoginStatus> {

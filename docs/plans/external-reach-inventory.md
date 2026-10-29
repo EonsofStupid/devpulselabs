@@ -140,6 +140,19 @@ composer/ViziWiz production OS-temp writes (row 31) are removed in ST1.
 
 ---
 
+## Project chat activation — R292 (grounded 2026-10-27)
+
+These implementation reaches were authorized when the operator resumed the
+reviewed design. The operator confirmed that the normal setup offer includes
+supported standalone AI apps and automatic project-based organization (R292).
+Exact provider paths and link ownership still need qualification.
+
+| # | Reach | Evidence | Status |
+|---|---|---|---|
+| 62 | Read supported AI installation/version/status evidence on the current Windows or Linux computer and associate the result with qualified adapters | R290/R292; `chat-native-program.md` §4.7; existing `app/src/presence.rs` status probes | Requirement recorded. Exact new discovery locations and probes must be enumerated in the execution plan; existing launch qualification still applies. |
+| 63 | Persist chat data in an operator-selected working project and create/switch an owned activation link, including supported standalone AI session storage outside DevPULSE | R292; `chat-native-program.md` §4.7 | Standalone-client scope and automatic project organization confirmed by the operator. Exact paths, link ownership, concurrent writers and restoration must be specified per supported client before execution; no host links or provider folders changed. |
+| 64 | New machine-local project bindings/provider profiles under `%LOCALAPPDATA%/DevPULSE/chat` or `${XDG_STATE_HOME:-~/.local/state}/devpulse/chat`; new conversation-only links into `<workspace>/.devpulse/chat/providers/`; project-bound named Codex launch entry | `chat-project-storage.md` §§3–5 | Authorized reviewed design. PC1a implements bindings and project archives; PC1b qualifies provider profiles/links and the standalone entry. Existing provider homes remain intact. Provider owns login/auth in the local profile; no credential read/copy/link. All native conversation artifacts, leases, fresh-profile resume and offline behavior must qualify before support is advertised. |
+
 ## Log
 
 - 2026-10-10 — authored from three read-only sweeps (code, docs/CI, chat code)

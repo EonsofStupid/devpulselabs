@@ -36,6 +36,13 @@ use egui_pilot_ai::{
 };
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt;
+use std::path::PathBuf;
+
+mod projects;
+pub use projects::{
+    ProjectChoice, ProjectView, PROJECTS_ID, PROJECT_COPY_ID, PROJECT_LABEL_ID, PROJECT_OPEN_ID,
+    PROJECT_RETRY_ID, PROJECT_SELECT_ID, PROJECT_SETUP_ID, PROJECT_WORKSPACE_ID,
+};
 
 pub const WINDOW_KEY: AppWindowKey = AppWindowKey("chat.primary");
 pub const LAUNCHER_ID: PilotId = PilotId::new("shell.window.chat");
@@ -296,6 +303,19 @@ impl ChatDomainStates {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatWindowIntent {
+    SaveProjectCopy {
+        workspace: PathBuf,
+        label: String,
+    },
+    SetupProject {
+        workspace: PathBuf,
+        label: String,
+    },
+    OpenProject {
+        workspace: PathBuf,
+    },
+    SelectProject(dpl_chat_projects::ProjectId),
+    RetryProjectSave,
     SelectDomain(ChatDomain),
     SelectProvider(ProviderId),
     /// Scope the AI domain to one connected provider — the tab beside
@@ -506,6 +526,19 @@ fn kebab_of(label: &str) -> String {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostIntent {
+    SaveProjectCopy {
+        workspace: PathBuf,
+        label: String,
+    },
+    SetupProject {
+        workspace: PathBuf,
+        label: String,
+    },
+    OpenProject {
+        workspace: PathBuf,
+    },
+    SelectProject(dpl_chat_projects::ProjectId),
+    RetryProjectSave,
     OpenUtility {
         interaction_id: InteractionId,
         placement: InteractionPlacement,
@@ -662,6 +695,9 @@ struct ProviderPermissionBinding {
 #[derive(Debug, Clone)]
 pub struct ChatWindow {
     runtime: ChatRuntime,
+    project_view: ProjectView,
+    project_ui: projects::ProjectUi,
+    project_input_locked: bool,
     route_context: RouteContextState,
     histories: HashMap<ProviderId, ProviderHistory>,
     /// The transcript the operator is reading, if any. Distinct from the live
@@ -823,6 +859,9 @@ impl ChatWindow {
         }
         Self {
             runtime,
+            project_view: ProjectView::default(),
+            project_ui: projects::ProjectUi::default(),
+            project_input_locked: false,
             route_context,
             histories,
             history_focus: None,
@@ -1212,6 +1251,17 @@ impl ChatWindow {
         intent: ChatWindowIntent,
     ) -> Result<Option<HostIntent>, ChatWindowError> {
         match intent {
+            ChatWindowIntent::SaveProjectCopy { workspace, label } => {
+                Ok(Some(HostIntent::SaveProjectCopy { workspace, label }))
+            }
+            ChatWindowIntent::SetupProject { workspace, label } => {
+                Ok(Some(HostIntent::SetupProject { workspace, label }))
+            }
+            ChatWindowIntent::OpenProject { workspace } => {
+                Ok(Some(HostIntent::OpenProject { workspace }))
+            }
+            ChatWindowIntent::SelectProject(id) => Ok(Some(HostIntent::SelectProject(id))),
+            ChatWindowIntent::RetryProjectSave => Ok(Some(HostIntent::RetryProjectSave)),
             ChatWindowIntent::SelectDomain(domain) => {
                 self.domain = domain;
                 self.provider_tab = None;
@@ -1439,12 +1489,16 @@ impl ChatWindow {
                 .layout(Layout::top_down(Align::Min)),
             |ui| {
                 self.top_strip(ui, &mut intents);
+                self.project_bar(ui);
                 ui.add_space(6.0);
                 let body_height = ui.available_height();
                 ui.allocate_ui_with_layout(
                     egui::vec2(ui.available_width(), body_height),
                     Layout::left_to_right(Align::Min),
                     |ui| {
+                        if self.project_input_locked {
+                            ui.disable();
+                        }
                         let sidebar_width = match composition {
                             Composition::FullRail => SIDEBAR_WIDTH,
                             Composition::PresenceRail => PRESENCE_RAIL_WIDTH,
@@ -1465,12 +1519,15 @@ impl ChatWindow {
             },
         );
 
-        self.provider_hover_overlay(ui, &mut intents);
-        self.provider_catalog_overlay(ui, &mut intents);
-        self.provider_configuration_overlay(ui, &mut intents);
-        self.generation_overlay(ui, &mut intents);
-        self.compact_picker_overlay(ui, &mut intents);
-        self.interaction_overlays(ui, &mut intents);
+        self.project_popup(ui, &mut intents);
+        if !self.project_input_locked {
+            self.provider_hover_overlay(ui, &mut intents);
+            self.provider_catalog_overlay(ui, &mut intents);
+            self.provider_configuration_overlay(ui, &mut intents);
+            self.generation_overlay(ui, &mut intents);
+            self.compact_picker_overlay(ui, &mut intents);
+            self.interaction_overlays(ui, &mut intents);
+        }
         borderless_resize(ui);
         intents
     }
@@ -3070,9 +3127,21 @@ impl ChatWindow {
             return;
         }
 
-        if !provider.registration.activation.is_activated() {
+        // A stored project transcript belongs to the operator regardless of
+        // whether this computer can currently authenticate its provider.
+        // The heading retains current activation/account status, while the
+        // composer independently refuses sending until native resume exists.
+        let reading_project_archive = self.project_session_read_only();
+        if !provider.registration.activation.is_activated() && !reading_project_archive {
             self.provider_activation_ceremony(ui, &provider, intents);
             return;
+        }
+        if reading_project_archive {
+            ui.label(
+                RichText::new("Saved project chat — read-only")
+                    .small()
+                    .color(Tone::Amber.color()),
+            );
         }
 
         let events = provider
@@ -3439,17 +3508,20 @@ impl ChatWindow {
                     // message is still typeable.
                     let editor_id = egui::Id::new("dpl_chat_composer");
                     let composer_focused = ui.memory(|m| m.has_focus(editor_id));
-                    let submit_key = composer_focused && ui.input_mut(take_composer_submit);
+                    let submit_key = ui.is_enabled()
+                        && composer_focused
+                        && ui.input_mut(take_composer_submit);
                     let editor = ui.add_sized(
                         [(ui.available_width() - 104.0).max(160.0), 52.0],
                         egui::TextEdit::multiline(&mut draft)
                             .id(editor_id)
+                            .interactive(!self.project_input_locked)
                             .hint_text(self.composer_hint())
                             .desired_rows(2),
                     );
                     let mut metadata =
                         NodeMetadata::new(COMPOSER_ID, Role::TextInput, "Message composer");
-                    metadata.editable = true;
+                    metadata.editable = !self.project_input_locked;
                     // ALWAYS report the value, empty included. A text field
                     // that is empty has a value of "" — it does not stop
                     // having one, and reporting `None` makes "the composer
@@ -3465,7 +3537,7 @@ impl ChatWindow {
                         editor.request_focus();
                         self.composer_focus_requested = false;
                     }
-                    if editor.changed() {
+                    if editor.changed() && !self.project_input_locked {
                         // A fresh keystroke supersedes the refusal line.
                         self.composer_status = None;
                         match self.domain {
@@ -3555,12 +3627,15 @@ impl ChatWindow {
                                 // the transport reason, which would be true
                                 // but would not be the ACTUAL reason.
                                 let reading_history = self.history_focus.is_some();
-                                let enabled = !reading_history
+                                let archived_session = self.project_session_read_only();
+                                let enabled = !reading_history && !archived_session
                                     && (command.is_some()
                                         || (send_target.is_some_and(|(_, _, can_send)| can_send)
                                             && !draft.trim().is_empty()));
                                 let reason = if reading_history {
                                     "This is a past transcript — it is read-only.".to_owned()
+                                } else if archived_session {
+                                    "Saved project chat is read-only. Start a new chat; native resume is not connected yet.".to_owned()
                                 } else if let Some(c) =
                                     command.as_ref().and_then(|d| dpl_chat_core::command(&d.slug))
                                 {
@@ -4183,6 +4258,9 @@ impl ChatWindow {
     }
 
     fn composer_hint(&self) -> &'static str {
+        if self.domain == ChatDomain::Ai && self.project_session_read_only() {
+            return "Saved project chat — read-only";
+        }
         if self.domain == ChatDomain::Ai && self.history_focus.is_some() {
             return "Past transcript — read-only";
         }
@@ -6226,6 +6304,294 @@ mod tests {
             &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
         )
+    }
+
+    #[test]
+    fn project_actions_are_typed_host_requests() {
+        let mut window = window();
+        let workspace = PathBuf::from("project-fixture");
+        let id = dpl_chat_projects::ProjectId::parse("project-fixture").unwrap();
+        let pairs = [
+            (
+                ChatWindowIntent::SaveProjectCopy {
+                    workspace: workspace.clone(),
+                    label: "Recovery copy".into(),
+                },
+                HostIntent::SaveProjectCopy {
+                    workspace: workspace.clone(),
+                    label: "Recovery copy".into(),
+                },
+            ),
+            (
+                ChatWindowIntent::SetupProject {
+                    workspace: workspace.clone(),
+                    label: "Fixture".into(),
+                },
+                HostIntent::SetupProject {
+                    workspace: workspace.clone(),
+                    label: "Fixture".into(),
+                },
+            ),
+            (
+                ChatWindowIntent::OpenProject {
+                    workspace: workspace.clone(),
+                },
+                HostIntent::OpenProject { workspace },
+            ),
+            (
+                ChatWindowIntent::SelectProject(id.clone()),
+                HostIntent::SelectProject(id),
+            ),
+            (
+                ChatWindowIntent::RetryProjectSave,
+                HostIntent::RetryProjectSave,
+            ),
+        ];
+        for (intent, expected) in pairs {
+            assert_eq!(window.apply(intent).unwrap(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn project_restore_preserves_drafts_and_exposes_read_only_sessions() {
+        let mut window = window();
+        window
+            .apply(ChatWindowIntent::UpdateAiDraft {
+                provider: PROVIDER,
+                value: "unfinished project question".into(),
+            })
+            .unwrap();
+        let saved = window.project_archive().unwrap();
+        window.validate_project_archive(&saved).unwrap();
+        assert_eq!(window.project_archive().unwrap(), saved);
+        window.clear_project_state();
+        assert!(window.project_provider_views()[0]
+            .registration
+            .sessions
+            .is_empty());
+        window.restore_project_archive(&saved).unwrap();
+        let view = &window.project_provider_views()[0];
+        assert_eq!(view.draft, "unfinished project question");
+        assert_eq!(view.registration.sessions[0].title, "Pinned design review");
+        assert!(view
+            .registration
+            .sessions
+            .iter()
+            .all(|session| session.state == SessionState::ReadOnly));
+        assert!(window.project_session_read_only());
+        assert_eq!(window.composer_hint(), "Saved project chat — read-only");
+        let mut invalid = saved;
+        invalid["v"] = serde_json::json!(999);
+        let before_validation = window.project_archive().unwrap();
+        assert!(window.validate_project_archive(&invalid).is_err());
+        assert_eq!(window.project_archive().unwrap(), before_validation);
+        assert!(window.restore_project_archive(&invalid).is_err());
+        assert_eq!(
+            window.project_provider_views()[0].draft,
+            "unfinished project question"
+        );
+    }
+
+    #[test]
+    fn project_setup_offer_opens_native_controls_with_honest_support_status() {
+        use egui_kittest::kittest::Queryable;
+        let mut harness = Harness::builder()
+            .with_size([1280.0, 800.0])
+            .build_ui_state(
+                |ui, window: &mut ChatWindow| {
+                    let _ = window.ui(ui);
+                },
+                window(),
+            );
+        harness.run_steps(2);
+        harness.get_by_label("Set up project chat storage");
+        harness
+            .get_by_label("Choose a workspace for project chats")
+            .click();
+        harness.run_steps(2);
+        harness.get_by_label("Standalone app storage is not connected yet.");
+        harness.get_by_label("Create project chat storage in this folder");
+        harness.get_by_label("Open a folder already marked for project chat storage");
+    }
+
+    #[test]
+    fn archived_chat_enter_keeps_the_draft_and_explains_read_only_state() {
+        let mut window = window();
+        window
+            .runtime
+            .set_draft(PROVIDER, "keep this question".into())
+            .unwrap();
+        let archive = window.project_archive().unwrap();
+        window.restore_project_archive(&archive).unwrap();
+        let mut harness = Harness::builder()
+            .with_size([1280.0, 800.0])
+            .build_ui_state(
+                |ui, window: &mut ChatWindow| {
+                    for intent in window.ui(ui) {
+                        assert!(!matches!(intent, ChatWindowIntent::SendTurn { .. }));
+                        window.apply(intent).unwrap();
+                    }
+                },
+                window,
+            );
+        harness.run_steps(2);
+        harness
+            .ctx
+            .memory_mut(|memory| memory.request_focus(egui::Id::new("dpl_chat_composer")));
+        harness.run_steps(1);
+        harness.input_mut().events.push(egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        harness.run_steps(2);
+        assert_eq!(
+            harness.state().project_provider_views()[0].draft,
+            "keep this question"
+        );
+        assert!(harness
+            .state()
+            .composer_status()
+            .unwrap()
+            .contains("read-only"));
+    }
+
+    #[test]
+    fn switching_projects_freezes_focused_composer_input() {
+        let mut window = window();
+        window
+            .runtime
+            .set_draft(PROVIDER, "saved before switch".into())
+            .unwrap();
+        window.set_project_input_locked(true);
+        let mut harness = Harness::builder()
+            .with_size([1280.0, 800.0])
+            .build_ui_state(
+                |ui, window: &mut ChatWindow| {
+                    for intent in window.ui(ui) {
+                        assert!(!matches!(
+                            intent,
+                            ChatWindowIntent::UpdateAiDraft { .. }
+                                | ChatWindowIntent::SendTurn { .. }
+                        ));
+                        window.apply(intent).unwrap();
+                    }
+                },
+                window,
+            );
+        harness.run_steps(2);
+        harness
+            .ctx
+            .memory_mut(|memory| memory.request_focus(egui::Id::new("dpl_chat_composer")));
+        harness
+            .input_mut()
+            .events
+            .push(egui::Event::Text("do not accept".into()));
+        harness.input_mut().events.push(egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        harness.run_steps(2);
+        assert_eq!(
+            harness.state().project_provider_views()[0].draft,
+            "saved before switch"
+        );
+    }
+
+    #[test]
+    fn unavailable_providers_show_archived_messages_and_keep_editable_unsent_drafts() {
+        use egui_kittest::kittest::Queryable;
+        for activation in [
+            ActivationState::Blocked {
+                reason: "Unavailable here".into(),
+                recovery: Vec::new(),
+            },
+            ActivationState::SignedOut {
+                reason: "Sign in again".into(),
+                recovery: Vec::new(),
+            },
+            ActivationState::NotInstalled {
+                reason: "Client absent".into(),
+                recovery: Vec::new(),
+            },
+        ] {
+            let mut window = window();
+            window
+                .runtime
+                .append_event(
+                    PROVIDER,
+                    ChatEvent {
+                        id: ChatEventId(101),
+                        provider_id: PROVIDER,
+                        session_id: ChatSessionId(1),
+                        turn_id: None,
+                        content: ChatEventContent::AssistantMessage(
+                            "Archived answer remains readable".into(),
+                        ),
+                    },
+                )
+                .unwrap();
+            window
+                .runtime
+                .set_draft(PROVIDER, "saved draft".into())
+                .unwrap();
+            let archive = window.project_archive().unwrap();
+            window
+                .set_provider_activation(PROVIDER, activation.clone())
+                .unwrap();
+            window.restore_project_archive(&archive).unwrap();
+            let mut harness = Harness::builder()
+                .with_size([1280.0, 800.0])
+                .build_ui_state(
+                    |ui, window: &mut ChatWindow| {
+                        for intent in window.ui(ui) {
+                            assert!(!matches!(intent, ChatWindowIntent::SendTurn { .. }));
+                            window.apply(intent).unwrap();
+                        }
+                    },
+                    window,
+                );
+            harness.run_steps(2);
+            harness.get_by_label("Archived answer remains readable");
+            harness.get_by_label("Saved project chat — read-only");
+            harness
+                .ctx
+                .memory_mut(|memory| memory.request_focus(egui::Id::new("dpl_chat_composer")));
+            harness.run_steps(1);
+            harness
+                .input_mut()
+                .events
+                .push(egui::Event::Text("edited ".into()));
+            harness.run_steps(2);
+            let edited = harness.state().project_provider_views()[0].draft.clone();
+            assert!(edited.contains("saved draft"));
+            assert!(edited.contains("edited "));
+            harness.input_mut().events.push(egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+            harness.run_steps(2);
+            assert_eq!(harness.state().project_provider_views()[0].draft, edited);
+            assert_eq!(
+                harness.state().project_provider_views()[0]
+                    .registration
+                    .activation,
+                activation
+            );
+            assert!(harness
+                .state()
+                .composer_status()
+                .unwrap()
+                .contains("read-only"));
+        }
     }
 
     fn multi_provider_window() -> ChatWindow {

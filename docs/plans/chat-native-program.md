@@ -610,6 +610,95 @@ Each is listed before it is relied on.
 | 5 | Where new vendor versions come from | This machine's installed copies first; official downloads per vendor with your OK |
 | 6 | Provider order | Codex → Claude Code → Grok → Gemini (Antigravity headless on the subscription, with the credit-funded API key as fallback; R281); then the room and the routines of §4.3.7, Council first (R33). **Amended 2026-10-18:** the operator approved the §4.3.7 design and ruled "Both, subscription first" for Gemini. |
 
+### 4.7 Machine awareness and portable project chat (R290, R292)
+
+**Requirement, standalone-app scope and reviewed implementation authorized
+2026-10-27 (R292); PC1a in progress, PC1b provider qualification pending.** This extends
+the existing chat/AI program. R290's order remains
+storage first, then AgentHub; this note does not reorder the queue or claim that
+project chat storage was delivered by portable media storage ST1/ST2.
+
+**Ground truth at `45ac4f2`:**
+
+- `crates/app/src/presence.rs` probes declared provider status commands on a
+  worker at startup. Generic program names resolve through PATH; this is not
+  a complete Windows/Linux installed-application inventory. Runtime launch
+  separately uses qualified depot executables.
+- `crates/app/src/main.rs` supplies the process current directory to provider
+  activation. `local_chat_history_catalog` reads machine-local Codex/Claude
+  histories. Neither provides a chosen project's durable chat storage binding.
+- `crates/chat/runtime/src/lib.rs` retains live events and drafts in memory.
+  Account/profile metadata in library `.userdata/chat` is not a project
+  conversation archive. Codex currently rejects session listing/loading in
+  `crates/chat/providers/codex/src/runtime.rs`; a symlink cannot add resume.
+- `crates/roots/src/disk.rs` rejects symlink/reparse components, while the
+  history store skips nested symlinks. Managed project links need an explicit
+  validated boundary; broad removal of these checks is not the design.
+
+**Authorized behavior, grounded in R292:**
+
+1. On this computer, discover its OS and the supported AI installations,
+   distinguish installed, authenticated and usable, and show their actual
+   capabilities. Re-probe machine facts after changing computers; do not
+   carry an old machine's executable paths or signed-in verdict as truth.
+2. Offer portable project chat as the normal setup path, covering both
+   DevPULSE-launched sessions and supported standalone AI apps. Once enabled
+   for an explicitly selected workspace, save and organize conversations there
+   automatically; no per-chat export or repeated folder selection is required.
+   Show the project and durable chat location before activation and keep the
+   active workspace visible during use. Use a typed
+   project identity; never infer project ownership from process CWD or a
+   media library's root. Keep transcripts, pending drafts, provider-native
+   session references and the resume metadata with that project.
+3. Keep a persistent binding for every configured project and an owned active
+   link to the selected one. Activating B leaves A's data intact; reactivating
+   A restores its conversations and uses the adapter's supported resume path.
+   Native session support must be proved per provider; transcript display and
+   provider-native continuation are separate capabilities.
+4. Switching first quiesces affected owned sessions and durably saves their
+   accepted state, validates the destination, then switches the owned link
+   and reopens with the selected project. On failure retain the old binding.
+   Never overwrite a real directory or an unrelated link. Resolve Windows
+   and Linux link implementations during the provider/platform qualification
+   pass, including unavailable link permissions and multiple active clients.
+   A running standalone client must not have its storage retargeted beneath
+   it: use its supported switching mechanism, or require it to close before
+   changing a shared link. Attribute every write to its bound project; do not
+   mix concurrent A/B sessions because the visible active project changed.
+5. An absent project drive is offline: retain pending work, refuse new saves
+   there and offer reconnect/locate. Never create a substitute archive under
+   the program folder or another project. Machine authentication stays with
+   its provider; portable conversation data does not include credentials.
+
+**Settled scope:** include standalone AI apps where supported (R292). Setup
+must show which detected clients support project storage, which support native
+resume, and which cannot be connected this way. Unsupported clients must not
+appear covered by automatic saving. Keep the normal setup offer distinct from
+silently rewriting an existing provider profile. The execution design must
+name each supported client's exact session paths, switching mechanism,
+concurrent-writer behavior and restoration procedure. No host directories are
+changed during implementation tests, which use disposable roots.
+
+**Execution and qualification gates:** inventory named
+provider save/resume interfaces and exact external reaches; reconcile presence
+discovery with the runtime ADR's launch qualification; choose a project storage
+schema and safe link-switch transaction; then implement in existing owning
+boundaries with a reviewed pass plan. Test Windows and Linux A → B → A,
+restart/resume, missing drive, wrong project marker, failed flush, interrupted
+switch, concurrent sessions and unsupported provider resume. For each supported
+standalone client, prove that a conversation started outside DevPULSE is saved
+under its bound project and remains resumable after A → B → A and restart.
+Capture the real
+setup and active-project UI at both standard window sizes.
+
+The authorized execution plan is [Project chat](chat-project-storage.md)
+(PC1a/PC1b): selected project archive and machine awareness, then Codex native
+resume with a qualified standalone project launch entry. It proposes stable
+per-project machine profiles, not changing a shared global link beneath running
+clients. Provider conversation footprint, fresh-machine resume, lease ownership
+and the exact external paths are explicit gates. The operator resumed the
+reviewed design; PC1a implementation proceeds without repeating approval.
+
 ## 5. Wiring
 
 **Edges:**

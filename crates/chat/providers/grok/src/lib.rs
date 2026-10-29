@@ -581,9 +581,9 @@ fn probe_version(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let output = command
-        .output()
-        .map_err(|error| GrokDiscoveryError::VersionProbe(public_io_reason(&error)))?;
+    let output =
+        dpl_proc::bounded_output(&mut command, std::time::Duration::from_secs(5), 16 * 1024)
+            .map_err(|error| GrokDiscoveryError::VersionProbe(public_io_reason(&error)))?;
     if !output.status.success() {
         return Err(GrokDiscoveryError::VersionProbe(format!(
             "the version command exited with status {}",
