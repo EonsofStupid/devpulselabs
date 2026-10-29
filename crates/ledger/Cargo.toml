@@ -11,7 +11,7 @@ serde.workspace = true
 serde_json.workspace = true
 # Pure-Rust Parquet write path (ADR-009): no zstd-sys. `snap` is the
 # pure-Rust snappy crate; `arrow` is the RecordBatch writer surface.
-parquet = { version = "59", default-features = false, features = ["arrow", "snap"] }
+parquet = { version = "60", default-features = false, features = ["arrow", "snap"] }
 arrow-array = "59"
 # Must track parquet/arrow-array major: dual arrow-schema versions fail RecordBatch
 # construction with a type mismatch (dependabot #197/#198 left this at 55).
