@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
-  # Every main commit gets its own downloadable Windows build.
+  # Main publishes its Windows build for one day; PRs run the same gate.
   push:
     branches: [main]
 
@@ -65,9 +65,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo green (the xtask gate)
         run: cargo green
-      # Upload only after the complete gate passes. The helper must ship beside
-      # the app (ADR-009); missing artifacts or upload failures remain failures.
+      # Upload on main only after the complete gate passes (policy from #310).
+      # The helper ships beside the app; missing files or upload errors fail.
       - name: upload the windows exe
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: devpulselabs-windows-${{ github.sha }}
@@ -75,7 +76,7 @@ jobs:
             target/release/devpulselabs.exe
             target/release/dpl-lottie-render.exe
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
 
   green-linux:
     runs-on: ubuntu-24.04

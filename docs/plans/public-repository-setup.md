@@ -30,12 +30,19 @@ scanning/push protection and dependency alerts. Restore Actions for hosted CI.
 
 Move green Windows/Linux to GitHub-hosted images, explicit read-only workflow
 permissions, verified system dependencies and a hosted cache. Preserve cargo
-green and its artifact publication requirement. Remove estate-specific cache
+green and main's artifact publication requirement. Remove estate-specific cache
 deletion logic from hosted execution. Pin actions to their exact upstream
 commit SHAs. Review nightly/EguiPilotAI public execution and permissions; avoid
 changing their release policy or triggering a release as part of this task.
 Run green for every PR, including documentation-only changes, so mandatory
 status checks are always emitted and cannot strand a PR behind path filters.
+
+Upstream changed during verification: main e3f8c8b (#310) now uploads only on
+main, retaining artifacts for one day. Preserve that independently merged
+policy while integrating hosted runners. PRs still run the complete gate;
+main's upload remains strict. This supersedes this pass's initial assumption
+that every PR uploads an executable. Resolve the workflow/runbook conflicts
+against this policy before continuing hosted qualification.
 
 ## 5. Repository policy
 
