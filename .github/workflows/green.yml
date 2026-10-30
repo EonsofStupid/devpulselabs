@@ -25,9 +25,11 @@ name: green
 # lane's compiler. The bootstrap scripts install an older default toolchain;
 # rustup auto-installs the pinned one from the toolchain file on first build.
 #
-# The Windows lane also PUBLISHES its exe (see `upload the windows exe`). The
-# gate's release build was already happening and being discarded; keeping it
-# means a green commit on main is a downloadable build, not just a green tick.
+# The Windows lane also PUBLISHES its exe on main (see `upload the windows
+# exe`). The gate's release build was already happening and being discarded;
+# keeping it means a green commit on main is a downloadable build, not just a
+# green tick. PR runs don't upload: nothing downloads a PR's exe, and their
+# uploads are what filled the storage quota (2026-10-29).
 
 on:
   workflow_dispatch:
@@ -38,7 +40,7 @@ on:
       - "**.md"
       - ".claude/**"
   # Every commit that reaches main builds, so every commit on main HAS a
-  # downloadable Windows exe (see the upload step). Deliberately WITHOUT
+  # downloadable Windows exe for a day (see the upload step). Deliberately WITHOUT
   # `paths-ignore`: a docs-only merge produces a byte-identical exe, but it
   # produces one stamped with the new tip SHA, so "grab the artifact for the
   # current main" is always a question with an answer. The estate runners are
@@ -124,13 +126,16 @@ jobs:
       # days while the running exe predated it, with no way to tell from the
       # app itself.
       #
-      # No `if:` — the default is "only on success", and that is the point: an
-      # artifact exists ONLY for a commit that passed the gate on this OS.
+      # MAIN ONLY: pushes to main and a dispatch run on main upload; PR runs
+      # (`refs/pull/…`) skip it. An `if:` without a status function still
+      # implies `success()`, and that is the point: an artifact exists ONLY
+      # for a commit that passed the gate on this OS.
       #
       # `dpl-lottie-render.exe` ships BESIDE the app, not inside it (ADR-009:
       # the façade spawns it). Shipping the pair keeps the download a working
       # install rather than an app with a missing helper.
       - name: upload the windows exe
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v7
         with:
           # The SHA is in the NAME so the download answers "which commit is
@@ -142,10 +147,13 @@ jobs:
           # A silent empty artifact would be worse than none — it would look
           # like a delivered build.
           if-no-files-found: error
-          # Private-repo artifact storage is quota'd; 90 days of exes would
-          # exhaust it and future uploads would start failing. 3 days keeps
-          # "grab the current main exe" answerable without that cliff.
-          retention-days: 3
+          # Private-repo artifact storage is quota'd (500 MB shared by the
+          # account's private repos), billed by average use over the month.
+          # 3 days with PR uploads (~7 a day × 27 MB) went over it on
+          # 2026-10-29, and deleting didn't help until the month reset. 1 day
+          # from main only stays well under it and still answers "grab the
+          # current main exe".
+          retention-days: 1
 
   green-linux:
     runs-on: [self-hosted, dpl-linux]
