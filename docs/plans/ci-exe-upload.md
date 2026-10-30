@@ -100,4 +100,15 @@ Every code PR's `green-windows` lane went red on 2026-10-29 at its last step,
 
 ## 8. Evidence
 
-- PR run: pending.
+- **#310's run 41081620853** (head `0df81ff`):
+  - `green-windows` success in 11m19s, with `upload the windows exe`
+    **skipped**;
+  - `green-linux` success in 12m4s.
+
+  #310 merged as `e3f8c8b`.
+- **Local pre-push `cargo green`:** 1,268 passed, 0 failed.
+- **The repo went public the same day (R293).** #311 (`bbac4f5`) moved
+  both lanes to GitHub-hosted runners and kept this policy: main only, 1
+  day. The storage cap applies only to private repos, so §6's "main's own
+  upload stays red until the reset" no longer applies.
+- **ST5b (#309)** was rebased onto `bbac4f5`; see that PR's run.

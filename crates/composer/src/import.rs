@@ -197,58 +197,52 @@ pub fn import_generated(src: &Path) -> Result<Record, String> {
     finalize_import(&dest, kind, "generated", &root, &stem)
 }
 
-/// REFERENCE an external file IN-PLACE instead of copying it — the operator's
-/// paid AE presets / image folders stay where they live; a single-FILE symlink
-/// lands in `content/` and is indexed like any artifact. QoL: no duplication of
-/// a themeforest/AE library into the app. Single-FILE symlinks (never folders)
-/// keep rescans cheap — the folder-symlink rescan blow-up the pack shelf
-/// rejected does not apply here. Falls back to a copy where the OS denies
-/// symlinks (e.g. Windows without the privilege), so an import never fails.
+/// REFERENCE an external file IN PLACE instead of copying it (ST5b,
+/// Q-ST5-2): the operator's paid AE presets / image folders stay where they
+/// live, and the file is linked as `locations/<id>/<path inside>` — no
+/// symlink, and never a copy. A file outside every location brings its
+/// folder in as one, which the app's indexer then indexes whole
+/// (Q-ST5b-2); the file itself is indexed now, so it lands at once.
 pub fn import_reference(src: &Path) -> Result<Record, String> {
     let kind = media_kind(src).ok_or_else(|| format!("not a media file: {}", src.display()))?;
-    // Resolve to an absolute target so the symlink survives the app's cwd.
-    let target =
-        std::fs::canonicalize(src).map_err(|e| format!("resolve {}: {e}", src.display()))?;
-    let stem = target
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("ref")
-        .to_string();
-    let ext = target
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let root = dpl_roots::writable(&dpl_roots::content_root())?;
-    let dest_dir = if kind == "element" {
-        root.join("elements").join("referenced")
-    } else {
-        root.join("inbox")
+    let src = std::path::absolute(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    let (location, inside) = match dpl_roots::location_containing(&src) {
+        Some(found) => found,
+        None => {
+            let folder = src
+                .parent()
+                .ok_or_else(|| format!("{} isn't in a folder", src.display()))?;
+            let name = src
+                .file_name()
+                .ok_or_else(|| format!("{} isn't a file", src.display()))?;
+            (dpl_roots::add_location(folder, "")?, PathBuf::from(name))
+        }
     };
-    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dest dir: {e}"))?;
-    let dest = no_clobber(&dest_dir, &stem, &ext);
-    if symlink_file(&target, &dest).is_err() {
-        // Symlinks denied (Windows w/o privilege) — a copy still works.
-        std::fs::copy(&target, &dest).map_err(|e| format!("reference fallback copy: {e}"))?;
+    let folder = src
+        .ancestors()
+        .nth(inside.components().count())
+        .ok_or_else(|| format!("{} isn't in a folder", src.display()))?;
+    let mut rec = dpl_index::linked_record(&location.id, folder, &src, kind);
+    if kind == "element" {
+        // A template's own name and tags; nothing is written beside it.
+        let _ = template_facts(&mut rec, &src);
     }
-    finalize_import(&dest, kind, "reference", &root, &stem)
+    if kind == "video" {
+        if let Some(poster) = dpl_roots::location_poster(&rec.rel_path) {
+            // A missing poster degrades the card, never the import.
+            let _ = crate::cache_poster(&src, &poster, kind);
+        }
+        rec.seconds = dpl_video::clip::clip_duration(&src)
+            .filter(|d| *d > 0.0)
+            .map(|d| d.round() as u32);
+    }
+    dpl_index::Index::open_default()?.upsert(&rec)?;
+    Ok(rec)
 }
 
-/// Create a single-FILE symlink `dest -> target`, cross-platform. `unix`
-/// covers Linux AND macOS; Windows has its own call (needs the create-symlink
-/// privilege or Developer Mode — the caller falls back to a copy on failure).
-#[cfg(unix)]
-fn symlink_file(target: &Path, dest: &Path) -> std::io::Result<()> {
-    std::os::unix::fs::symlink(target, dest)
-}
-#[cfg(windows)]
-fn symlink_file(target: &Path, dest: &Path) -> std::io::Result<()> {
-    std::os::windows::fs::symlink_file(target, dest)
-}
-
-/// Index a placed file (copied OR referenced) as an artifact: poster + seconds
-/// for video, capsule enrich for an element, then write-through. Shared by
-/// `import_file` and `import_reference` so copy and reference land identically.
+/// Index a placed (copied) file as an artifact: poster + seconds for video,
+/// capsule enrich for an element, then write-through. Shared by
+/// `import_file` and `import_generated`.
 fn finalize_import(
     dest: &Path,
     kind: &str,
@@ -306,32 +300,37 @@ pub fn removable_after_promote(src: &Path, assets_root: &Path) -> bool {
 /// embedded `thumb.png` extracted beside the copy as the poster.
 /// Best-effort: any failure leaves the plain element record intact.
 pub(crate) fn enrich_element(rec: &mut Record, dest: &Path, root: &Path) {
-    let is_mogrt = dest
+    let Some(thumb) = template_facts(rec, dest) else {
+        return;
+    };
+    let poster = dest.with_file_name(format!(
+        "{}-poster.png",
+        dest.file_stem().and_then(|s| s.to_str()).unwrap_or("mogrt")
+    ));
+    if std::fs::write(&poster, &thumb).is_ok() {
+        rec.poster_rel_path = poster
+            .strip_prefix(root)
+            .ok()
+            .map(|p| p.to_string_lossy().replace('\\', "/"));
+    }
+}
+
+/// A `.mogrt`'s own name and tags into `rec` (R2a.2), and its thumbnail
+/// when it ships one. Anything else is left as it is.
+fn template_facts(rec: &mut Record, src: &Path) -> Option<Vec<u8>> {
+    let is_mogrt = src
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("mogrt"));
     if !is_mogrt {
-        return;
+        return None;
     }
-    let Ok(m) = crate::mogrt::read(dest) else {
-        return;
-    };
+    let m = crate::mogrt::read(src).ok()?;
     if !m.name.trim().is_empty() {
         rec.name = m.name;
     }
     rec.tags = m.tags;
-    if !m.thumb_png.is_empty() {
-        let poster = dest.with_file_name(format!(
-            "{}-poster.png",
-            dest.file_stem().and_then(|s| s.to_str()).unwrap_or("mogrt")
-        ));
-        if std::fs::write(&poster, &m.thumb_png).is_ok() {
-            rec.poster_rel_path = poster
-                .strip_prefix(root)
-                .ok()
-                .map(|p| p.to_string_lossy().replace('\\', "/"));
-        }
-    }
+    (!m.thumb_png.is_empty()).then_some(m.thumb_png)
 }
 
 #[cfg(test)]
@@ -411,33 +410,6 @@ mod tests {
         std::fs::write(base.join("nope.txt"), b"x").unwrap();
         assert!(rasterize_pdf(&base.join("nope.txt"), &base.join("stage"), "x").is_err());
         let _ = std::fs::remove_dir_all(&base);
-    }
-
-    // The reference mechanism: a single-file symlink resolves to the source
-    // content IN PLACE (unix covers Linux + macOS; Windows uses its own call).
-    #[cfg(unix)]
-    #[test]
-    fn reference_symlinks_the_source_in_place() {
-        let dir = std::env::temp_dir().join(format!("dpl-ref-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let src = dir.join("preset.png");
-        std::fs::write(&src, b"PRESET-BYTES").unwrap();
-        let dest = dir.join("linked.png");
-        symlink_file(&std::fs::canonicalize(&src).unwrap(), &dest).unwrap();
-        assert!(
-            std::fs::symlink_metadata(&dest)
-                .unwrap()
-                .file_type()
-                .is_symlink(),
-            "dest is a symlink, not a copy"
-        );
-        assert_eq!(
-            std::fs::read(&dest).unwrap(),
-            b"PRESET-BYTES",
-            "the symlink resolves to the source in place"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

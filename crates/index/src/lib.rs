@@ -91,6 +91,8 @@ impl Index {
         };
         match ix.migrate() {
             Ok(()) => Ok(ix),
+            // Another program writing to it (a second app) isn't corruption.
+            Err(error) if error.contains("locked") || error.contains("busy") => Err(error),
             Err(_) => {
                 let corrupt = path.with_extension("db.corrupt");
                 let _ = std::fs::remove_file(&corrupt);
@@ -153,6 +155,20 @@ impl Index {
         PathBuf::from(os)
     }
 
+    /// One index operation at a time in this process (ST5b). Each opens its
+    /// own connection, and a second writer meanwhile fails "database is
+    /// locked" — which `open` used to take for corruption, setting the live
+    /// index aside while an indexing thread wrote to it.
+    fn run<T>(
+        &self,
+        op: impl std::future::Future<Output = Result<T, String>>,
+    ) -> Result<T, String> {
+        let _turn = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.rt.block_on(op)
+    }
+
     async fn connect(path: &Path) -> Result<turso::Connection, String> {
         let db = turso::Builder::new_local(&path.to_string_lossy())
             .build()
@@ -162,7 +178,7 @@ impl Index {
     }
 
     fn migrate(&self) -> Result<(), String> {
-        self.rt.block_on(async {
+        self.run(async {
             let conn = Self::connect(&self.path).await?;
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS artifacts (
@@ -204,7 +220,7 @@ impl Index {
     pub fn upsert(&self, r: &Record) -> Result<(), String> {
         let tags = serde_json::to_string(&r.tags).unwrap_or_else(|_| "[]".into());
         let labels = serde_json::to_string(&r.ai_labels).unwrap_or_else(|_| "[]".into());
-        self.rt.block_on(async {
+        self.run(async {
             let conn = Self::connect(&self.path).await?;
             conn.execute(
                 "INSERT INTO artifacts (rel_path, location, kind, name, show_id,
@@ -251,7 +267,7 @@ impl Index {
         show_id: Option<&str>,
         episode_folder: Option<&str>,
     ) -> Result<(), String> {
-        self.rt.block_on(async {
+        self.run(async {
             let conn = Self::connect(&self.path).await?;
             conn.execute(
                 "UPDATE artifacts SET rel_path=?2, location='content', show_id=?3,
@@ -271,7 +287,7 @@ impl Index {
 
     /// Dump = SOFT clear: the row survives for history; the file is gone.
     pub fn soft_clear(&self, rel_path: &str) -> Result<(), String> {
-        self.rt.block_on(async {
+        self.run(async {
             let conn = Self::connect(&self.path).await?;
             conn.execute(
                 "UPDATE artifacts SET cleared_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
@@ -307,7 +323,7 @@ impl Index {
     }
 
     fn execute_pair(&self, sql: &str, rel_path: &str, json: String) -> Result<(), String> {
-        self.rt.block_on(async {
+        self.run(async {
             let conn = Self::connect(&self.path).await?;
             conn.execute(sql, turso::params![rel_path.to_string(), json])
                 .await
@@ -344,7 +360,7 @@ impl Index {
     }
 
     fn query(&self, sql: String, params: impl turso::IntoParams) -> Result<Vec<Record>, String> {
-        self.rt.block_on(async {
+        self.run(async {
             let conn = Self::connect(&self.path).await?;
             let mut rows = conn.query(&sql, params).await.map_err(|e| e.to_string())?;
             let mut out = Vec::new();
@@ -356,7 +372,7 @@ impl Index {
     }
 
     fn active_count(&self) -> Result<usize, String> {
-        self.rt.block_on(async {
+        self.run(async {
             let conn = Self::connect(&self.path).await?;
             let mut rows = conn
                 .query(
@@ -922,26 +938,42 @@ fn scan_location(base: &Path, dir: &Path, id: &str, location: &str, out: &mut Ve
             continue;
         }
         let Some(kind) = kind_of(&path) else { continue };
-        let inside = path
-            .strip_prefix(base)
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .replace('\\', "/");
-        let (size_kb, modified_ms) = fs_facts(&path);
-        let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(&name);
-        out.push(Record {
-            rel_path: format!("locations/{id}/{inside}"),
-            location: location.into(),
-            kind: kind.into(),
-            name: stem.into(),
-            size_kb,
-            modified_ms,
-            captured_at: modified_ms.map(iso_from_ms).unwrap_or_default(),
-            source: "location".into(),
-            ..Record::default()
-        });
+        out.push(linked(base, &path, id, location, kind));
     }
 }
+
+/// The record for one file inside location `id`'s `folder` (ST5b: a file
+/// imported by reference), keyed `locations/<id>/<path inside>` like the
+/// location's own scan.
+pub fn linked_record(id: &str, folder: &Path, file: &Path, kind: &str) -> Record {
+    linked(folder, file, id, &format!("linked:{id}"), kind)
+}
+
+fn linked(base: &Path, path: &Path, id: &str, location: &str, kind: &str) -> Record {
+    let inside = path
+        .strip_prefix(base)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/");
+    let (size_kb, modified_ms) = fs_facts(path);
+    let name = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Record {
+        rel_path: format!("locations/{id}/{inside}"),
+        location: location.into(),
+        kind: kind.into(),
+        name,
+        size_kb,
+        modified_ms,
+        captured_at: modified_ms.map(iso_from_ms).unwrap_or_default(),
+        source: "location".into(),
+        ..Record::default()
+    }
+}
+
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Build the record for one on-disk find: fs facts first, then the
 /// sidecar's authored fields WIN where present.
@@ -1094,6 +1126,21 @@ mod tests {
                 "locations/loc-1/talks/cover.png"
             ]
         );
+        // ST5b: one file imported by reference gets the same key the scan
+        // gives it, for kinds the scan leaves out too.
+        let one = linked_record(
+            "loc-1",
+            &drive,
+            &drive.join("talks/2026/keynote.mp4"),
+            "video",
+        );
+        assert_eq!(one.rel_path, "locations/loc-1/talks/2026/keynote.mp4");
+        assert_eq!(
+            (one.location.as_str(), one.name.as_str()),
+            ("linked:loc-1", "keynote")
+        );
+        let sound = linked_record("loc-1", &drive, &drive.join("notes.txt"), "audio");
+        assert_eq!(sound.rel_path, "locations/loc-1/notes.txt");
         std::fs::remove_file(drive.join("intro.mp4")).unwrap();
         assert_eq!(ix.index_location("loc-1", &drive).unwrap().cleared, 1);
         assert_eq!(ix.forget_location("loc-1").unwrap(), 2);
@@ -1248,6 +1295,33 @@ mod tests {
         let err = ix.reindex(&empty).unwrap_err();
         assert!(err.contains("refused"), "{err}");
         assert_eq!(ix.recent(10, None).unwrap().len(), 1, "history intact");
+    }
+
+    #[test]
+    fn two_writers_at_once_both_land_and_nothing_is_quarantined() {
+        let root = scratch("writers");
+        let db = root.join("index.db");
+        drop(Index::open(&db).unwrap());
+        let writers: Vec<_> = (0..2)
+            .map(|w| {
+                let db = db.clone();
+                std::thread::spawn(move || -> Result<(), String> {
+                    let ix = Index::open(&db)?;
+                    for n in 0..100 {
+                        ix.upsert(&rec(&format!("locations/w{w}/{n}.mp4"), "video"))?;
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+        for writer in writers {
+            assert_eq!(writer.join().unwrap(), Ok(()));
+        }
+        assert!(!db.with_extension("db.corrupt").exists());
+        assert_eq!(
+            Index::open(&db).unwrap().recent(500, None).unwrap().len(),
+            200
+        );
     }
 
     #[test]

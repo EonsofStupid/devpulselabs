@@ -1,162 +1,16 @@
-//! The PACK SHELF's registry — the operator's element/media packs
-//! (themeforest gigs and friends) pinned IN PLACE, never copied in
-//! bulk (the 80 GB census vs 14 GB of C: made copy-all arithmetic
-//! nonsense). `sources.json` lists pinned roots; packs are the roots'
-//! top-level folders, listed LIVE from the filesystem. Using a file
-//! copies exactly that file through the W2 import seam (copy-on-use).
-//! The pinned trees are READ-ONLY to this app, always.
+//! INGEST PACK — copy one of the operator's element/media packs
+//! (themeforest gigs and friends) into the library, on purpose. The packs
+//! themselves live in place as Locations (ST5b): their folders are linked,
+//! never copied in bulk (the 80 GB census vs 14 GB of C: made copy-all
+//! arithmetic nonsense), and are READ-ONLY to this app, always.
 
 use crate::import::media_kind;
 use std::path::{Path, PathBuf};
-
-/// One pack on the shelf: a top-level folder of a pinned source.
-pub struct Pack {
-    pub name: String,
-    pub path: PathBuf,
-    /// Media files inside (recursive, capped) — honest scale, not a lie.
-    pub files: usize,
-    /// A local copy exists under `content/elements/<kebab name>/`
-    /// (the operator ingested this favorite).
-    pub ingested: bool,
-    /// The pinned path is readable right now. False = the drive it
-    /// lives on is away — the pin STAYS on the shelf and says so,
-    /// never silently vanishing.
-    pub online: bool,
-}
-
-/// Where the registry lives: `<content>/elements/sources.json`.
-fn sources_path(root: &Path) -> PathBuf {
-    root.join("elements").join("sources.json")
-}
-
-/// The pinned source roots (absent/invalid file = empty, never a crash).
-pub fn load_sources(root: &Path) -> Vec<PathBuf> {
-    let Ok(raw) = std::fs::read_to_string(sources_path(root)) else {
-        return Vec::new();
-    };
-    serde_json::from_str::<Vec<String>>(&raw)
-        .unwrap_or_default()
-        .into_iter()
-        .map(PathBuf::from)
-        .collect()
-}
-
-/// Pin one source root (deduped, persisted pretty). App-action only.
-pub fn add_source(root: &Path, dir: &Path) -> Result<(), String> {
-    let mut sources = load_sources(root);
-    if sources.iter().any(|s| s == dir) {
-        return Ok(());
-    }
-    sources.push(dir.to_path_buf());
-    let path = sources_path(root);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("elements dir: {e}"))?;
-    }
-    let listed: Vec<String> = sources
-        .iter()
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
-    let json = serde_json::to_string_pretty(&listed).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| format!("sources.json: {e}"))
-}
-
-/// Count media files under `dir`, stopping at `cap` (70k-file packs
-/// deserve an honest "1000+" over a minute-long exact count).
-fn count_media(dir: &Path, cap: usize) -> usize {
-    let mut stack = vec![dir.to_path_buf()];
-    let mut n = 0usize;
-    while let Some(d) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&d) else {
-            continue;
-        };
-        for e in rd.flatten() {
-            let p = e.path();
-            let name = e.file_name();
-            if name.to_string_lossy().starts_with('.') {
-                continue;
-            }
-            if p.is_dir() {
-                stack.push(p);
-            } else if media_kind(&p).is_some() {
-                n += 1;
-                if n >= cap {
-                    return n;
-                }
-            }
-        }
-    }
-    n
-}
 
 /// Where a pack's LOCAL copy lives once ingested.
 pub fn local_dir(root: &Path, pack_name: &str) -> PathBuf {
     let kebab = crate::import::sanitize_name(pack_name).unwrap_or_else(|| "pack".into());
     root.join("elements").join(kebab)
-}
-
-/// Every pack on the shelf: each pinned source's top-level folders
-/// (name-sorted), with a capped media count. A source that is itself
-/// flat (loose files, no subfolders) lists as ONE pack.
-pub fn list_packs(root: &Path) -> Vec<Pack> {
-    const CAP: usize = 1000;
-    let mut out = Vec::new();
-    for source in load_sources(root) {
-        let Ok(rd) = std::fs::read_dir(&source) else {
-            // The drive is away (or the folder moved): keep the pin,
-            // say so. One offline row per pinned source.
-            let name = source
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| source.to_string_lossy().into_owned());
-            out.push(Pack {
-                files: 0,
-                ingested: local_dir(root, &name).is_dir(),
-                online: false,
-                name,
-                path: source,
-            });
-            continue;
-        };
-        let mut dirs: Vec<PathBuf> = rd
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| {
-                p.is_dir()
-                    && !p
-                        .file_name()
-                        .is_some_and(|n| n.to_string_lossy().starts_with('.'))
-            })
-            .collect();
-        dirs.sort();
-        if dirs.is_empty() {
-            let name = source
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| source.to_string_lossy().into_owned());
-            out.push(Pack {
-                files: count_media(&source, CAP),
-                ingested: local_dir(root, &name).is_dir(),
-                online: true,
-                name,
-                path: source,
-            });
-            continue;
-        }
-        for dir in dirs {
-            let name = dir
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            out.push(Pack {
-                files: count_media(&dir, CAP),
-                ingested: local_dir(root, &name).is_dir(),
-                online: true,
-                name,
-                path: dir,
-            });
-        }
-    }
-    out
 }
 
 /// Every media file under a pack, recursive, dot-junk skipped,
@@ -297,34 +151,6 @@ mod tests {
     }
 
     #[test]
-    fn add_source_persists_and_dedupes() {
-        let root = scratch("reg");
-        let src = root.join("fake-source");
-        std::fs::create_dir_all(&src).unwrap();
-        add_source(&root, &src).unwrap();
-        add_source(&root, &src).unwrap();
-        let sources = load_sources(&root);
-        assert_eq!(sources.len(), 1, "deduped");
-        assert_eq!(sources[0], src);
-    }
-
-    #[test]
-    fn packs_list_from_top_level_dirs_with_media_counts() {
-        let root = scratch("list");
-        let src = root.join("store");
-        let pack = src.join("videohive-XY-things");
-        std::fs::create_dir_all(&pack).unwrap();
-        std::fs::write(pack.join("clip.mp4"), b"x").unwrap();
-        std::fs::write(pack.join("notes.txt"), b"x").unwrap();
-        std::fs::write(pack.join("song.wav"), b"x").unwrap();
-        add_source(&root, &src).unwrap();
-        let packs = list_packs(&root);
-        assert_eq!(packs.len(), 1);
-        assert_eq!(packs[0].name, "videohive-XY-things");
-        assert_eq!(packs[0].files, 2, "mp4 + wav count; txt does not");
-    }
-
-    #[test]
     fn ingest_copies_indexes_and_resumes() {
         use std::sync::atomic::AtomicUsize;
         let root = scratch("ingest");
@@ -351,35 +177,6 @@ mod tests {
         let rows = ix.recent(50, None).unwrap();
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|r| r.source == "ingest"));
-        // The shelf marks it local.
         assert!(local_dir(&root, "videohive-ZZ-lower-thirds").is_dir());
-    }
-
-    #[test]
-    fn an_unplugged_source_lists_as_an_offline_pack_never_vanishing() {
-        let root = scratch("offline");
-        let src = root.join("usb-store");
-        std::fs::create_dir_all(&src).unwrap();
-        add_source(&root, &src).unwrap();
-        // The drive goes away.
-        std::fs::remove_dir_all(&src).unwrap();
-        let packs = list_packs(&root);
-        assert_eq!(packs.len(), 1, "the pin stays on the shelf");
-        assert_eq!(packs[0].name, "usb-store");
-        assert!(!packs[0].online, "and says it is offline");
-        assert_eq!(packs[0].files, 0);
-    }
-
-    #[test]
-    fn a_flat_source_lists_as_one_pack() {
-        let root = scratch("flat");
-        let src = root.join("loose");
-        std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(src.join("a.mp3"), b"x").unwrap();
-        add_source(&root, &src).unwrap();
-        let packs = list_packs(&root);
-        assert_eq!(packs.len(), 1);
-        assert_eq!(packs[0].name, "loose");
-        assert_eq!(packs[0].files, 1);
     }
 }

@@ -715,12 +715,10 @@ impl WiredfrontHub {
         let element_count = count_files(&root.join("elements"));
         ui.label(
             RichText::new(if element_count == 0 {
-                "ELEMENTS: none yet — pin or ingest packs from the Editor's Project panel"
+                "ELEMENTS: none yet — open a location in the Editor's Browse…, then Ingest pack"
                     .to_string()
             } else {
-                format!(
-                    "ELEMENTS: {element_count} file(s) — browse them from the Editor's pack shelf"
-                )
+                format!("ELEMENTS: {element_count} file(s) copied into your library")
             })
             .small()
             .color(cl::ink::SUBTLE),
@@ -1070,12 +1068,6 @@ impl WiredfrontHub {
     /// every media file in the staged folder — the Explorer-drop path.
     pub fn import_drill(&mut self, dir: &std::path::Path) {
         self.composer.import_dir(dir);
-    }
-
-    /// The `--pin-pack <dir>` harness seam (W3): pin a folder as a pack
-    /// source on the Elements shelf — the Pin pack chip's exact path.
-    pub fn pin_pack(&mut self, dir: &std::path::Path) {
-        self.composer.pin_pack(dir);
     }
 
     /// The `--save-comp <name>` harness seam (R1z): save the booted comp

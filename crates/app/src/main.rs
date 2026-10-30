@@ -324,17 +324,6 @@ fn main() -> eframe::Result {
         .position(|a| a == "--import-drill")
         .and_then(|i| args.get(i + 1))
         .cloned();
-    // `--pin-pack <dir>` (repeatable, W3) pins a folder as a pack source
-    // on the Elements shelf at boot — the SAME seam the Browse window's
-    // Pin pack chip takes. Nothing is copied; the folder is listed in
-    // place.
-    let pin_packs: Vec<String> = args
-        .iter()
-        .enumerate()
-        .filter(|(_, a)| *a == "--pin-pack")
-        .filter_map(|(i, _)| args.get(i + 1))
-        .cloned()
-        .collect();
     // `--save-comp <name>` (R1z) saves the booted comp under `name`
     // through the Save chip's exact path — paired with `--import-drill`,
     // the reopen-last drill's first half.
@@ -683,7 +672,6 @@ fn main() -> eframe::Result {
                 inspector,
                 open_episode,
                 import_drill,
-                pin_packs,
                 save_comp,
                 lottie_import,
                 fx_drill,
@@ -735,6 +723,20 @@ fn main() -> eframe::Result {
 /// move into the library. A slide that cannot upgrade is left exactly as it
 /// was, and named. Runs once a library is open, before the app starts.
 fn open_library() {
+    // ST5b: the pinned packs and Browse's libraries join Locations, once.
+    match dpl_roots::adopt_old_lists() {
+        Ok((0, _)) => {}
+        Ok((joined, notes)) => {
+            tracing::info!(
+                joined,
+                "pinned packs and Browse libraries moved into Locations"
+            );
+            for note in notes {
+                tracing::warn!(%note, "a folder couldn't become a location");
+            }
+        }
+        Err(error) => tracing::warn!(%error, "the old pack and library lists couldn't move in"),
+    }
     // ST5: a location whose drive came back on another letter is found
     // before anything paints it.
     match dpl_roots::refresh_locations() {
@@ -969,7 +971,6 @@ struct Boot {
     inspector: bool,
     open_episode: Option<String>,
     import_drill: Option<String>,
-    pin_packs: Vec<String>,
     save_comp: Option<String>,
     lottie_import: Option<String>,
     fx_drill: Option<(String, String)>,
@@ -1001,6 +1002,8 @@ struct App {
     /// Looks at every location every two seconds while the library is open
     /// (ST5a′), and repaints when one went, came back or moved.
     location_watch: Option<dpl_roots::Watch>,
+    /// The locations' change count the indexer last looked at (ST5b).
+    locations_seen: u64,
     /// The last-written ColdLight picks, so a write only happens when the
     /// operator actually changed something.
     chrome_choices: ChromeChoices,
@@ -1078,7 +1081,6 @@ impl App {
             inspector,
             open_episode,
             import_drill,
-            pin_packs,
             save_comp,
             lottie_import,
             fx_drill,
@@ -1212,10 +1214,6 @@ impl App {
         // Explorer drop takes, headlessly staged.
         if let Some(dir) = &import_drill {
             wiredfront.import_drill(std::path::Path::new(dir));
-        }
-        // The pack shelf's harness seam (W3): pin sources at boot.
-        for dir in &pin_packs {
-            wiredfront.pin_pack(std::path::Path::new(dir));
         }
         // R1z's harness seam: persist the drilled comp (and the
         // last-comp state) through the Save chip's exact path.
@@ -1514,6 +1512,7 @@ impl App {
             library_opened: dpl_roots::generation(),
             library_watch: None,
             location_watch: None,
+            locations_seen: 0,
             chrome_choices,
             fabric,
             waker_installed: false,
@@ -1548,6 +1547,22 @@ impl App {
             coach_catalog,
             ledger,
         }
+    }
+
+    /// A location waiting to be indexed — one just added, a pinned pack
+    /// moved in, an imported file's folder — is indexed once it is online
+    /// (ST5b), whichever hub is showing. The shelf reloads when one ends.
+    fn index_locations(&mut self, ctx: &egui::Context) {
+        let seen = dpl_roots::locations_changed();
+        if seen == self.locations_seen {
+            return;
+        }
+        self.locations_seen = seen;
+        let (fabric, ctx) = (self.fabric.clone(), ctx.clone());
+        dpl_composer::index_waiting(move || {
+            fabric.publish_capture(dpl_fabric::CaptureEvent::InboxChanged);
+            ctx.request_repaint();
+        });
     }
 
     /// A library unplugged mid-session (ST2b). Saves already refuse; here
@@ -2021,6 +2036,7 @@ impl eframe::App for App {
         self.chat.root_close_requested(ui.ctx());
         fit_window(ui.ctx());
         self.watch_library(ui.ctx());
+        self.index_locations(ui.ctx());
         self.shell.ui(ui);
 
         // The picker lives in the shell and mutates coldlight's table; the app

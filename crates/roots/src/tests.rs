@@ -1155,3 +1155,77 @@ fn drives_are_found_where_each_os_mounts_them() {
     assert!(again("/media/usb0/clips").contains(&PathBuf::from("/media/usb1/clips")));
     assert!(again("/media/pi/STICK/videos").contains(&PathBuf::from("/media/pi/STICK1/videos")));
 }
+
+/// ST5b: the pinned packs and Browse's libraries join Locations once, drive
+/// or no drive. Every folder waits to be indexed; one already a location,
+/// or the library's own, never joins twice; each list is kept, never
+/// deleted; and one that joined while away notes its files once it's back.
+#[test]
+fn the_old_lists_move_into_locations_once() {
+    let _turn = GLOBAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *global().write().unwrap() = None;
+    let base = scratch();
+    let layout = imported(&program(&base, "program"));
+    let store = locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    };
+    let video = program(&base, "packs/video");
+    fs::write(video.join("intro.mp4"), vec![1u8; 300]).unwrap();
+    let away = base.join("unplugged/audio");
+    let shelf = program(&base, "presets");
+    fs::write(shelf.join("look.png"), b"png").unwrap();
+    fs::create_dir_all(layout.content.join("elements")).unwrap();
+    let pinned = serde_json::to_string(&[&video, &away, &video]).unwrap();
+    fs::write(layout.content.join("elements/sources.json"), &pinned).unwrap();
+    let libraries = serde_json::to_string(&[&shelf, &layout.content]).unwrap();
+    fs::write(layout.userdata.join("libraries.json"), &libraries).unwrap();
+
+    let (joined, notes) = store.adopt_old_lists(&layout.content).unwrap();
+    assert_eq!(joined, 3, "{notes:?}");
+    assert_eq!(notes.len(), 1, "the library's own folder never joins");
+    let placed = store.list().unwrap();
+    assert!(placed.iter().all(|p| p.location.waiting));
+    let audio = placed.iter().find(|p| p.location.label == "audio").unwrap();
+    assert_eq!(audio.at, None, "offline, and still listed");
+    assert!(audio.location.sample.is_empty());
+    let kept = layout.userdata.join("moved-to-locations");
+    assert_eq!(
+        fs::read_to_string(kept.join("sources.json")).unwrap(),
+        pinned
+    );
+    assert_eq!(
+        fs::read_to_string(kept.join("libraries.json")).unwrap(),
+        libraries
+    );
+    assert!(!layout.content.join("elements/sources.json").exists());
+    assert_eq!(
+        store.adopt_old_lists(&layout.content).unwrap(),
+        (0, Vec::new())
+    );
+
+    // Its drive is back: indexed, it stops waiting and notes its files.
+    fs::create_dir_all(&away).unwrap();
+    fs::write(away.join("hit.wav"), b"wav").unwrap();
+    store.list().unwrap();
+    let id = audio.location.id.clone();
+    store.indexed(&id).unwrap();
+    let audio = store
+        .placed()
+        .unwrap()
+        .into_iter()
+        .find(|p| p.location.id == id)
+        .unwrap();
+    assert!(!audio.location.waiting);
+    assert_eq!(audio.location.sample, vec![("hit.wav".to_string(), 3)]);
+
+    // A file inside a location is found there; one outside isn't.
+    let (holder, inside) = store.containing(&video.join("intro.mp4")).unwrap();
+    assert_eq!(
+        (holder.label.as_str(), inside),
+        ("video", PathBuf::from("intro.mp4"))
+    );
+    assert!(store.containing(&base.join("elsewhere.mp4")).is_none());
+}

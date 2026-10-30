@@ -42,8 +42,11 @@ then "Approve" for ST1b (§4.7). The order is now ST1 (done, #297) →
   screen and while authoring.
 
 **ST5a′ asked 2026-10-28** (§4f): locations stay aware while the app runs
-and across restarts, on Linux (ARM too), Windows and macOS. It lands before
-ST5b.
+and across restarts, on Linux (ARM too), Windows and macOS. Landed (#304).
+
+**ST5b ruled 2026-10-29** (§4f B1–B5):
+- Q-ST5b-1, the pinned packs' files: "Put everything on the shelf";
+- Q-ST5b-2, import by reference: "The whole folder".
 
 **§5b signed off, all four:** `roots.toml` beside the exe; the marker check
 on each drive while disconnected; `library.json` written into a linked
@@ -825,6 +828,107 @@ The steps:
 - **Unchanged:** the library itself still checks only when something saves
   (Q-ST2-2).
 
+**ST5b, grounded 2026-10-29 on `bfc8e33`.** The operator ruled on
+2026-10-29:
+- **Q-ST5b-1, the pinned packs' files: "Put everything on the shelf".** A
+  pack folder that moves into Locations is indexed with posters, like "Add
+  as a location", the first time its drive is seen;
+- **Q-ST5b-2, import by reference: "The whole folder".** The file's folder
+  joins Locations, and every video and picture in it is indexed.
+
+What the reading found:
+- **The operator's `content/elements/sources.json` pins two folders.**
+  `D:\webwork\themeforest\video` and `…\audio` are on no drive letter
+  today, so the move has to keep a folder that isn't there.
+  `.userdata/libraries.json` doesn't exist.
+- **The pack shelf (`packs.rs`)** lists each pinned folder's top-level
+  folders live, with media counts. Browse's **Ingest pack** (copy a pack
+  into `content/elements/`) uses `media_files`, `pack_size` and
+  `ingest_copy`, which stay. The registry (`load_sources`, `add_source`)
+  and the listing (`list_packs`, `Pack`) go.
+- **Browse** has a "Pin pack" chip (`browse.rs:432`) and the libraries'
+  quick-jump chips (`operator_libraries`, `read_libraries`). Composer
+  drains the pins (`lib.rs:2368`) and warms its folder cache from the packs
+  (`:2001`).
+- **`--pin-pack`** runs through `main.rs:327-334, 1217`,
+  `WiredFront::pin_pack`, `Composer::pin_pack` and `CLAUDE.md`.
+- **`import_reference`** (`import.rs:207`) symlinks one file into
+  `content/inbox` (or `elements/referenced`), and copies when the symlink
+  fails. It is called from Composer's import (`lib.rs:2881`) and from
+  adding a previewed loose file (`:1147`). The index's `kind_of` covers
+  only pictures and videos. The record built for a reference covers every
+  media kind.
+- **Composer indexes a new location on a thread it owns** (`location_jobs`,
+  `link_location`), so nothing indexes a location while the Editor is
+  closed.
+
+The steps:
+- **B1 — `dpl-roots`:**
+  - **A location can be waiting.** `Location.waiting` (serde default
+    `false`) marks a location not indexed yet. `add` sets it.
+  - **`adopt` records a folder that isn't there,** with no file sample
+    yet, for the move.
+  - **`location_indexed(id)`** clears `waiting` and, when it is empty,
+    notes the sample. Locate… also notes a sample when there was none.
+  - **`adopt_old_lists()`, at `open_library`,** moves
+    `content/elements/sources.json` and `.userdata/libraries.json` into
+    Locations:
+    - each folder becomes a waiting location, offline or not;
+    - folders already there are skipped;
+    - each list is then kept in `.userdata/moved-to-locations/`, never
+      deleted, and a list that isn't there means nothing to do.
+  - **`location_containing(file)`** finds the online location a file sits
+    in.
+- **B2 — one indexer for the whole app:**
+  - Composer's `index_waiting(done)` indexes every online waiting location
+    on its own thread:
+    - the index's scan;
+    - posters into the cache, the pack's own preview first, as Ingest
+      does;
+    - then `location_indexed`.
+  - The app calls it whenever the locations' change count moves, so a
+    pack drive plugged in is indexed with the Editor closed. The result
+    line shows in Composer's status, and a row says "indexing" while it
+    runs.
+  - Composer's `location_jobs` go. `link_location` stays as the
+    synchronous path for the `--add-location` drill.
+- **B3 — one list:**
+  - The pack shelf ("ELEMENTS — your packs"), the "Pin pack" chip, the
+    Browse libraries, `--pin-pack`, `WiredFront::pin_pack` and
+    `Composer::pin_pack` are deleted.
+  - Browse's quick-jump chips list online locations, then the home folders
+    and drives.
+  - The folder cache warms from online locations.
+  - The census stops special-casing `sources.json`.
+- **B4 — import by reference:**
+  - `import_reference` links the file as `locations/<id>/<path inside>`:
+    - in the location that holds it;
+    - or else its folder is added as a location (waiting, so B2 indexes all
+      of it, Q-ST5b-2).
+  - The file itself is indexed at once, with its poster in the cache, so
+    it lands on the timeline straight away.
+  - No symlink, and no copy fallback. `symlink_file` and its test go.
+  - Existing reference symlinks are left as they are.
+- **B5 — proof:**
+  - **Unit:**
+    - `adopt`, offline and online;
+    - `adopt_old_lists`: both lists, a duplicate, idempotent, the lists
+      kept;
+    - `location_indexed` notes a sample;
+    - `location_containing`;
+    - the index's single-file linked record.
+  - **Real exe, on a scratch library:**
+    - its `sources.json` pins an online pack folder and an offline one,
+      and its `libraries.json` lists a third folder;
+    - at launch: three locations, the online ones indexed onto the shelf
+      with posters, and the lists moved;
+    - the offline one's drive mounted with `subst`: found and indexed
+      while running;
+    - `--import-drill` with reference on: `locations/…` rows, nothing
+      written into `content/inbox`;
+    - `st5-live` passed again;
+    - shots at 1440×900 and 1100×700.
+
 | Where | Change | Pass |
 |---|---|---|
 | **new `crates/roots` (`dpl-roots`)** | ENGINE layer, egui-free: `roots.toml`, the marker, the layout, the `Roots` handle (connected/disconnected), the drive check; ceiling serde, serde_json, toml | ST1–ST2 |
@@ -1138,6 +1242,72 @@ This follow-through changes no pixels and makes no fresh USB drill claim.
   read offline from the start. The same script in the foreground passed.
 - **Also fixed:** ST5a had left `section_header`'s doc line on top of
   `link_location` (Composer).
+
+**ST5b, 2026-10-29:**
+- **Unit:**
+  - `dpl-roots`: 40 tests, 1 new. Both old lists move in:
+    - a folder that's here, one that isn't, a duplicate, and the library's
+      own folder (refused, with a note);
+    - every new location waits, and both lists are kept in
+      `moved-to-locations/`, byte for byte;
+    - running it again does nothing;
+    - the offline one, once its folder is back and indexed, stops waiting
+      and notes its files;
+    - `containing` finds a file's location.
+  - `dpl-index`: 23 tests, 1 new, and 1 extended:
+    - `linked_record` keys one file as the scan does, for kinds the scan
+      leaves out too;
+    - two writers at once both land and nothing is set aside (it failed
+      "database is locked" before the fix).
+  - Composer: the pack registry's and census's tests were deleted with
+    their code; Ingest's test stays.
+- **Found while proving, and fixed:**
+  - **An index locked by another writer was set aside as corrupt.**
+    `Index::open`'s migrate failed "database is locked" while another
+    thread wrote, and the live `index.db` was renamed `.corrupt`. That
+    happened on the first run, with two indexing threads. Now:
+    - index operations in a process take one turn
+      (`ONE_AT_A_TIME`);
+    - a locked or busy open returns its error and never quarantines;
+    - the indexer runs one location at a time, on one thread.
+  - **Linked layers read by their raw id** (`locations/loc-…/x.mp4`) on the
+    timeline, clip bars and INFO. They now read "x.mp4 · on 'refs'".
+  - **A linked `.mogrt`'s thumbnail would have been written beside it.**
+    `enrich_element` writes next to its file, so a linked template now
+    reads only its name and tags (`template_facts`).
+  - **Composer's FOOTAGE list** reloads when indexing finishes.
+  - **Leftover "pin" wording** is gone from the shelf's ELEMENTS line.
+  - **ST5a's misplaced doc line** on `open_browser` is fixed.
+- **Real exe** (the devtools debug exe; a scratch library
+  `target/st5b-proof/lib`; `subst`):
+  - **EguiPilotAI `tests/eguipilotai/st5b-move.toml` passed** at 1440×900
+    (`st5b-editor`) and 1100×700 (`st5b-editor-1100`).
+    - **At launch:** `sources.json` (`packs-online`, plus `S:\packs` with S:
+      not mounted) and `libraries.json` (`presets`) became three locations.
+      packs-online and presets were indexed and online, and "packs" was
+      offline with Locate….
+    - **S: mounted while the app ran:** "packs" was found and indexed, with
+      the status line "Linked 'packs' in place: 1 file(s), 1 poster(s)
+      cached — nothing copied.".
+    - **On disk:** no location waits, both lists are in
+      `.userdata/moved-to-locations/`, `content/elements/` is empty, 4
+      posters are cached, there is no `.corrupt` index, and the source
+      folders hold only their own files.
+  - **The media shelf:** 4 files from 3 locations. glitch-01 says "on
+    'packs' · offline — plug it in" while S: is away.
+  - **Import by reference** (`.userdata/prefer-reference`, `--import-drill
+    target/st5b-proof/refs`):
+    - both files landed on the timeline as `locations/<id>/…`, labelled
+      "ref-clip.mp4 · on 'refs'";
+    - "refs" joined Locations once, across two runs, and was indexed whole;
+    - nothing was written into `content/` (0 files), and `refs/` is
+      unchanged.
+  - **`st5-live` (ST5a′) passed again.**
+  - Shots in `docs/proof/portable-storage-st5b/`. `subst` lists nothing
+    after the runs.
+- **Timing note:** the app starts in 1–12 s, depending on how warm the
+  build is. `st5b-move` therefore mounts S: 20 s after the lists move in
+  and waits 20 s for it.
 
 ## Questions for the operator
 
