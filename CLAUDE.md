@@ -120,26 +120,28 @@ The tool depot is staged beside it from
   `target\release\eguipilotai.exe doctor | inspect devpulse-windows pixvix`.
   Kill any orphaned `devpulselabs` process after CLI runs.
 
-## CI (estate runners again since 2026-08-07 — repo is PRIVATE)
+## CI (public repository — GitHub-hosted runners)
 
-- The repo returned to **private** on 2026-08-07 (operator ruling: personal
-  tool; no open-source/licensing exposure wanted). Hosted minutes are
-  METERED on private repos, so both lanes moved back to the **estate
-  runners**: Proxmox VM 119 (`dpl-win`) + LXC 121 (`dpl-linux`) in
-  `.github/workflows/green.yml`.
-- The standing security rule is unchanged (`docs/runbook/ci-runners.md`):
-  self-hosted runners on `pull_request` are safe ONLY while the repo is
-  private and every PR author is the operator. **If the repo ever goes
-  public again, deregister the runners FIRST, same day, before anything
-  else.**
+- The operator authorized public visibility on 2026-10-30. Both lanes in
+  `.github/workflows/green.yml` use GitHub-hosted runners. Public visibility
+  does not change `LICENSE` or the policy against outside contributions.
+- **Never connect a self-hosted runner to this public repository's
+  `pull_request` workflows.** The public transition requires deregistering
+  this repository's estate runners before changing visibility. Keep those
+  registrations absent; guest files and neighboring repositories' runners
+  are not removed. See `docs/runbook/ci-runners.md` for the current policy
+  and historical estate recovery instructions.
 - The toolchain is pinned by `rust-toolchain.toml` (1.97.1 since #177), so
-  a guest's preinstalled Rust cannot silently become the lane's compiler.
+  an image's preinstalled Rust cannot silently become the lane's compiler.
 - `concurrency: cancel-in-progress` supersedes a stale run when a PR is
-  force-pushed — the estate has one Windows slot, and stale runs used to
-  sit in the queue holding it.
-- Branch protection with required checks needs a paid plan on private
-  repos — the double-green law stays discipline-enforced
-  (`gh pr checks <n> --watch`, then merge).
+  updated. Required checks remain `green-windows` and `green-linux`;
+  neither a queued run nor a running check satisfies the double-green law.
+- Keep `main` protected: PRs, resolved review conversations and both green
+  checks are required; force pushes and branch deletion are disabled.
+  Verify completed checks with `gh pr checks <n> --watch` before merging.
+- Workflow tokens have read-only default permissions and cannot approve
+  PRs. All external fork contributors require workflow approval. Report
+  suspected vulnerabilities through the private route in `SECURITY.md`.
 
 ## Session end (every session, no exceptions)
 

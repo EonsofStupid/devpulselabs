@@ -1,195 +1,113 @@
 name: green
 
-# The green gate on the ESTATE runners (again).
-#
-# History, because the topology has flipped twice and the WHY must not be
-# lost: the lanes ran self-hosted until 2026-07-30, when the repo went
-# public and both runners were deregistered the same day — self-hosted on
-# `pull_request` is safe ONLY while the repo is private and every PR author
-# is the operator (the Windows runner executes as SYSTEM). The lanes moved
-# to hosted images for the public month. On 2026-08-07 the repo returned to
-# PRIVATE (operator ruling: personal tool), hosted minutes became metered,
-# and the estate runners were re-registered from the runbook recipe —
-# `docs/runbook/ci-runners.md` — restoring the precondition the security
-# rule demands. If the repo ever goes public again: deregister FIRST.
-#
-# ONE DEFINITION OF GREEN: both lanes run `cargo green` — the same xtask gate
-# the pre-push hook enforces locally (fmt → docs-status → spawn audit →
-# structure audit → clippy -D warnings → workspace tests → workspace release
-# build with the exe-regression assert). Hand-rolled step lists drifted from
-# the real gate once already (no structure phase, no release build in CI);
-# the lanes now cannot diverge from the hook or from each other.
-#
-# The toolchain is pinned by `rust-toolchain.toml` (1.97.1 + clippy/rustfmt,
-# since #177), so a guest's preinstalled Rust cannot silently become the
-# lane's compiler. The bootstrap scripts install an older default toolchain;
-# rustup auto-installs the pinned one from the toolchain file on first build.
-#
-# The Windows lane also PUBLISHES its exe (see `upload the windows exe`). The
-# gate's release build was already happening and being discarded; keeping it
-# means a green commit on main is a downloadable build, not just a green tick.
+# Public-repository CI runs only on disposable GitHub-hosted machines.
+# Estate registrations must stay removed; see docs/runbook/ci-runners.md.
+# Both platforms run the same cargo green gate as the local pre-push hook.
+# rust-toolchain.toml pins the compiler, clippy, rustfmt and wasm target.
 
 on:
   workflow_dispatch:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**.md"
-      - ".claude/**"
-  # Every commit that reaches main builds, so every commit on main HAS a
-  # downloadable Windows exe (see the upload step). Deliberately WITHOUT
-  # `paths-ignore`: a docs-only merge produces a byte-identical exe, but it
-  # produces one stamped with the new tip SHA, so "grab the artifact for the
-  # current main" is always a question with an answer. The estate runners are
-  # the operator's own metal, so these runs cost queue time, not minutes.
+  # Every main commit gets its own downloadable Windows build.
   push:
     branches: [main]
 
-# A new push supersedes an in-flight run for the same PR — the estate has one
-# Windows slot, and stale runs used to sit in the queue holding it.
+permissions:
+  contents: read
+
 concurrency:
   group: green-${{ github.workflow }}-${{ github.ref }}
-  # ...but NEVER cancel a main build. On a PR the newest push is the only one
-  # that matters; on main a cancelled run is a commit with no exe, which is
-  # exactly the gap this workflow exists to close.
+  # Supersede stale PR runs, but preserve every main commit's artifact.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
-  # CI never benefits from incremental's session folders (each run is a new
-  # tree), and they are what makes a persistent cache balloon. Unchanged
-  # crates are still reused from the cache below.
   CARGO_INCREMENTAL: "0"
 
 jobs:
   green-windows:
-    runs-on: [self-hosted, dpl-win]
-    # 90: `cargo green` includes the workspace RELEASE build. A cold run (a
-    # new or wiped cache) takes most of an hour on this 16 GB guest; a warm
-    # one rebuilds only what changed.
+    runs-on: windows-2025
     timeout-minutes: 90
     env:
-      # The 16 GB VM's LNK1318 "PDB LIMIT" cures (2026-07-28, each from a
-      # real failing run): no debug info in CI test builds, and a bounded
-      # job count so the linker isn't starved. Drop these only with a green
-      # run on this VM proving they're unneeded.
+      # Keep the established PDB/linker memory bounds for the complete gate.
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
       CARGO_BUILD_JOBS: "8"
     steps:
-      - uses: actions/checkout@v7
-      # THE BUILD CACHE LIVES OUTSIDE THE CHECKOUT. checkout's `clean: true`
-      # runs `git clean -ffdx`, which deleted `target/` before every run
-      # ("Removing target/" in every log until 2026-10-24) — so every
-      # Windows run rebuilt all ~600 crates twice (tests, then release) and
-      # held the one Windows slot for most of an hour. `<workspace>/
-      # cargo-target` is a sibling of the checkout: git clean never reaches
-      # it, the checkout stays clean, and xtask honours CARGO_TARGET_DIR
-      # (`target_dir()`). No rust-cache: the runner's own disk IS the cache.
-      # WHERE: a runner with a data disk sets DPL_CI_CACHE_ROOT in its own
-      # `.env` (`win-runner-bootstrap.ps1 -DataDisk`), and the cache lives
-      # there, off the OS disk, growable with one host command; without it,
-      # beside the checkout. Nothing here names a drive, so a new runner is
-      # just its own `.env`. The guard wipes it (that run builds cold) past
-      # 50 GB or when its disk has under 15 GB free, so a disk never fills.
-      - name: the build cache (outside the checkout, guarded)
-        shell: powershell
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: verify hosted Windows build prerequisites
+        shell: pwsh
         run: |
-          if ($env:DPL_CI_CACHE_ROOT) { $dir = Join-Path $env:DPL_CI_CACHE_ROOT "devpulselabs" }
-          else { $dir = Join-Path "${{ runner.workspace }}" "cargo-target" }
-          [IO.File]::AppendAllText($env:GITHUB_ENV, "CARGO_TARGET_DIR=$dir`n")
-          $free = (Get-PSDrive ((Split-Path -Qualifier $dir).TrimEnd(':'))).Free / 1GB
-          if (Test-Path $dir) {
-            $size = (Get-ChildItem $dir -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1GB
-            "build cache: {0:N1} GB at $dir ({1:N0} GB free)" -f $size, $free
-            if ($size -gt 50 -or $free -lt 15) {
-              Remove-Item $dir -Recurse -Force
-              "build cache wiped (over 50 GB, or under 15 GB free): this run builds cold"
-            }
-          } else {
-            "build cache: none yet at $dir ({0:N0} GB free): this run builds cold and fills it" -f $free
-          }
+          $ErrorActionPreference = "Stop"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msvc = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $msvc) { throw "MSVC x64 build tools are missing" }
+          $clang = Join-Path $env:ProgramFiles "LLVM\bin"
+          if (-not (Test-Path (Join-Path $clang "libclang.dll"))) { throw "LLVM libclang.dll is missing" }
+          "LIBCLANG_PATH=$clang" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # Activate the repository's pinned toolchain before computing cache keys.
+          $rustInfo = rustc -vV
+          if ($LASTEXITCODE -ne 0) { throw "Pinned Rust toolchain installation failed" }
+          $rustInfo
+          if ($rustInfo -notcontains "host: x86_64-pc-windows-msvc") { throw "The Rust host must use x64 MSVC" }
+          $sysroot = rustc --print sysroot
+          if ($LASTEXITCODE -ne 0) { throw "Rust sysroot lookup failed" }
+          $linker = Join-Path $sysroot "lib\rustlib\x86_64-pc-windows-msvc\bin\rust-lld.exe"
+          if (-not (Test-Path $linker)) { throw "The pinned toolchain's rust-lld.exe is missing" }
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: green-windows-2025
+          cache-all-crates: "true"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo green (the xtask gate)
         run: cargo green
-
-      # THE EXE THE OPERATOR DOUBLE-CLICKS.
-      #
-      # `cargo green` already ends in `cargo build --workspace --release`, so
-      # by this point both binaries exist — this step costs a zip, not a
-      # build. Until now CI compiled them and threw them away, which meant
-      # devpulselabs.exe existed in exactly one place on earth: whatever the
-      # operator's own machine last built. Work could sit merged on main for
-      # days while the running exe predated it, with no way to tell from the
-      # app itself.
-      #
-      # No `if:` — the default is "only on success", and that is the point: an
-      # artifact exists ONLY for a commit that passed the gate on this OS.
-      #
-      # `dpl-lottie-render.exe` ships BESIDE the app, not inside it (ADR-009:
-      # the façade spawns it). Shipping the pair keeps the download a working
-      # install rather than an app with a missing helper.
+      # Upload only after the complete gate passes. The helper must ship beside
+      # the app (ADR-009); missing artifacts or upload failures remain failures.
       - name: upload the windows exe
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          # The SHA is in the NAME so the download answers "which commit is
-          # this?" without opening it.
           name: devpulselabs-windows-${{ github.sha }}
           path: |
-            ${{ env.CARGO_TARGET_DIR }}/release/devpulselabs.exe
-            ${{ env.CARGO_TARGET_DIR }}/release/dpl-lottie-render.exe
-          # A silent empty artifact would be worse than none — it would look
-          # like a delivered build.
+            target/release/devpulselabs.exe
+            target/release/dpl-lottie-render.exe
           if-no-files-found: error
-          # Private-repo artifact storage is quota'd; 90 days of exes would
-          # exhaust it and future uploads would start failing. 3 days keeps
-          # "grab the current main exe" answerable without that cliff.
           retention-days: 3
 
   green-linux:
-    runs-on: [self-hosted, dpl-linux]
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
-      # The dev deps (khronos-egl and friends) are BAKED into the guest by
-      # `docs/runbook/linux-runner-bootstrap.sh` — the runner user has no
-      # sudo, by design. This step only proves the bake is intact so a
-      # hollow guest fails loudly here instead of mysteriously in clippy.
-      - name: system deps are baked (verify, no sudo)
-        run: pkg-config --exists egl && ffmpeg -version | head -1
-      # The build cache, outside the checkout — see green-windows.
-      - name: the build cache (outside the checkout, guarded)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      # Same native development dependencies as nightly and the Linux bootstrap;
+      # never register or connect an estate runner from this public workflow.
+      - name: install Linux build prerequisites
         run: |
-          if [ -n "${DPL_CI_CACHE_ROOT:-}" ]; then dir="$DPL_CI_CACHE_ROOT/devpulselabs"
-          else dir="${{ runner.workspace }}/cargo-target"; fi
-          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
-          mkdir -p "$(dirname "$dir")"
-          free_gb=$(( $(df -Pk "$(dirname "$dir")" | awk 'NR==2 {print $4}') / 1048576 ))
-          if [ -d "$dir" ]; then
-            size_gb=$(( $(du -sk "$dir" | cut -f1) / 1048576 ))
-            echo "build cache: ${size_gb} GB at $dir (${free_gb} GB free)"
-            if [ "$size_gb" -gt 50 ] || [ "$free_gb" -lt 15 ]; then
-              rm -rf "$dir"
-              echo "build cache wiped (over 50 GB, or under 15 GB free): this run builds cold"
-            fi
-          else
-            echo "build cache: none yet at $dir (${free_gb} GB free): this run builds cold and fills it"
-          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential cmake pkg-config ffmpeg libssl-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libx11-dev libxcursor-dev libxrandr-dev \
+            libxi-dev libxtst-dev libxdo-dev libudev-dev libevdev-dev \
+            libasound2-dev libpipewire-0.3-dev libdbus-1-dev libgtk-3-dev \
+            libgbm-dev libxcb1-dev \
+            libpango1.0-dev libcairo2-dev libglib2.0-dev libv4l-dev \
+            clang libclang-dev llvm-dev
+          pkg-config --exists egl
+          ffmpeg -version
+      - name: activate the pinned Rust toolchain
+        run: rustc -vV
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: green-linux-24.04
+          cache-all-crates: "true"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo green (the xtask gate)
         run: cargo green
 
-  # macOS lane — STAGED, ready to flip (docs/plans/mac-parity.md). No Mac is
-  # registered on the estate, and flipping this on now would also mean paying
-  # hosted macOS minutes on a private repo. It waits on the macOS
-  # implementation itself either way.
-  # green-mac:
-  #   runs-on: macos-latest
-  #   timeout-minutes: 90
-  #   steps:
-  #     - uses: actions/checkout@v7
-  #     - uses: Swatinem/rust-cache@v2
-  #       with:
-  #         key: green-mac
-  #     - name: cargo green (the xtask gate)
-  #       run: cargo green
+  # macOS remains staged until its implementation passes docs/plans/mac-parity.md.

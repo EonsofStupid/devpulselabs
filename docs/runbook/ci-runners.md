@@ -1,11 +1,51 @@
 # CI runners — the runbook
 
-The green gate's self-hosted runners are CATTLE: each one is rebuilt
-from a script in this directory, verified by that same script, and
-backed by a known-good hypervisor snapshot. If rebuilding a runner ever
-requires archaeology, this runbook has failed — fix it in the same PR.
+## Current configuration: public repository, hosted CI
 
-## Topology (since 2026-07-28, PR #122)
+The 2026-10-30 public transition uses GitHub-hosted Windows and Linux jobs
+in [green.yml](../../.github/workflows/green.yml). Both run `cargo green`;
+`green-windows` and `green-linux` must complete successfully before merge.
+`main` protection must require both checks, PRs and resolved conversations,
+with force pushes and branch deletion disabled.
+
+**Never connect self-hosted runners to this public repository's
+`pull_request` workflows.** Before changing visibility, disable Actions
+dispatch, check for active jobs, deregister this repository's idle estate
+runners and verify its runner roster is empty. Preserve guest files,
+services, caches and neighboring repositories' runner registrations. Restore
+Actions for hosted workflows only. Keep default workflow permissions
+read-only, workflow PR approval disabled and approval required for every
+external fork contributor.
+
+For hosted CI failures, inspect the job log and fix the workflow's image,
+dependencies or cache configuration in a PR. Do not reconnect the estate to
+work around a queue, quota or build failure. Hosted build caches are managed
+by the workflow; the estate disk maintenance below does not apply.
+
+Check current configuration with:
+
+```sh
+gh api repos/EonsofStupid/devpulselabs --jq .visibility
+gh api repos/EonsofStupid/devpulselabs/actions/runners --jq .total_count
+gh pr checks <number> --watch
+```
+
+The expected visibility is `public` and runner count is `0`. These checks
+do not replace reviewing the workflow's `runs-on` values and permissions.
+
+## Historical estate recovery reference
+
+The sections below document the former private-repository estate. They
+preserve proven rebuild procedures and incident lessons; they are not the
+current CI setup and do not authorize registering runners for this public
+repository. Any future estate use needs a separately approved plan that
+preserves the public-PR prohibition above. Local developers install the
+packages listed in [README](../../README.md#requirements), not a runner.
+
+The former self-hosted runners were rebuilt from scripts in this directory,
+verified by those scripts and backed by known-good hypervisor snapshots.
+
+### Estate topology (2026-07-28, PR #122)
 
 | Runner | Guest | Labels | Install root | Bootstrapped by |
 |---|---|---|---|---|
@@ -22,7 +62,9 @@ Two runner installs must NEVER share or hand off a directory — a
 half-moved install left a service pointing at a hollow directory once
 (2026-07-28), and the lane only failed when the VM next restarted.
 
-## Rebuild from blank
+### Rebuild from blank (historical private-repository procedure)
+
+Do not execute this registration procedure against the public repository.
 
 1. Create/restore the guest (or `qm rollback 119 <snapshot>` /
    `pct rollback 121 <snapshot>` to the last known-good).
@@ -42,7 +84,7 @@ anything with embedded quotes, base64 a `.cmd` across and decode with
 `certutil`. SYSTEM's installer logs live in `C:\Windows\SystemTemp`,
 not `C:\Windows\Temp`.
 
-## Snapshot policy
+### Snapshot policy (estate)
 
 After ANY toolchain change that turns the lane green (new MSVC, LLVM,
 rust pin, runner major), take a fresh known-good snapshot and name it
@@ -51,7 +93,7 @@ by date: `qm snapshot 119 known-good-YYYY-MM-DD` /
 older ones. The snapshot is the rollback path when a toolchain bump
 breaks the lane.
 
-## Heartbeat
+### Heartbeat (registered estate runners only)
 
 A runner that is registered but offline fails silently — PRs just
 queue forever. Check when a job sits queued > ~2 min:
@@ -69,14 +111,14 @@ queue forever. Check when a job sits queued > ~2 min:
   merge, a dependabot PR, or the `platform_devpulse` neighbour on VM 119).
   `gh run list` shows which.
 
-## The build cache (since 2026-10-24)
+### The estate build cache (2026-10-24 configuration)
 
-Each lane keeps its cargo build folder **outside the checkout**.
+Each estate lane kept its cargo build folder **outside the checkout**.
 `actions/checkout`'s `git clean -ffdx` used to delete `target/` before every
 run, so every Windows run rebuilt all ~600 crates twice and took 45–58
 minutes. A warm run rebuilds only what changed.
 
-**Where it lives** (`green.yml`'s first step sets `CARGO_TARGET_DIR`):
+**Where it lived** (the former `green.yml` set `CARGO_TARGET_DIR`):
 - **on the runner's data disk** when its `.env` sets `DPL_CI_CACHE_ROOT`:
   `<root>\devpulselabs`, e.g. `D:\ci\cargo\devpulselabs` on VM 119 once
   `-DataDisk` has run;
@@ -95,7 +137,7 @@ The guard and its limits:
   runner directory, like the install itself. A shared cache across runners
   is sccache tier 2 (`sccache-shared-build-cache.md`), not a shared folder.
 
-## Scaling a runner (the data disk)
+### Scaling an estate runner (the data disk)
 
 A runner guest has two disks:
 - **the OS disk**, which is never resized;
@@ -142,7 +184,7 @@ point at it.
 2. Attach its own data disk.
 3. Run the bootstrap with a fresh token, then `-DataDisk`.
 
-The workflow names no drive and no machine, so a new runner needs only its
+The former workflow named no drive and no machine, so a new runner needed only its
 own `.env`. Each runner's cache is its own: one cold run, then warm.
 
 **Linux (LXC 121)** is the same pattern:
@@ -152,7 +194,7 @@ own `.env`. Each runner's cache is its own: one cold run, then warm.
 
 Until then its cache stays beside its checkout (65 GB free, 2026-10-24).
 
-## Security rule (non-negotiable) — SETTLED 2026-07-30, PRECONDITION RESTORED 2026-08-07
+## Security history and lessons
 
 **2026-08-07: the repo returned to PRIVATE** (operator ruling — personal
 tool, no open-source exposure) and both estate runners were re-registered
@@ -161,8 +203,8 @@ lanes moved back to `dpl-win`/`dpl-linux` in `green.yml` the same day
 (hosted minutes are metered on private repos — the first private-repo
 hosted run burned 67 billable Windows-lane minutes on a docs PR's main
 push). The rule's precondition — private repo, every PR author is the
-operator — holds again. **If the repo ever goes public again: deregister
-both runners FIRST, same day, before anything else.**
+operator — held during that private period. The 2026-10-30 public transition
+ends that precondition and requires deregistration before visibility changes.
 
 Re-registration lesson (2026-08-07, the 2026-07-28 hollow-directory failure
 RECURRED): LXC 121's rebuild registered on GitHub fine, but the guest still
@@ -180,8 +222,8 @@ instead of `|| true`-ing past it.
 was: the estate runners are gone.** The repo went public on 2026-07-30
 while both self-hosted runners were still wired to `pull_request`. Both
 were deregistered within minutes and `green.yml` moved to GitHub-hosted
-images (`windows-latest`, `ubuntu-latest`), which is the rework this rule
-always demanded. Hosted minutes are free and unmetered for public repos.
+images (`windows-latest`, `ubuntu-latest`), which was the rework this rule
+demanded.
 
 The rule stands for any future self-hosted runner:
 
@@ -189,16 +231,15 @@ The rule stands for any future self-hosted runner:
 > SYSTEM). That is acceptable ONLY while this repo is private and every PR
 > author is the operator. **Never wire a self-hosted runner to
 > `pull_request` on a public repo** — fork PRs would run arbitrary code on the
-> estate. Re-registering one requires either making the repo private again, or
-> label-gating the workflow to same-repo PRs plus a dedicated low-privilege
-> account.
+> estate. A label gate or low-privilege account does not authorize an
+> exception to this repository's public-PR prohibition.
 
 Everything in this runbook about registering, bootstrapping and rebuilding
 was proven again on 2026-08-07: the repo returned to private and both
 runners were stood back up from these exact recipes (Windows re-registered
 in place; Linux rebuilt from blank into `/opt/actions-runner`).
 
-## Paid-for gotchas (2026-07-28, each from a real failing run)
+### Paid-for estate gotchas (2026-07-28, each from a real failing run)
 
 - PowerShell `Restricted` policy silently kills every runner step
   ("running scripts is disabled") — the bootstrap sets RemoteSigned.
@@ -214,9 +255,9 @@ in place; Linux rebuilt from blank into `/opt/actions-runner`).
   standalone LLVM install; the pin matches the dev laptop (18.1.8).
 - khronos-egl needs the full apt dep set on Linux — a runner with only
   rustup dies at `pkg-config egl` in the first clippy.
-- The 16 GB LNK1318/PDB cures live in `green.yml` env (`debug=0`,
-  `jobs=8`) — they stay unless the Windows guest gets more RAM AND a
-  green run proves they're unneeded.
+- The 16 GB estate's LNK1318/PDB cures were `green.yml` env (`debug=0`,
+  `jobs=8`). Hosted images need their own memory-appropriate build settings;
+  a green run must prove a change to those settings.
 - **One linker setting for every phase** (2026-10-24, #293). cargo
   fingerprints the target linker. When the test phase overrode
   `.cargo/config.toml`'s `rust-lld.exe` with the full sysroot path, clippy

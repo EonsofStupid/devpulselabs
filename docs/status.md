@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-28
-active_lane: portable-storage
+updated: 2026-10-30
+active_lane: public-repository
 dirty: false
 ---
 
@@ -13,15 +13,18 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-28, main at `855f674` (#304, ST5a′: Locations aware
-while running and across restarts). PC1a is pushed in PR #305 and includes
-that main update. Its isolated release is rebuilt after the double-green merge.
+**Updated:** 2026-10-30, main at `bfc8e33` (#305, project-owned chats).
 
-**CI is warm** (#292, #293, 2026-10-24): the Windows lane went from 45–58
-minutes to about 7 (main after #293: 6m45s), Linux runs in about 2. A
-Windows runner's cache can move to its own data disk — `docs/runbook/
-ci-runners.md` "Scaling a runner"; attaching it is the operator's step on
-the Proxmox host.
+**Public repository setup (R293).** Public visibility is verified and both
+estate runner registrations are removed. Green now targets GitHub-hosted
+Windows 2025 and Ubuntu 24.04, with pinned actions and read-only PR tokens.
+Every PR runs both required checks, including documentation-only changes.
+Secret scanning, push protection, dependency alerts/security updates and private
+vulnerability reporting are enabled. All external fork workflows need approval.
+Main protection requires PRs, resolved conversations and both green checks;
+force pushes and deletion are forbidden. The setup PR must pass both hosted
+lanes before merge; see the PR checks for delivery evidence and
+[`runbook/ci-runners.md`](runbook/ci-runners.md) for the operating policy.
 
 ## Now
 
@@ -34,9 +37,9 @@ six existing ignored); feature checks passed 53 window and 11 host tests.
 Native A/B/A switching, restart, separate drafts and offline transcript reading
 passed at 1440×900 and 1100×700, including with the main window hidden.
 Evidence: [`proof/chat-project-storage/README.md`](proof/chat-project-storage/README.md).
-PR #305 is pushed; the integrated full gate, double-green CI and merge remain.
-PC1b follows for qualified
-provider-native resume, stable conversation links and standalone launch.
+PR #305 is merged. PC1b is in draft PR #308 for provider-native resume,
+stable conversation links and standalone launch. Its native/standalone adapters
+remain unqualified and disabled pending the outstanding real-provider evidence.
 No operator provider homes or credentials are changed by development. The
 scope includes supported standalone AI apps and automatic workspace organization;
 neither scope nor this implementation authorization needs another confirmation.
