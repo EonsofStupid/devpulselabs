@@ -1,7 +1,7 @@
 # PC1b — native project sessions and standalone Codex execution
 
 Status: operator authorized **execute** on 2026-10-29 after PC1a delivery (#305).
-Current cut: implemented foundation passes full local gate (1,296 tests);
+Current cut: foundation and gated standalone entry pass full local gate (1,307 tests);
 retain as draft pending live-turn, complete storage and standalone qualification.
 This executes the approved `chat-project-storage.md` PC1b scope. Work only in
 the existing isolated worktree, branch `feat/chat-native-project-resume`, based
@@ -54,7 +54,50 @@ must match the active project generation. Standalone entry has fixed provider
 arguments, workspace, permission mode and profile; it holds its lease and owns
 child lifetime without requiring the Chat window.
 
+### 4.1 Complete native listing
+
+The exact `ThreadListParams` contract says false/null excludes archived threads.
+List active pages first, then archived pages, preserving each phase's native
+updated-at ordering. Keep provider cursors private and expose one-use adapter
+continuation tokens tied to the current listing generation/page through the
+existing host seam. This prevents a provider cursor collision across phases or
+an old refresh from selecting the wrong phase. Apply the combined page ceiling
+and duplicate-session check across both phases, with cursor-loop checks scoped
+to each phase. Listing never unarchives or mutates a provider session. Existing
+saved-chat rows remain read-only until explicit successful resume; archive-state
+presentation and archived resume still need real-provider qualification.
+
 ## 5. Gates
+
+### Implementation continuation — named standalone entry
+
+The operator's subsequent **implement** continues this same draft. Add the
+console entry `devpulse-codex-project` within the Codex provider package. It
+accepts only an existing registry, typed project identity, immutable profile
+generation and a fixed read-only/workspace permission choice. It never creates
+profiles, accepts arbitrary provider commands or rewrites the active project.
+The adapter owns command construction: exact depot Codex, candidate home,
+bound CWD, `--no-daemon`, on-request approval and disabled sandbox networking.
+Read-only mode sets approval to `never` because this standalone provider UI has
+no DevPULSE host to decline escalation requests on the person's behalf.
+An existing terminal is required; a GUI shortcut/terminal host remains pending.
+Qualification is checked before discovery or spawn, with no CLI bypass flag.
+
+Use private provider-owned `process-wrap =10.0.1` with only std and job-object
+features. Source review contradicts the initial
+kill-on-close assumption: std JobObject calls `make_job_object(handle, false)`.
+Windows uses suspended assignment and explicit tree termination, but parent
+crash cleanup remains unqualified. Further review found `wait_on_job` ignores
+completion notification identity, so neither wait API proves job emptiness.
+Signal the job, boundedly reap the direct child, then return explicit cleanup
+uncertainty and retain the lease for the launcher lifetime. A corrected safe
+supervisor is required before support can be promoted. No Unix process-group
+implementation is claimed; interactive Unix spawning must refuse until foreground-terminal handoff is
+implemented and proved. Parent death and descendants escaping groups remain
+unqualified. The named launcher retains its shared lease until cleanup, polls
+the binding while running, and stops its owned process on failed verification.
+No change to the std-only dpl-proc ceiling. Fixture tests prove ownership and
+rejection paths; they do not establish native persistence or promote support.
 
 No capability claims from discovery alone or fixture-only tests. Real Windows
 and Linux drills must establish standalone persistence, A/B/A, restart, fresh

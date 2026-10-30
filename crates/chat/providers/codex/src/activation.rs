@@ -122,6 +122,14 @@ impl CodexRuntimeProfile {
         self.candidate.is_some()
     }
 
+    pub(crate) fn verify_project_profile(&self) -> io::Result<()> {
+        self.candidate
+            .as_ref()
+            .ok_or_else(|| io::Error::other("a bound project profile is required"))?
+            .verify()
+            .map_err(io::Error::other)
+    }
+
     pub(crate) fn command(&self) -> io::Result<Command> {
         let mut command = profiled_command(self.executable(), self.working_directory());
         if let Some(candidate) = &self.candidate {
@@ -1065,6 +1073,20 @@ mod tests {
         assert!(!profile.native_sessions_qualified());
         let result = crate::runtime::CodexAppServerRuntime::start_project(&profile);
         assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        assert!(crate::standalone::bound_command(
+            &profile,
+            dpl_chat_core::PermissionMode::AskFirst
+        )
+        .is_err());
+        assert_eq!(
+            crate::standalone::CodexStandalone::start(
+                &profile,
+                dpl_chat_core::PermissionMode::AskFirst
+            )
+            .unwrap_err()
+            .kind(),
+            io::ErrorKind::Unsupported
+        );
     }
 
     #[cfg(unix)]
@@ -1099,6 +1121,55 @@ mod tests {
         assert!(!profile.native_sessions_qualified());
         let start = crate::runtime::CodexAppServerRuntime::start(&profile);
         assert!(matches!(start, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        for (mode, sandbox, approval) in [
+            (
+                dpl_chat_core::PermissionMode::AskFirst,
+                "read-only",
+                "on-request",
+            ),
+            (
+                dpl_chat_core::PermissionMode::Workspace,
+                "workspace-write",
+                "on-request",
+            ),
+            (
+                dpl_chat_core::PermissionMode::ReadOnly,
+                "read-only",
+                "never",
+            ),
+        ] {
+            let command = crate::standalone::bound_command(&profile, mode).unwrap();
+            assert_eq!(command.get_program(), profile.executable());
+            assert_eq!(command.get_current_dir(), Some(profile.working_directory()));
+            let args: Vec<_> = command
+                .get_args()
+                .map(|arg| arg.to_str().unwrap())
+                .collect();
+            assert_eq!(
+                args,
+                [
+                    "-c",
+                    "cli_auth_credentials_store=\"file\"",
+                    "--no-daemon",
+                    "--no-alt-screen",
+                    "--sandbox",
+                    sandbox,
+                    "--ask-for-approval",
+                    approval,
+                    "-c",
+                    "sandbox_workspace_write.network_access=false",
+                    "--cd",
+                    profile.working_directory().to_str().unwrap(),
+                ]
+            );
+            assert_eq!(
+                command
+                    .get_envs()
+                    .find(|(key, _)| *key == OsStr::new("CODEX_HOME"))
+                    .and_then(|(_, value)| value),
+                Some(lease.home().as_os_str())
+            );
+        }
         // Preserve the original marker and prove a replacement cannot authorize
         // another child; this is deliberately disposable fixture data.
         let marker = project.archive_dir().join("project.json");
@@ -1107,6 +1178,11 @@ mod tests {
         fs::write(marker, b"{}").unwrap();
         assert!(profile.command().is_err());
         assert!(login_command(&profile).is_err());
+        assert!(crate::standalone::bound_command(
+            &profile,
+            dpl_chat_core::PermissionMode::AskFirst
+        )
+        .is_err());
     }
 
     #[test]

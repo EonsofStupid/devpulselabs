@@ -18,12 +18,20 @@ const MAX_ID_BYTES: usize = 4096;
 pub(super) const DEADLINE: Duration = Duration::from_secs(120);
 
 #[derive(Debug)]
+struct ListContinuation {
+    token: String,
+    cursor: Option<String>,
+    archived: bool,
+}
+
+#[derive(Debug)]
 struct Listing {
-    next: Option<String>,
-    cursors: HashSet<String>,
+    next: Option<ListContinuation>,
+    cursors: HashSet<(bool, String)>,
     ids: HashSet<String>,
     pages: usize,
     pending: bool,
+    archived: bool,
 }
 
 #[derive(Debug)]
@@ -43,6 +51,7 @@ struct Loading {
 pub(super) struct NativeHistory {
     workspace: PathBuf,
     listing: Option<Listing>,
+    listing_generation: u64,
     loading: Option<Loading>,
     started: Option<Instant>,
     // thread/started can precede or follow resume's response. Neither is a
@@ -55,6 +64,7 @@ impl NativeHistory {
         Self {
             workspace,
             listing: None,
+            listing_generation: 0,
             loading: None,
             started: None,
             resumed: HashSet::new(),
@@ -94,26 +104,43 @@ impl NativeHistory {
         }
         if let Some(cursor) = cursor {
             bounded(cursor, MAX_ID_BYTES)?;
-            if self.listing.as_ref().and_then(|list| list.next.as_deref()) != Some(cursor) {
+            if self
+                .listing
+                .as_ref()
+                .and_then(|list| list.next.as_ref())
+                .map(|next| next.token.as_str())
+                != Some(cursor)
+            {
                 return Err("the session cursor does not belong to this listing".into());
             }
         } else {
+            self.listing_generation = self
+                .listing_generation
+                .checked_add(1)
+                .ok_or("native listing generation limit reached")?;
             self.listing = Some(Listing {
                 next: None,
                 cursors: HashSet::new(),
                 ids: HashSet::new(),
                 pages: 0,
                 pending: false,
+                archived: false,
             });
         }
         let list = self.listing.as_mut().ok_or("missing session listing")?;
+        // Only the current one-use token authorizes a continuation. The native
+        // cursor remains opaque and private, including at the archive boundary.
+        let provider_cursor = list.next.take().and_then(|next| {
+            list.archived = next.archived;
+            next.cursor
+        });
         list.pending = true;
         self.started = Some(Instant::now());
         Ok(Outbound::Request {
             method: "thread/list",
             params: json!({
-                "cwd": self.workspace, "cursor": cursor, "limit": PAGE_SIZE,
-                "sortKey": "updated_at", "sortDirection": "desc", "archived": false,
+                "cwd": self.workspace, "cursor": provider_cursor, "limit": PAGE_SIZE,
+                "sortKey": "updated_at", "sortDirection": "desc", "archived": list.archived,
                 "sourceKinds": ["cli", "appServer", "vscode"], "useStateDbOnly": false
             }),
         })
@@ -180,15 +207,28 @@ impl NativeHistory {
                 }
                 sessions.push(summary);
             }
-            let next = cursor(result)?;
-            if let Some(next) = &next {
-                if !list.cursors.insert(next.clone()) || list.pages + 1 >= MAX_PAGES {
+            let provider_cursor = cursor(result)?;
+            if let Some(next) = &provider_cursor {
+                if !list.cursors.insert((list.archived, next.clone())) {
                     return Err("session listing cursor loop or limit".into());
                 }
             }
+            // An exhausted active phase still has one continuation: the first
+            // archived page, whose provider cursor must be null. Never expose a
+            // made-up provider cursor or mix pagination cursors between phases.
+            let has_next = provider_cursor.is_some() || !list.archived;
+            if has_next && list.pages + 1 >= MAX_PAGES {
+                return Err("session listing page limit exceeded".into());
+            }
+            let archived = list.archived || provider_cursor.is_none();
             let replace = list.pages == 0;
             list.pages += 1;
-            list.next = next.clone();
+            list.next = has_next.then(|| ListContinuation {
+                token: format!("codex-list-{}-{}", self.listing_generation, list.pages),
+                cursor: provider_cursor,
+                archived,
+            });
+            let next = list.next.as_ref().map(|next| next.token.clone());
             list.pending = false;
             self.started = None;
             return Ok((
@@ -661,22 +701,131 @@ mod tests {
                 &json!({"data":[thread("one")],"nextCursor":"next"}),
             )
             .unwrap();
-        assert!(matches!(
-            first,
-            Some(RuntimeEvent::SessionsPage { replace: true, .. })
-        ));
+        let Some(RuntimeEvent::SessionsPage {
+            next_cursor: Some(next),
+            replace: true,
+            ..
+        }) = first
+        else {
+            panic!("first page must continue");
+        };
+        assert_ne!(next, "next");
         assert!(native.list(Some("foreign")).is_err());
-        native.list(Some("next")).unwrap();
+        assert!(native.list(Some("next")).is_err());
+        let Outbound::Request { params, .. } = native.list(Some(&next)).unwrap() else {
+            panic!("request");
+        };
+        assert_eq!(params["cursor"], "next");
+        assert_eq!(params["archived"], false);
         let (second, _) = native
             .response(
                 "thread/list",
                 &json!({"data":[thread("two")],"nextCursor":null}),
             )
             .unwrap();
-        assert!(matches!(
-            second,
-            Some(RuntimeEvent::SessionsPage { replace: false, .. })
-        ));
+        let Some(RuntimeEvent::SessionsPage {
+            next_cursor: Some(archived),
+            replace: false,
+            ..
+        }) = second
+        else {
+            panic!("active exhaustion must continue into archives");
+        };
+        assert!(native.list(Some(&next)).is_err(), "one-use cursor");
+        let Outbound::Request { params, .. } = native.list(Some(&archived)).unwrap() else {
+            panic!("request");
+        };
+        assert_eq!(params["cursor"], Value::Null);
+        assert_eq!(params["archived"], true);
+        let (last, followup) = native
+            .response(
+                "thread/list",
+                &json!({"data":[thread("archived")],"nextCursor":null}),
+            )
+            .unwrap();
+        assert!(followup.is_none());
+        assert!(matches!(last, Some(RuntimeEvent::SessionsPage {
+            sessions, next_cursor: None, replace: false,
+        }) if sessions[0].provider_session_id == "archived"));
+        assert!(native.list(Some(&archived)).is_err(), "completed cursor");
+    }
+
+    fn listed(native: &mut NativeHistory, data: Vec<Value>, cursor: Value) -> Option<String> {
+        let (event, followup) = native
+            .response("thread/list", &json!({"data":data,"nextCursor":cursor}))
+            .unwrap();
+        assert!(followup.is_none());
+        let Some(RuntimeEvent::SessionsPage { next_cursor, .. }) = event else {
+            panic!("listing page");
+        };
+        next_cursor
+    }
+
+    #[test]
+    fn listing_cursors_are_scoped_to_phase_and_refresh_generation() {
+        let mut native = fixture();
+        native.list(None).unwrap();
+        let old = listed(&mut native, vec![], json!("same-native-cursor")).unwrap();
+        native.list(None).unwrap();
+        let current = listed(&mut native, vec![], json!("same-native-cursor")).unwrap();
+        assert_ne!(old, current);
+        assert!(native.list(Some(&old)).is_err());
+        native.list(Some(&current)).unwrap();
+        let archived = listed(&mut native, vec![], Value::Null).unwrap();
+        native.list(Some(&archived)).unwrap();
+        let archived_next = listed(&mut native, vec![], json!("same-native-cursor")).unwrap();
+        let Outbound::Request { params, .. } = native.list(Some(&archived_next)).unwrap() else {
+            panic!("request");
+        };
+        assert_eq!(params["cursor"], "same-native-cursor");
+        assert_eq!(params["archived"], true);
+        assert!(
+            native
+                .response(
+                    "thread/list",
+                    &json!({"data":[],"nextCursor":"same-native-cursor"})
+                )
+                .is_err(),
+            "a repeated cursor within the archived phase is refused"
+        );
+    }
+
+    #[test]
+    fn archived_pages_share_duplicate_identity_and_total_page_limits() {
+        let mut native = fixture();
+        native.list(None).unwrap();
+        let archived = listed(&mut native, vec![thread("same")], Value::Null).unwrap();
+        native.list(Some(&archived)).unwrap();
+        assert!(native
+            .response(
+                "thread/list",
+                &json!({"data":[thread("same")],"nextCursor":null})
+            )
+            .is_err());
+
+        let mut native = fixture();
+        native.list(None).unwrap();
+        // Even an empty active list must query archives. Exhaust the single
+        // combined budget there; it cannot be reset at the phase boundary.
+        let mut next = listed(&mut native, vec![], Value::Null).unwrap();
+        for index in 1..MAX_PAGES - 1 {
+            native.list(Some(&next)).unwrap();
+            next = listed(&mut native, vec![], json!(format!("page-{index}"))).unwrap();
+        }
+        native.list(Some(&next)).unwrap();
+        assert!(native
+            .response("thread/list", &json!({"data":[],"nextCursor":"over-limit"}))
+            .is_err());
+    }
+
+    #[test]
+    fn empty_listing_finishes_only_after_archive_response() {
+        let mut native = fixture();
+        native.list(None).unwrap();
+        let archived = listed(&mut native, vec![], Value::Null).unwrap();
+        native.list(Some(&archived)).unwrap();
+        assert!(listed(&mut native, vec![], Value::Null).is_none());
+        assert!(!native.busy());
     }
 
     #[test]

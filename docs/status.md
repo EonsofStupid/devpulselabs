@@ -38,8 +38,11 @@ Evidence: [`proof/chat-project-storage/README.md`](proof/chat-project-storage/RE
 PC1b now has exact response contracts, candidate profile links/leases and gated
 native-history loading. Synthetic Windows storage probes passed fresh-profile
 resume at a changed path, but injected items returned no conversational turns.
-Real signed-in turn history, the named standalone entry and Linux qualification
-remain required. See [`research/chat-project-native-qualification.md`](research/chat-project-native-qualification.md).
+The named terminal entry and active/archived native listing are implemented in
+draft #308; the continuation passed 1,307 tests and release/renderer gates.
+Standalone launch remains disabled: full process-tree completion and Unix
+terminal ownership are unfinished. Real signed-in turn history and
+Linux qualification remain required. See [`research/chat-project-native-qualification.md`](research/chat-project-native-qualification.md).
 No operator provider homes or credentials are changed by development. The
 scope includes supported standalone AI apps and automatic workspace organization;
 neither scope nor this implementation authorization needs another confirmation.

@@ -80,9 +80,10 @@ does no filesystem lookup, and does not generalize to unproven UNC variants.
    preserve exact history after A/B/A, restart, fresh profile and moved project.
 2. Inventory all conversation-bearing stores using those real operations;
    qualify archive/unarchive, queued work and attachments instead of guessing.
-3. Named standalone entry with owned child-tree lifetime and shared profile
-   lease; standalone operation without the Chat window, concurrent projects,
-   absent/replaced storage and parent/process failure drills. Not implemented yet.
+3. Qualify the named standalone entry and shared profile lease with real
+   interactive work, concurrent projects, absent/replaced storage and
+   parent/process failure drills. Implementation is being added on this draft;
+   no standalone capability is enabled by the new executable.
 4. Exact approved Linux artifact and matching real qualification. The local
    central depot did not contain the referenced Linux Codex artifact.
 5. Native visual proof for the enabled controls, full gate and double-green PR
@@ -91,7 +92,49 @@ does no filesystem lookup, and does not generalize to unproven UNC variants.
 The implementation is retained as a draft while these gates remain open;
 no production qualification switch or standalone-support claim is enabled.
 
-Archived native threads are not yet included in the new list path. Native item
+Active and archived native threads now have separate bounded listing phases.
+One-use, generation-scoped continuation tokens prevent stale refreshes and
+cross-phase provider cursor collisions. Listing never unarchives a thread;
+real archived resume remains under qualification. Native item
 IDs validate incoming uniqueness, while the project events retain native turn
-IDs; inserting earlier items can remint later local event IDs. Both limitations
-remain visible qualification work before claiming the complete PC1b result.
+IDs; inserting earlier items can remint later local event IDs. This remains
+visible qualification work before claiming the complete PC1b result.
+
+## Implementation continuation
+
+The named `devpulse-codex-project` console entry accepts only an existing
+registry, project identity, immutable generation and a fixed permission mode.
+It cannot create/adopt profiles, change the active project, choose an arbitrary
+executable or pass through commands. Qualification rejects before filesystem
+discovery or provider probes. The same gate applies to the public adapter entry.
+An existing interactive terminal is required; GUI terminal/shortcut integration
+is still pending. Exact 0.163.0 help supplies `--no-daemon`, preventing reuse of
+the provider's shared background daemon. Commands use the explicit candidate
+home and bound workspace; read-only denies escalation, while ask/workspace
+retain on-request approval. No actual standalone provider turn has been run.
+
+Review caught Linux terminal ownership: a newly isolated process group cannot
+read the inherited foreground terminal without handoff. Process-group fixture
+cleanup alone is not an interactive-launch qualification. Windows console
+Ctrl+C/Break and parent-death behavior also require real terminal evidence.
+
+Exact process-wrap10.0.1 source review found two concrete supervisor blockers:
+std JobObject does not request kill-on-job-close, and `wait_on_job` ignores
+completion message identity rather than checking all processes exited.
+The implementation therefore signals the owned Windows job, boundedly reaps
+the direct child and reports tree cleanup as unconfirmed. The caller retains
+the profile lease for its process lifetime. Unix interactive spawn refuses.
+Tests prove direct-child status, repeated cleanup refusal and closure of the
+test descendant's inherited pipe after drop; they cannot promote this backend
+to qualified support. A corrected safe supervisor remains required.
+
+Continuation verification (2026-10-30): full `cargo green` passed **1,307
+tests, zero failures, six existing ignored**, including clippy, structure,
+contracts, optimized release and renderer smoke (16,616 shape pixels, 10,634
+text pixels, 60 exported frames). Log:
+`target/pc1b-standalone-green-verified.log`. The real release console entry
+returned0 for `--help` and1 with the qualification explanation for a bounded
+project launch request; its nonexistent registry path remained absent.
+Evidence: `target/pc1b-standalone-exe-proof.json`. The isolated main executable
+was rebuilt at2026-10-30T04:14:41Z. No new GUI controls were enabled, and this
+pass makes no new visual or live-provider support claim.

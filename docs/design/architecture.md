@@ -43,6 +43,17 @@ profile into every owned provider child. The project owner validates paths,
 links and identities; Codex owns process/protocol policy. A valid candidate
 does not enable native resume or standalone support without qualification.
 
+The named Codex standalone entry additionally uses pinned `process-wrap`
+inside its private lifetime module; it does not widen the dependency-free
+`dpl-proc` leaf. Windows launch assigns the child to a job before execution.
+Explicit/drop cleanup signals that job and boundedly reaps its direct child.
+The wrapper cannot prove job emptiness; cleanup returns an explicit error and
+the caller retains its profile lease for its process lifetime. The std backend
+also lacks kill-on-job-close. Complete tree exit and parent-crash containment
+remain unqualified. Unix interactive launch is
+refused until foreground terminal ownership and lifetime containment are
+implemented. Neither backend is advertised as qualified portable support.
+
 `dpl-chat-window → dpl-workflows` is an ordinary surface→document edge
 (the `dpl-editor → dpl-doc` direction): the chat surface renders the
 brainstorm board document and emits its typed ops; the host owns all IO.

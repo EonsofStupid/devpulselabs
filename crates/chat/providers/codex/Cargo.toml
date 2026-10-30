@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "devpulse-codex-project"
+path = "src/bin/devpulse_codex_project.rs"
+
 [dependencies]
 dpl-proc.workspace = true
 dpl-chat-core.workspace = true
@@ -12,6 +16,7 @@ dpl-chat-runtime.workspace = true
 dpl-chat-store.workspace = true
 dpl-tools-deps.workspace = true
 serde_json.workspace = true
+process-wrap = { version = "=10.0.1", default-features = false, features = ["std", "job-object"] }
 
 [lints]
 workspace = true
