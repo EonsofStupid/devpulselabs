@@ -259,10 +259,9 @@ release) are still to come.
 
 ## Hazards outside this repo
 
-- **Both estate CI runners are OFFLINE** (2026-10-21): `devpulse-runner-win-01`
-  and `devpulse-runner-lnx-01`. PR #280's lanes have queued since 15:11Z.
-  Nothing merges until the operator brings Proxmox VM 119 and LXC 121 back
-  and both lanes pass (the double-green law).
+- **Public CI uses hosted runners.** Both estate registrations were removed
+  on 2026-10-30. Never reconnect them to public PR workflows. Merge requires
+  successful hosted Windows and Linux checks (the double-green law).
 
 - **`D:\localdev\platform_devpulse`'s `cargo xtask run-dev`** (often a
   parallel Claude session) runs `taskkill /F /T` on **every** `xtask.exe` at
@@ -272,8 +271,8 @@ release) are still to come.
   scale.** `--window <w>x<h>` is in points, and the footer shows the `dpr`.
   This laptop has run on a 150% display and on a 2560×1440 monitor at 100%.
   Compare runs by the footer's `dpr`, never by pixel size across days.
-- **The Windows CI lane takes 40 to 70 minutes** on the estate runner (#276:
-  1 h 6 min). A slow run is not a hung one; check the job's steps first.
+- **A cold hosted build takes longer than a cached build.** Inspect the job's
+  active step before treating a slow run as hung.
 - **The second clone, `D:\localdev\devpulselabs`**: the operator authorized
   an isolated ST1 worktree here on 2026-10-25. Do not push its unrelated
   local branches (`wip/c1-paused`, `park/…`) or change the source checkout.

@@ -7,7 +7,7 @@ EonsofStupid/devpulselabs and finish the associated GitHub configuration.
 Use isolated chore/public-repository-setup from main bfc8e33. PC1b draft308 and
 ST5b309 remain independent; neither is merged by this operation.
 
-## 2. Current evidence
+## 2. Baseline evidence
 
 The repository is private, current credentials have repository admin access,
 and two repository-level self-hosted runners (26 Linux,27 Windows) are online
@@ -67,3 +67,18 @@ API baseline: private, admin=true, two idle repo runners, Actions enabled;
 default workflow permissions read and PR-review approval false. Latest feature
 CI failed Windows artifact upload from storage quota after cargo green passed.
 Current evidence will be recorded in the PR and docs/status.md on delivery.
+
+Transition readbacks: public visibility (including anonymous API access), zero
+repository runners, all-external fork approval, read-only default workflow
+permissions without PR approval rights, private reporting enabled, secret
+scanning and push protection enabled, dependency alerts enabled (HTTP 204),
+Dependabot security updates enabled. Main protection includes both Actions
+checks, strict up-to-date branches, PRs, resolved conversations and admins,
+with force pushes/deletion disabled. No mandatory second reviewer.
+Actionlint 1.7.12 (upstream checksum verified) passes all workflows; final
+independent workflow review found no material defects. Hosted execution must
+still prove build prerequisites, capacity, timings and artifact publication.
+The local pre-push gate passed 1,268 tests (six existing ignored), the full
+release build and the real renderer smoke tests. Actions was restored after
+the first setup commit was pushed. The final docs review also removed an
+obsolete instruction to reconnect estate runners from the hazards list.
