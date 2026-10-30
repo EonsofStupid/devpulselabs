@@ -145,3 +145,31 @@ aside as corrupt. Index work now takes one turn per process.
 - **`cargo test` outside the gate needs `CONTENT_ROOT`** set to a scratch
   folder. Without it, Composer's tests panic on "Choose where to keep your
   library".
+
+## ST5b — the CI storage quota (2026-10-29/30)
+
+PR #309 (head `683b380`) passed `cargo green` on both lanes, but
+`green-windows` failed at `upload the windows exe` with "Artifact storage
+quota has been hit".
+- **First response:** the operator approved deleting old exe uploads. 19
+  were deleted and 3 kept (79 MB).
+- **The block stayed:** twelve attempts over 8 hours still hit the quota.
+  GitHub bills private-repo storage by average use over the month, so
+  deleting doesn't undo October's count.
+- **The ruling:** the operator chose "Upload only from main, 1 day". #310
+  merged as `e3f8c8b` on double-green (run 41081620853: upload skipped,
+  both jobs success).
+- **Then the repo went public (R293, same day).**
+  - The estate runners were deregistered, so ST5b's rebased push had no
+    runner. A hand-started run waited with nothing to pick it up and was
+    cancelled.
+  - #311 (`bbac4f5`, a parallel session's PR) moved both lanes to
+    GitHub-hosted runners, kept #310's policy and protected main. The
+    branch must be up to date with main; both checks and resolved
+    conversations are required, admins included.
+  - ST5b was rebased on it. The storage cap applies only to private repos,
+    so it no longer applies.
+
+**Landmine:** a push whose event GitHub drops gets no run. Check
+`gh run list --branch <b>` for the new head sha before waiting on
+`gh pr checks`.

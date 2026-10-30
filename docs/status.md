@@ -1,6 +1,6 @@
 ---
 updated: 2026-10-30
-active_lane: public-repository
+active_lane: portable-storage
 dirty: false
 ---
 
@@ -13,7 +13,9 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-30, main at `bfc8e33` (#305, project-owned chats).
+**Updated:** 2026-10-30. Main has ST5b (#309: Locations become the one
+list) on top of `bbac4f5` (#311: public repository, hosted CI). The release
+exe is rebuilt from main after the merge.
 
 **Public repository setup (R293).** Public visibility is verified and both
 estate runner registrations are removed. Green now targets GitHub-hosted
@@ -25,6 +27,13 @@ Main protection requires PRs, resolved conversations and both green checks;
 force pushes and deletion are forbidden. The setup PR must pass both hosted
 lanes before merge; see the PR checks for delivery evidence and
 [`runbook/ci-runners.md`](runbook/ci-runners.md) for the operating policy.
+
+**CI artifact storage** (#310, ruled 2026-10-30): the private-repo storage
+cap filled on 2026-10-29, and every Windows lane went red at the exe upload
+while the gate was green. PR runs no longer upload; main uploads, kept 1
+day, and #311 kept that policy on the hosted lanes. The cap applies only to
+private repos, so it no longer applies now the repo is public.
+`docs/plans/ci-exe-upload.md`.
 
 ## Now
 
@@ -43,7 +52,7 @@ remain unqualified and disabled pending the outstanding real-provider evidence.
 No operator provider homes or credentials are changed by development. The
 scope includes supported standalone AI apps and automatic workspace organization;
 neither scope nor this implementation authorization needs another confirmation.
-Storage's ST5b is in review.
+Storage's ST5b is done (#309).
 
 **Portable storage (ST).** ST1 landed (#297): the library has one owner
 (`dpl-roots`), `roots.toml` beside the program, a `library.json` marker, a
@@ -136,7 +145,7 @@ refreshed without touching content. The research is
 | LS4b | Lists and data: agenda, features, timeline, split, compare, stats, code and the infographics painted; list items selectable | |
 | LS4c | Interactive components as node trees and recipes, with touch sub-events | |
 | RL | Run a lesson (R287, ruled 2026-10-25, one pass): **Run** a lesson (the Lessons page, or from a card) or an episode (the episode wall, the Present hub) — locked, the pinned cards, the slides OS full screen and the presenter opening at once in its own window; touch for the big screen (tap anywhere for the next beat, the left edge back, swipe, long press for the navigator); the presenter drives (big Back / Next, tap a beat to jump, Swap screens); window places kept per machine. **On tap** (the card sheet's tab, and the Lessons editor): each line at the start or on a tap, the teleprompter's words per tap written to the card's `script.mdx` as you type, a preview at any tap; each lesson card says "1 tap · script". `--run-lesson <id>` | **done** (#296) |
-| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md`. ST1 **done** (#297); ST1b **done** (#299: a build's library in its project; Bring in my existing library…, R291); ST2 approved 2026-10-27 as two PRs — ST2a **done** (#300: one window; the Disconnected page reconnects by itself, on any letter); ST2b **done** (#301: unplugged mid-session — refused saves, the banner, kept edits, Restart now; follow-through #302); ST5 approved 2026-10-27 — ST5a **done** (#303: Locations linked in place, offline posters, found on any letter); ST5a′ **done** (#304: aware while running and across restarts, Windows/Linux incl. ARM/macOS); ST5b (ruled 2026-10-29: one list — packs and libraries move in and are indexed when seen, reference imports link in place) in review; then ST3 → ST4 |
+| ST | Portable, linked storage (R287, R288): a library with the program or linked on a drive, recognised on any letter, a Disconnected screen that reconnects by itself, linked video folders (Locations), per-account `.userdata` / `.aidata` | **approved** 2026-10-25, reach signed off (R289) — `docs/plans/portable-storage.md`. ST1 **done** (#297); ST1b **done** (#299: a build's library in its project; Bring in my existing library…, R291); ST2 approved 2026-10-27 as two PRs — ST2a **done** (#300: one window; the Disconnected page reconnects by itself, on any letter); ST2b **done** (#301: unplugged mid-session — refused saves, the banner, kept edits, Restart now; follow-through #302); ST5 approved 2026-10-27 — ST5a **done** (#303: Locations linked in place, offline posters, found on any letter); ST5a′ **done** (#304: aware while running and across restarts, Windows/Linux incl. ARM/macOS); ST5b **done** (#309, ruled 2026-10-29: one list — packs and libraries move in and are indexed when seen, reference imports link in place); next ST3 → ST4 |
 | AH | AgentHub (R290, ruled 2026-10-26): the app finds the AIs installed on the machine and links to them; a hub showing each one and what it is working on; each AI arrives briefed, warmed up and resumable; Clyffy brings up the task's UI to work on it with other AIs and other people; Council | after ST, before LS4b — its own program plan, for approval |
 | EX | Export a player (R288, ruled 2026-10-24): one folder — the player, the lesson, its videos copied in — that opens straight into Run mode; after LS4c | ruled direction — `docs/plans/export-player.md` |
 | LS4d | Your own templates ("save it as my template") | |
@@ -296,8 +305,8 @@ release) are still to come.
 ## Next, in order
 
 1. **Portable, linked storage** (`docs/plans/portable-storage.md`): ST1,
-   ST1b, ST2a/b, ST5a and ST5a′ are done; ST5b (§4f B1–B5) is in review.
-   Then ST3 → ST4. The operator's own USB drive check (§6) is owed, and
+   ST1b, ST2a/b, ST5a, ST5a′ and ST5b are done. Next is **ST3** (§4.2:
+   switch a library between the program folder and a drive), then ST4. The operator's own USB drive check (§6) is owed, and
    their two pinned themeforest folders index the first time that drive
    is plugged in.
 2. **Owed on the operator's own setup:** the move (open the exe → Bring in
