@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 /// The WARM SCAN CACHE (W8, the proactive-buffer law): folder listings
 /// shared across every Browse window, seeded at boot for the profile
-/// roots + pinned packs. A cache hit paints INSTANTLY; a revalidating
+/// roots + online locations. A cache hit paints INSTANTLY; a revalidating
 /// scan runs behind it and refreshes the entry. No UI surface ever
 /// walks a directory on the paint thread.
 pub type ScanCache = Arc<Mutex<HashMap<PathBuf, Vec<Entry>>>>;
@@ -21,7 +21,7 @@ pub type ScanCache = Arc<Mutex<HashMap<PathBuf, Vec<Entry>>>>;
 /// Warm the cache OFF-THREAD: the quick-jump roots (probed in the
 /// worker — drive-letter probes can block on sleeping media and must
 /// never touch the UI thread, not even once) plus `extra` dirs
-/// (pinned packs). Top-level scans only — exactly what a window
+/// (online locations). Top-level scans only — exactly what a window
 /// paints first.
 pub fn warm_cache(cache: &ScanCache, extra: Vec<PathBuf>) {
     let cache = Arc::clone(cache);
@@ -63,8 +63,6 @@ pub struct Browser {
     roots: Vec<(String, PathBuf)>,
     /// Media files clicked since the composer last drained.
     pub picked: Vec<PathBuf>,
-    /// Folders "Pin pack"-ed since the composer last drained.
-    pub pinned: Vec<PathBuf>,
     /// Folders "Add as a location"-ed since the composer last drained (ST5).
     pub located: Vec<PathBuf>,
     /// Locate… for an offline location (ST5): its id and name. The bar
@@ -124,7 +122,6 @@ impl Browser {
             cache,
             roots: roots(),
             picked: Vec::new(),
-            pinned: Vec::new(),
             located: Vec::new(),
             locating: None,
             locate_armed: false,
@@ -234,21 +231,15 @@ pub fn search_files(root: &Path, query: &str, cap: usize) -> Vec<Entry> {
     out
 }
 
-/// The quick-jump roots: the profile's media folders that exist, then
-/// every present drive. Pure std — no dialog crate, no new deps.
+/// The quick-jump roots: the online locations, the profile's media folders
+/// that exist, then every present drive. Pure std — no dialog crate, no
+/// new deps.
 pub fn roots() -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
     // Locations first (ST5): the folders linked in place, while online.
     for placed in dpl_roots::locations().unwrap_or_default() {
         if let Some(at) = placed.at {
             out.push((format!("★ {}", placed.location.label), at));
-        }
-    }
-    // The operator's OWN library folders come next — their AE presets / image
-    // collections, added once and reachable from every Browse window.
-    for (name, path) in operator_libraries() {
-        if path.is_dir() {
-            out.push((name, path));
         }
     }
     // Home standard folders — cross-platform (HOME on unix incl. macOS,
@@ -289,34 +280,6 @@ fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
-}
-
-fn libraries_file() -> PathBuf {
-    dpl_roots::userdata_root().join("libraries.json")
-}
-
-/// The operator's added library folders (label, path), persisted in
-/// `.userdata/libraries.json`. Reachable from every Browse window — the "add
-/// your own folder as a library" QoL.
-pub fn operator_libraries() -> Vec<(String, PathBuf)> {
-    read_libraries()
-        .into_iter()
-        .map(|p| {
-            let label = p
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(str::to_string)
-                .unwrap_or_else(|| p.display().to_string());
-            (format!("★ {label}"), p)
-        })
-        .collect()
-}
-
-fn read_libraries() -> Vec<PathBuf> {
-    std::fs::read_to_string(libraries_file())
-        .ok()
-        .and_then(|s| serde_json::from_str::<Vec<PathBuf>>(&s).ok())
-        .unwrap_or_default()
 }
 
 /// One folder, honestly: dirs first, then media files, both name-sorted;
@@ -427,22 +390,6 @@ pub fn window_ui(ui: &mut egui::Ui, b: &mut Browser) {
             if resp.clicked() && !here {
                 go = Some(path);
             }
-        }
-        let pin = cl::tip(
-            bar_chip(ui, "Pin pack", ns, "pin-pack"),
-            "Add this folder to your Elements shelf — the files stay right \
-             here; using one copies just that file into your project",
-        );
-        ui.pilot_track(
-            &pin,
-            NodeMetadata::new(
-                PilotId::new("browse.pin").child(&PilotKey::new(format!("{ns}"))),
-                Role::Button,
-                "Pin this folder as a pack",
-            ),
-        );
-        if pin.clicked() {
-            b.pinned.push(b.cwd.clone());
         }
         // ST5: join THIS folder to the library in place as a location — or,
         // while locating one that went offline, say "this is it".

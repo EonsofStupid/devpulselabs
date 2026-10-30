@@ -110,3 +110,38 @@ Evidence is in the plan's §8 (ST5a′), and the shots are in
 
 **New landmine:** a `subst` pilot scenario launched from a background shell
 didn't see the letter. Run those proofs in the foreground.
+
+## ST5a′ — landed
+
+#304 merged as `855f674` on double-green (head `865ebc4`: green-linux
+1m59s, green-windows 10m17s). The release exe was rebuilt from it
+(2026-10-28 15:41:45, stamp `855f674 · 2026-10-28 19:39z`).
+
+## ST5b — ruled 2026-10-29, built
+
+Grounded on `bfc8e33` (#305, a parallel session's PC1a). The operator's
+`content/elements/sources.json` pins `D:\webwork\themeforest\video` and
+`…\audio`. Neither is on any drive letter today, so they move in offline.
+Rulings:
+- Q-ST5b-1, "Put everything on the shelf";
+- Q-ST5b-2, "The whole folder".
+
+Built per §4f B1–B5:
+- locations wait to be indexed;
+- `adopt_old_lists` runs at `open_library`;
+- one app-wide indexer (Composer's `index_waiting`, driven by the app)
+  works one location at a time;
+- the pack shelf, Pin pack, Browse libraries and `--pin-pack` are deleted;
+- `import_reference` makes a location link.
+
+**Found while proving and fixed:** `Index::open` set a *locked* database
+aside as corrupt. Index work now takes one turn per process.
+
+**Landmines:**
+- **`subst` proofs:** run them in the foreground.
+- **Pilot timing:** the app takes 1–12 s to start, depending on how warm
+  the build is. Time drive changes from the lists moving in, not from the
+  script's start.
+- **`cargo test` outside the gate needs `CONTENT_ROOT`** set to a scratch
+  folder. Without it, Composer's tests panic on "Choose where to keep your
+  library".

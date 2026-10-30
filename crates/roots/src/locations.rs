@@ -16,6 +16,8 @@ use std::sync::{Mutex, PoisonError, RwLock};
 /// The first part of every linked file's name.
 pub const PREFIX: &str = "locations";
 const FILE: &str = "locations.json";
+/// Where the old lists are kept once they have moved in (ST5b).
+const MOVED: &str = "moved-to-locations";
 const VERSION: u32 = 1;
 /// How many of a folder's files are noted to recognise it later.
 const SAMPLE: usize = 32;
@@ -32,6 +34,14 @@ pub struct Location {
     /// Some of its files and their sizes when it was added or located, to
     /// recognise it on another drive letter without writing anything into it.
     pub sample: Vec<(String, u64)>,
+    /// Not indexed yet (ST5b): the app indexes its files the first time its
+    /// folder is seen, then clears this.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub waiting: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Serialize, Deserialize)]
@@ -136,7 +146,8 @@ impl Store<'_> {
         relative(folder, self.library).unwrap_or_else(|| folder.to_path_buf())
     }
 
-    /// Join `folder` as a location. Nothing inside it is written.
+    /// Join `folder` as a location, waiting to be indexed. Nothing inside it
+    /// is written.
     pub fn add(&self, folder: &Path, label: &str) -> Result<Location, String> {
         if !folder.is_absolute() {
             return Err("Paste the full path of the folder.".into());
@@ -149,12 +160,6 @@ impl Store<'_> {
                 folder.display()
             ));
         }
-        if migrate::inside(&folder, self.library) {
-            return Err("That folder is already inside your library.".into());
-        }
-        if migrate::inside(self.library, &folder) {
-            return Err("Your library is inside that folder; choose a folder beside it.".into());
-        }
         let _edit = EDIT.lock().unwrap_or_else(PoisonError::into_inner);
         let mut locations = self.load()?;
         if let Some(known) = locations.iter().find(|l| self.full(l) == folder) {
@@ -162,6 +167,26 @@ impl Store<'_> {
                 "That folder is already the location '{}'.",
                 known.label
             ));
+        }
+        let location = self.record(&folder, label, sample(&folder))?;
+        locations.push(location.clone());
+        self.save(&locations)?;
+        Ok(location)
+    }
+
+    /// A new, waiting record for `folder`: never one inside the library,
+    /// nor one holding it.
+    fn record(
+        &self,
+        folder: &Path,
+        label: &str,
+        sample: Vec<(String, u64)>,
+    ) -> Result<Location, String> {
+        if migrate::inside(folder, self.library) {
+            return Err("That folder is already inside your library.".into());
+        }
+        if migrate::inside(self.library, folder) {
+            return Err("Your library is inside that folder; choose a folder beside it.".into());
         }
         let label = match label.trim() {
             "" => folder
@@ -171,15 +196,130 @@ impl Store<'_> {
             label => label.to_owned(),
         };
         crate::model::label(&label)?;
-        let location = Location {
+        Ok(Location {
             id: new_id(),
             label,
-            path: self.stored(&folder),
-            sample: sample(&folder),
-        };
-        locations.push(location.clone());
-        self.save(&locations)?;
-        Ok(location)
+            path: self.stored(folder),
+            sample,
+            waiting: true,
+        })
+    }
+
+    /// Record each of `folders` as a waiting location, plugged in or not
+    /// (ST5b: the old lists move in whether their drive is here or not). A
+    /// folder already a location is skipped; one that can't be (a link, the
+    /// library's own) is named in the notes. Returns how many joined.
+    pub fn adopt(&self, folders: &[PathBuf]) -> Result<(usize, Vec<String>), String> {
+        let _edit = EDIT.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut locations = self.load()?;
+        let (mut joined, mut notes) = (0, Vec::new());
+        for folder in folders {
+            let joining = disk::absolute(folder, folder)
+                .and_then(|folder| disk::no_symlinks(&folder).map(|()| folder))
+                .and_then(|folder| {
+                    if locations.iter().any(|l| self.full(l) == folder) {
+                        return Ok(None);
+                    }
+                    // A folder that isn't here yet notes its files once it is.
+                    let known = if folder.is_dir() {
+                        sample(&folder)
+                    } else {
+                        Vec::new()
+                    };
+                    self.record(&folder, "", known).map(Some)
+                });
+            match joining {
+                Ok(Some(location)) => {
+                    locations.push(location);
+                    joined += 1;
+                }
+                Ok(None) => {}
+                Err(why) => notes.push(format!("{}: {why}", folder.display())),
+            }
+        }
+        if joined > 0 {
+            self.save(&locations)?;
+        }
+        Ok((joined, notes))
+    }
+
+    /// The pinned packs (`content/elements/sources.json`) and Browse's
+    /// libraries (`.userdata/libraries.json`) join as locations, once (ST5b).
+    /// Each list is then kept in `.userdata/moved-to-locations/`, never
+    /// deleted; a list that isn't there has nothing left to move.
+    pub fn adopt_old_lists(&self, content: &Path) -> Result<(usize, Vec<String>), String> {
+        let (mut joined, mut notes) = (0, Vec::new());
+        for list in [
+            content.join("elements").join("sources.json"),
+            self.userdata.join("libraries.json"),
+        ] {
+            let raw = match std::fs::read_to_string(&list) {
+                Ok(raw) => raw,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(format!("{}: {e}", list.display())),
+            };
+            let folders: Vec<PathBuf> =
+                serde_json::from_str(&raw).map_err(|e| format!("{}: {e}", list.display()))?;
+            let (n, why) = self.adopt(&folders)?;
+            joined += n;
+            notes.extend(why);
+            let list = guard::writable(&list)?;
+            let kept = guard::writable(&self.userdata.join(MOVED))?;
+            std::fs::create_dir_all(&kept).map_err(|e| format!("{}: {e}", kept.display()))?;
+            let name = list
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let mut keep = kept.join(&name);
+            let mut n = 1;
+            while keep.exists() {
+                keep = kept.join(format!("{n}-{name}"));
+                n += 1;
+            }
+            if std::fs::rename(&list, &keep).is_err() {
+                // Another volume (a drill's roots): copy, then let it go.
+                std::fs::copy(&list, &keep).map_err(|e| format!("{}: {e}", keep.display()))?;
+                std::fs::remove_file(&list).map_err(|e| format!("{}: {e}", list.display()))?;
+            }
+        }
+        Ok((joined, notes))
+    }
+
+    /// `id`'s files are indexed (ST5b): it no longer waits, and one that
+    /// joined while away notes the files it is known by now.
+    pub fn indexed(&self, id: &str) -> Result<(), String> {
+        let _edit = EDIT.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut locations = self.load()?;
+        let location = locations
+            .iter_mut()
+            .find(|l| l.id == id)
+            .ok_or("That location is no longer in your library.")?;
+        location.waiting = false;
+        if location.sample.is_empty() {
+            let full = self.full(location);
+            if full.is_dir() {
+                location.sample = sample(&full);
+            }
+        }
+        self.save(&locations)
+    }
+
+    /// The online location `file` sits in (the deepest, should one hold
+    /// another), and its path inside, as at the last look.
+    pub fn containing(&self, file: &Path) -> Option<(Location, PathBuf)> {
+        self.with_placed(|placed| {
+            placed
+                .iter()
+                .filter_map(|p| Some((p, p.at.as_ref()?)))
+                .filter(|(_, at)| file.starts_with(at))
+                .max_by_key(|(_, at)| at.components().count())
+                .and_then(|(p, at)| {
+                    let inside = file.strip_prefix(at).ok()?;
+                    (!inside.as_os_str().is_empty())
+                        .then(|| (p.location.clone(), inside.to_path_buf()))
+                })
+        })
+        .ok()?
     }
 
     /// Every location, online where its folder is, offline where it isn't:
@@ -283,7 +423,7 @@ impl Store<'_> {
             return Ok(false);
         }
         location.path = self.stored(&folder);
-        if !known {
+        if !known || location.sample.is_empty() {
             location.sample = sample(&folder);
         }
         self.save(&locations)?;

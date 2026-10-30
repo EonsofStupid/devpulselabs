@@ -105,7 +105,7 @@ The tool depot is staged beside it from
   --presenter-drill <n> --session-drill <s> --steps-hotkey-drill
   --video-drill <s> [--video-format <f>] [--video-audio <mode>] --open-rail <hub>
   --open-episode <e> --open-session <s> --open-replay <rel>
-  --clone-seed <seed> <show> <ep> --import-drill <dir> --pin-pack <dir> --add-location <dir>
+  --clone-seed <seed> <show> <ep> --import-drill <dir> --add-location <dir>
   --save-comp <name> --export-guide <guide-rel> [<session-rel>]
   --steps-drill <n> --make-slide <asset-rel> --lottie-import <file>
   --inspector --preset <id> --preview-drill
