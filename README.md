@@ -47,16 +47,29 @@ media** (WiredFRONT); authored design ingredients are **ColdLight ingredients**
 - **ffmpeg** on `PATH` — rendering is a subprocess by design ([ADR-009]).
 - A GPU that can run `wgpu` (the UI is `egui` + `eframe`).
 
-**Linux** additionally needs a dev package set — EGL, GBM, Wayland, X11,
-PipeWire, GTK, ALSA, clang. The canonical, tested list lives in
-[`docs/runbook/linux-runner-bootstrap.sh`](docs/runbook/linux-runner-bootstrap.sh)
-(`APT_DEPS`), which is idempotent and safe to run on a workstation:
+**Linux (Ubuntu/Debian)** additionally needs the system packages below for
+EGL, GBM, Wayland, X11, PipeWire, GTK, ALSA and clang. This is the `APT_DEPS`
+set from [`linux-runner-bootstrap.sh`](docs/runbook/linux-runner-bootstrap.sh).
+Install just the packages on a development machine:
 
 ```bash
-sudo bash docs/runbook/linux-runner-bootstrap.sh
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential cmake pkg-config ffmpeg libssl-dev \
+  libegl1-mesa-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev \
+  libxkbcommon-x11-dev libx11-dev libxcursor-dev libxrandr-dev \
+  libxi-dev libxtst-dev libxdo-dev libudev-dev libevdev-dev \
+  libasound2-dev libpipewire-0.3-dev libdbus-1-dev libgtk-3-dev \
+  libpango1.0-dev libcairo2-dev libglib2.0-dev libv4l-dev \
+  libgbm-dev libxcb1-dev clang libclang-dev llvm-dev curl git
 ```
 
-**Windows** needs MSVC Build Tools and the Windows SDK.
+The bootstrap script itself provisions and registers a self-hosted Actions
+runner and requires a registration token; it is not workstation setup.
+
+**Windows** needs MSVC Build Tools, the Windows SDK and standalone LLVM
+(`libclang.dll` for bindgen; the estate bootstrap pins LLVM 18.1.8). Set
+`LIBCLANG_PATH` to LLVM's `bin` directory if it is not discovered automatically.
 
 ### Build and run
 
@@ -70,8 +83,8 @@ cargo build --release -p devpulselabs -p dpl-lottie-render
 
 ### The gate
 
-One command decides whether the tree is good. It is the same check both CI
-lanes run, so local green and CI green mean the same thing:
+One command decides whether the tree is good. Both GitHub-hosted CI lanes
+run it, on Windows and Linux; a local run proves the current machine's OS:
 
 ```bash
 cargo green
@@ -139,13 +152,15 @@ Full law, ceilings, and the standing exceptions:
 | [`docs/README.md`](docs/README.md) | The map: the one doc that is the truth for each subject |
 | [`docs/design/architecture.md`](docs/design/architecture.md) | The layer law, gate-enforced |
 | `CLAUDE.md` / `AGENTS.md` | The operating contract for AI agents working in this repo |
+| [`SECURITY.md`](SECURITY.md) | How to report a suspected vulnerability privately |
 
 ---
 
 ## Contributing
 
 This is a personal project in pre-release and is not accepting outside
-contributions. The repository is private (since 2026-08-07).
+contributions. The repository is public for reading; publication does not
+change its license or contribution policy.
 
 If you are working in it:
 
@@ -161,8 +176,8 @@ If you are working in it:
 
 **Closed — all rights reserved.** See [`LICENSE`](LICENSE).
 
-The repository is private. No right is granted: no use, copying,
-modification, or redistribution. A license will be chosen and published when
-the project is ready for one.
+The source is public for reading under the terms in `LICENSE`; this is not
+an open-source license. A license for use, modification or redistribution
+will be chosen and published when the project is ready for one.
 
 [ADR-009]: docs/design/

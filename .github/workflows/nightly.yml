@@ -21,6 +21,9 @@ on:
     - cron: "15 7 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -31,8 +34,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: nightly-windows
           cache-all-crates: "true"
@@ -99,7 +104,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       # The same dev set the green lane installs — a bare image dies at
       # `pkg-config egl` long before the link step.
       - name: system deps
@@ -114,7 +121,7 @@ jobs:
             libgbm-dev libxcb1-dev \
             libpango1.0-dev libcairo2-dev libglib2.0-dev libv4l-dev \
             clang libclang-dev llvm-dev zip
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: nightly-linux
           cache-all-crates: "true"
@@ -186,7 +193,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: system deps
         run: |
           sudo apt-get update -qq
@@ -199,7 +208,7 @@ jobs:
             libgbm-dev libxcb1-dev \
             libpango1.0-dev libcairo2-dev libglib2.0-dev libv4l-dev \
             clang libclang-dev llvm-dev zip
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: nightly-linux-arm64
           cache-all-crates: "true"

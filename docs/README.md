@@ -37,6 +37,8 @@ named first and the others are marked **P2**: they merge into it during
 | [`design/workflow-doctrine.md`](design/workflow-doctrine.md) | Workflows are documents, not code paths. |
 | [`shell.md`](shell.md) | The shell zone contract. |
 | [`ops/definition-of-done.md`](ops/definition-of-done.md) | What "done" means. |
+| [`../SECURITY.md`](../SECURITY.md) | Private vulnerability reporting and supported security fixes. |
+| [`plans/public-repository-setup.md`](plans/public-repository-setup.md) | R293 public transition, hosted CI and repository protection delivery. |
 
 ## The library (content, rings, embedded / imported / linked)
 

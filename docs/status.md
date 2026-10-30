@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-28
-active_lane: portable-storage
+updated: 2026-10-30
+active_lane: public-repository
 dirty: false
 ---
 
@@ -13,15 +13,18 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-28, main at `855f674` (#304, ST5a′: Locations aware
-while running and across restarts). PC1a is pushed in PR #305 and includes
-that main update. Its isolated release is rebuilt after the double-green merge.
+**Updated:** 2026-10-30, main at `bfc8e33` (#305, project-owned chats).
 
-**CI is warm** (#292, #293, 2026-10-24): the Windows lane went from 45–58
-minutes to about 7 (main after #293: 6m45s), Linux runs in about 2. A
-Windows runner's cache can move to its own data disk — `docs/runbook/
-ci-runners.md` "Scaling a runner"; attaching it is the operator's step on
-the Proxmox host.
+**Public repository setup (R293).** Public visibility is verified and both
+estate runner registrations are removed. Green now targets GitHub-hosted
+Windows 2025 and Ubuntu 24.04, with pinned actions and read-only PR tokens.
+Every PR runs both required checks, including documentation-only changes.
+Secret scanning, push protection, dependency alerts/security updates and private
+vulnerability reporting are enabled. All external fork workflows need approval.
+Main protection requires PRs, resolved conversations and both green checks;
+force pushes and deletion are forbidden. The setup PR must pass both hosted
+lanes before merge; see the PR checks for delivery evidence and
+[`runbook/ci-runners.md`](runbook/ci-runners.md) for the operating policy.
 
 ## Now
 
@@ -34,9 +37,9 @@ six existing ignored); feature checks passed 53 window and 11 host tests.
 Native A/B/A switching, restart, separate drafts and offline transcript reading
 passed at 1440×900 and 1100×700, including with the main window hidden.
 Evidence: [`proof/chat-project-storage/README.md`](proof/chat-project-storage/README.md).
-PR #305 is pushed; the integrated full gate, double-green CI and merge remain.
-PC1b follows for qualified
-provider-native resume, stable conversation links and standalone launch.
+PR #305 is merged. PC1b is in draft PR #308 for provider-native resume,
+stable conversation links and standalone launch. Its native/standalone adapters
+remain unqualified and disabled pending the outstanding real-provider evidence.
 No operator provider homes or credentials are changed by development. The
 scope includes supported standalone AI apps and automatic workspace organization;
 neither scope nor this implementation authorization needs another confirmation.
@@ -256,10 +259,9 @@ release) are still to come.
 
 ## Hazards outside this repo
 
-- **Both estate CI runners are OFFLINE** (2026-10-21): `devpulse-runner-win-01`
-  and `devpulse-runner-lnx-01`. PR #280's lanes have queued since 15:11Z.
-  Nothing merges until the operator brings Proxmox VM 119 and LXC 121 back
-  and both lanes pass (the double-green law).
+- **Public CI uses hosted runners.** Both estate registrations were removed
+  on 2026-10-30. Never reconnect them to public PR workflows. Merge requires
+  successful hosted Windows and Linux checks (the double-green law).
 
 - **`D:\localdev\platform_devpulse`'s `cargo xtask run-dev`** (often a
   parallel Claude session) runs `taskkill /F /T` on **every** `xtask.exe` at
@@ -269,8 +271,8 @@ release) are still to come.
   scale.** `--window <w>x<h>` is in points, and the footer shows the `dpr`.
   This laptop has run on a 150% display and on a 2560×1440 monitor at 100%.
   Compare runs by the footer's `dpr`, never by pixel size across days.
-- **The Windows CI lane takes 40 to 70 minutes** on the estate runner (#276:
-  1 h 6 min). A slow run is not a hung one; check the job's steps first.
+- **A cold hosted build takes longer than a cached build.** Inspect the job's
+  active step before treating a slow run as hung.
 - **The second clone, `D:\localdev\devpulselabs`**: the operator authorized
   an isolated ST1 worktree here on 2026-10-25. Do not push its unrelated
   local branches (`wip/c1-paused`, `park/…`) or change the source checkout.

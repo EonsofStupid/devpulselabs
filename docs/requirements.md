@@ -29,9 +29,9 @@ an operator quote: other docs cite the R-id, and they never re-quote it.
 | 7 | [Coach](#7-coach) | 14 |
 | 8 | [Signals, analytics and the rest](#8-signals-analytics-and-the-rest) | 21 |
 | 9 | [Portability and dependencies](#9-portability-and-dependencies) | 20 |
-| 10 | [How we work](#10-how-we-work) | 32 |
+| 10 | [How we work](#10-how-we-work) | 33 |
 
-**282 quoted requirements.** A quote that touches several subjects
+**283 quoted requirements.** A quote that touches several subjects
 sits under the first of them in this order.
 
 ## 1. The library — one universe of content
@@ -2275,4 +2275,13 @@ Source: `docs-history-2026-10-12:docs/plans/chat-native-program.md:58`
 > update the existing if wrong and ensure you plan against the existing code to implement canonical consistent naming and file and folder patterns
 
 Source: `docs-history-2026-10-12:docs/plans/chat-native-program.md:17`
+
+### R293 · 2026-10-30
+
+> make the project public
+
+> we wanted this public anyways and we need to truly get it all setup correctly
+
+Source: operator session, 2026-10-30. Authorizes public repository visibility
+and the corresponding hosted CI, security settings and branch protection.
 
