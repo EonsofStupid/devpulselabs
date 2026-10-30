@@ -226,3 +226,12 @@ in place; Linux rebuilt from blank into `/opt/actions-runner`).
   rebuilds nothing it already has only while every phase passes cargo the
   same settings — check with `CARGO_LOG=cargo::core::compiler::fingerprint=info`
   (`ConfigSettingsChanged` = a setting differs between invocations).
+- **The artifact storage quota** (2026-10-29, `docs/plans/ci-exe-upload.md`).
+  `upload the windows exe` failed with "Artifact storage quota has been hit"
+  while the gate itself was green, and the merge law made every code PR red.
+  - Private repos share 500 MB, billed by average use over the billing
+    month. Deleting artifacts stops future use but does not undo the month's
+    count, so a block mid-month lasts until the reset.
+  - The usage report needs the `user` auth scope, which is not added.
+  - The policy since then: upload from main only, kept 1 day. Don't add
+    `continue-on-error` to the upload; it would hide a real failure.
