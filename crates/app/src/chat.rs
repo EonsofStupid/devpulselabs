@@ -1,3 +1,4 @@
+mod native;
 pub(super) mod project;
 
 use dpl_chat_accounts::ActivationLedger;
@@ -116,6 +117,7 @@ fn primary_viewport_id(generation: ViewportGeneration) -> egui::ViewportId {
 }
 
 struct Shared {
+    native: native::State,
     project: project::State,
     registry: ChatWindowRegistry,
     lifetime: PeerLifetime,
@@ -981,6 +983,7 @@ impl ChatWindowCoordinator {
         };
         window.set_assist(assist.enabled);
         let mut shared = Shared {
+            native: native::State::default(),
             project: project::State::new(project_storage_enabled, provider_runtime_enabled),
             registry,
             lifetime: PeerLifetime::default(),
@@ -1550,6 +1553,10 @@ fn service_project(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>) {
         let mut state = lock(shared);
         project::boot(&mut state, ctx);
         project::poll(&mut state, ctx);
+        native::tick(&mut state);
+        if native::busy(&state) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         project::save(&mut state, ctx, false);
         (
             project::take_verified(&mut state),
@@ -1581,7 +1588,11 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
     }
     if matches!(
         intent,
-        HostIntent::NewSession(_) | HostIntent::SendTurn { .. } | HostIntent::ActivateProvider(_)
+        HostIntent::NewSession(_)
+            | HostIntent::SendTurn { .. }
+            | HostIntent::ActivateProvider(_)
+            | HostIntent::LoadSession { .. }
+            | HostIntent::RefreshNativeSessions(_)
     ) {
         project::verify_intent(&mut lock(shared), ctx, intent);
         return;
@@ -1712,6 +1723,12 @@ fn apply_host_intent_inner(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, int
                 return;
             }
             ctx.request_repaint();
+        }
+        HostIntent::LoadSession { provider, session } => {
+            native::request_load(&mut lock(shared), provider, session)
+        }
+        HostIntent::RefreshNativeSessions(provider) => {
+            native::request_list(&mut lock(shared), provider)
         }
         HostIntent::NewSession(provider) => {
             let mut state = lock(shared);
@@ -4208,6 +4225,7 @@ fn take_seam_event(state: &mut Shared, provider: ProviderId) -> Option<RuntimeEv
         Ok(event) => event,
         Err(error) => {
             tracing::warn!(%provider, %error, "provider runtime channel closed");
+            native::stopped(state, provider);
             state.runtimes.remove(&provider);
             None
         }
@@ -4226,7 +4244,20 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             // EARNED, never assumed: one function derives the capability set
             // from what the provider advertised, so a surface can never offer
             // what the adapter cannot honour.
-            let qualified = qualified_capabilities(capabilities);
+            let native_qualified = native::connected(
+                state,
+                provider,
+                capabilities.load_session && capabilities.list_sessions,
+            );
+            let mut qualified = qualified_capabilities(capabilities);
+            if !native_qualified {
+                qualified.retain(|capability| {
+                    !matches!(
+                        capability,
+                        Capability::ResumeSession | Capability::ReadSessions
+                    )
+                });
+            }
             // The one line that says a provider became TALKABLE. Without it a
             // connected runtime is indistinguishable from a stalled one in a
             // log, which is how "it shows active and I cannot chat" stayed
@@ -4257,7 +4288,9 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
                 send_seam_command(state, provider, RuntimeCommand::SetPermissionMode { mode });
             }
             // A connection must not replace the restored, read-only chat.
-            if state
+            if native_qualified {
+                native::request_list(state, provider);
+            } else if state
                 .window
                 .provider_view(provider)
                 .is_some_and(|view| view.registration.sessions.is_empty())
@@ -4295,10 +4328,13 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
                 tracing::warn!(%provider, %error, "provider account could not be projected");
             }
         }
-        RuntimeEvent::SessionsPage { .. } => {
-            // Never reached today: no seam provider advertises `list_sessions`,
-            // so the surface never asks. Kept explicit so adding one is a
-            // compile-time conversation rather than a silent no-op.
+        RuntimeEvent::SessionsPage {
+            sessions,
+            next_cursor,
+            ..
+        } => native::sessions_page(state, provider, sessions, next_cursor),
+        RuntimeEvent::SessionLoaded { session, items } => {
+            native::session_loaded(state, provider, session, items)
         }
         RuntimeEvent::SessionReady {
             provider_session_id,
@@ -4378,6 +4414,9 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             state.seam_turns.remove(&(provider, provider_session_id));
         }
         RuntimeEvent::Failure(failure) => {
+            if native::failure(state, provider, &failure) {
+                return;
+            }
             tracing::warn!(%provider, kind = ?failure.kind, reason = %failure.reason, "provider runtime failure");
             if let Some(provider_session_id) = failure.provider_session_id.clone() {
                 cancel_seam_permissions(state, provider, &provider_session_id);
@@ -4428,6 +4467,7 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             }
         }
         RuntimeEvent::Stopped => {
+            native::stopped(state, provider);
             state.runtimes.remove(&provider);
         }
     }

@@ -16,6 +16,24 @@ fn workspace(base: &Path, name: &str) -> PathBuf {
 }
 
 #[test]
+fn existing_registry_open_never_creates_or_adopts_a_missing_registry() {
+    let base = scratch();
+    let missing = base.join("missing");
+    assert!(Registry::open_existing(&missing).is_err());
+    assert!(!missing.exists());
+    let unmarked = workspace(&base, "unmarked");
+    assert!(Registry::open_existing(&unmarked).is_err());
+    assert_eq!(fs::read_dir(&unmarked).unwrap().count(), 0);
+    let registry = Registry::open(&missing).unwrap();
+    let project = Project::create_new(&workspace(&base, "project"), "Existing").unwrap();
+    registry.activate(&project).unwrap();
+    let before = fs::read(missing.join("registry.json")).unwrap();
+    let opened = Registry::open_existing(&missing).unwrap();
+    assert_eq!(opened.open_active().unwrap().unwrap().id(), project.id());
+    assert_eq!(fs::read(missing.join("registry.json")).unwrap(), before);
+}
+
+#[test]
 fn project_and_registry_round_trip_isolate_a_b_a_and_restart() {
     let base = scratch();
     let a_dir = workspace(&base, "a");

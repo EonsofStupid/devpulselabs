@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-28
+updated: 2026-10-29
 active_lane: portable-storage
 dirty: false
 ---
@@ -13,9 +13,10 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-28, main at `855f674` (#304, ST5a′: Locations aware
-while running and across restarts). PC1a is pushed in PR #305 and includes
-that main update. Its isolated release is rebuilt after the double-green merge.
+**Updated:** 2026-10-29, main at `bfc8e33` (#305, PC1a project chat).
+PC1a passed both CI lanes and its isolated release was rebuilt. PC1b execution
+is underway on `feat/chat-native-project-resume`; native support stays disabled
+until its real-provider and standalone qualification passes.
 
 **CI is warm** (#292, #293, 2026-10-24): the Windows lane went from 45–58
 minutes to about 7 (main after #293: 6m45s), Linux runs in about 2. A
@@ -26,17 +27,22 @@ the Proxmox host.
 ## Now
 
 **Project chat implementation (R292).** The operator authorized the reviewed
-design with **resume**. PC1a is implemented on isolated `feat/chat-project-storage`
-from `e60c140`, now integrating `855f674`: project-owned archives, recoverable
-drafts, native project selection and bounded machine discovery.
-Before integration, full `cargo green` passed (1,265 tests,
+design with **resume**, then PC1b execution with **execute** on 2026-10-29.
+PC1a delivered project-owned archives, recoverable drafts, native project
+selection and bounded machine discovery in #305. Integrated `cargo green`
+passed (1,268 tests,
 six existing ignored); feature checks passed 53 window and 11 host tests.
 Native A/B/A switching, restart, separate drafts and offline transcript reading
 passed at 1440×900 and 1100×700, including with the main window hidden.
 Evidence: [`proof/chat-project-storage/README.md`](proof/chat-project-storage/README.md).
-PR #305 is pushed; the integrated full gate, double-green CI and merge remain.
-PC1b follows for qualified
-provider-native resume, stable conversation links and standalone launch.
+PC1b now has exact response contracts, candidate profile links/leases and gated
+native-history loading. Synthetic Windows storage probes passed fresh-profile
+resume at a changed path, but injected items returned no conversational turns.
+The named terminal entry and active/archived native listing are implemented in
+draft #308; the continuation passed 1,307 tests and release/renderer gates.
+Standalone launch remains disabled: full process-tree completion and Unix
+terminal ownership are unfinished. Real signed-in turn history and
+Linux qualification remain required. See [`research/chat-project-native-qualification.md`](research/chat-project-native-qualification.md).
 No operator provider homes or credentials are changed by development. The
 scope includes supported standalone AI apps and automatic workspace organization;
 neither scope nor this implementation authorization needs another confirmation.

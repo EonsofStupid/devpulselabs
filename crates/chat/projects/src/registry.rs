@@ -70,7 +70,14 @@ impl Registry {
                 },
             )?;
         }
-        let marker: Marker = disk::json(&marker_file, MAX_MARKER_BYTES)?;
+        Self::open_existing(base)
+    }
+
+    /// Open an already configured registry without creating any files. Named
+    /// launch entries must never turn a missing profile base into a new one.
+    pub fn open_existing(base: &Path) -> Result<Self, String> {
+        disk::existing_directory(base)?;
+        let marker: Marker = disk::json(&base.join(MARKER), MAX_MARKER_BYTES)?;
         if marker.v != VERSION {
             return Err("This project registry format is not supported".into());
         }
@@ -82,7 +89,15 @@ impl Registry {
         Ok(registry)
     }
 
-    fn verify(&self) -> Result<(), String> {
+    pub(crate) fn base(&self) -> &Path {
+        &self.base
+    }
+
+    pub(crate) fn identity(&self) -> &ProjectId {
+        &self.marker.id.0
+    }
+
+    pub(crate) fn verify(&self) -> Result<(), String> {
         disk::existing_directory(&self.base)?;
         let marker: Marker = disk::json(&self.base.join(MARKER), MAX_MARKER_BYTES)?;
         if marker != self.marker {

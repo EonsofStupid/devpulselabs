@@ -96,6 +96,8 @@ named first and the others are marked **P2**: they merge into it during
 | [`plans/chat-native-program.md`](plans/chat-native-program.md) | **The** chat + AI program (paused behind D0). |
 | [`plans/chat-provider-runtime-adr.md`](plans/chat-provider-runtime-adr.md) | The provider runtime exception to the no-IPC law. |
 | [`plans/chat-project-storage.md`](plans/chat-project-storage.md) | R292: PC1a project archives, drafts, selection and machine awareness passed local and native verification. Standalone links and native resume remain PC1b qualification. |
+| [`plans/chat-project-native-execution.md`](plans/chat-project-native-execution.md) | Authorized PC1b execution and qualification gates for native resume and standalone project clients. |
+| [`research/chat-project-native-qualification.md`](research/chat-project-native-qualification.md) | Exact Codex artifact, disposable native storage probes, tested foundation and remaining live/standalone gates. |
 | [`design/adr-011-imagine-generation.md`](design/adr-011-imagine-generation.md) | Imagine generation. |
 | [`design/adr-017-provider-capability-registry.md`](design/adr-017-provider-capability-registry.md) | The provider capability registry (§2 superseded). |
 | [`plans/explainer-guided-workflow.md`](plans/explainer-guided-workflow.md) | The guided explainer (M2/M3 open). |

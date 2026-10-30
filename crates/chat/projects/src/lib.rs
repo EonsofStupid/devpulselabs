@@ -8,8 +8,10 @@
 mod delta;
 mod disk;
 mod journal;
+mod profile;
 mod registry;
 
+pub use profile::{CandidateLease, CodexProfileCandidate, ProfileGeneration};
 pub use registry::{Binding, Registry};
 
 use serde::{Deserialize, Serialize};
