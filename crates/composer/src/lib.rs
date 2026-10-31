@@ -159,12 +159,8 @@ pub struct Composer {
     renders: Option<Vec<(String, String)>>,
     /// ELEMENTS — the census count under `content/elements/`.
     elements: Option<usize>,
-    /// The PACK SHELF — pinned sources' packs, listed live (in place).
-    packs: Option<Vec<packs::Pack>>,
     /// The locations (ST5), read again after any change.
     locations: Option<Vec<dpl_roots::Placed>>,
-    /// Folders being linked, indexed and postered off the UI thread.
-    location_jobs: Vec<std::sync::mpsc::Receiver<Result<String, String>>>,
     /// The app's location watch count `locations` was read at (ST5a′).
     locations_seen: u64,
     /// The footage row highlighted in the project preview well.
@@ -216,14 +212,15 @@ pub struct Composer {
     /// Open Browse windows (peer viewports); slots never reuse.
     browsers: Vec<Arc<Mutex<browse::Browser>>>,
     /// The shared warm scan cache (W8 proactive-buffer law) — seeded at
-    /// first visit for profile roots + pinned packs; every Browse
+    /// first visit for profile roots + online locations; every Browse
     /// window paints from it instantly.
     scan_cache: browse::ScanCache,
     /// One-shot warm guard.
     warmed: bool,
-    /// REFERENCE-in-place mode: imports symlink the source instead of copying
-    /// (the operator's paid AE presets / image folders used where they live).
-    /// Persisted in `.userdata` so the choice sticks across launches.
+    /// REFERENCE-in-place mode: imports link the file where it lives, as a
+    /// location reference, instead of copying it (ST5b; the operator's paid
+    /// AE presets / image folders used where they live). Persisted in
+    /// `.userdata` so the choice sticks across launches.
     prefer_reference: bool,
     /// The next Browse window's slot id.
     next_browser: usize,
@@ -336,9 +333,7 @@ impl Default for Composer {
             comps: None,
             renders: None,
             elements: None,
-            packs: None,
             locations: None,
-            location_jobs: Vec::new(),
             locations_seen: 0,
             proj_sel: None,
             palette_tag: None,
@@ -401,7 +396,7 @@ enum Act {
     /// Dry-run a registered workflow (the Dry chip): every stage reports
     /// what it WOULD do — nothing touches disk, generation never spends.
     DryRunWorkflow(String),
-    /// Flip reference-in-place mode (symlink imports instead of copy).
+    /// Flip reference-in-place mode (linked imports instead of copies).
     ToggleReference,
     Tab(Tab),
     ETool(EditorTool),
@@ -1131,7 +1126,7 @@ impl Composer {
     /// An INDEXED record is already in the library, so it goes straight to
     /// [`Composer::add_clip`]. A LOOSE path is a file the operator is only
     /// looking at, so it enters through the ONE import seam first — copy, or
-    /// symlink when reference mode is on — and the record that comes back is
+    /// a location link when reference mode is on — and the record that comes back is
     /// what lands. There is deliberately no second import path here.
     ///
     /// `add_clip` checkpoints, so ONE undo takes the layer back off. The
@@ -1990,21 +1985,17 @@ impl Composer {
                     .collect(),
             );
         }
-        if self.packs.is_none() {
-            self.packs = Some(packs::list_packs(&Self::content_root()));
-        }
         if !self.warmed {
             self.warmed = true;
             // Proactive buffering: the folders a Browse window opens on
             // first are already listed before the first click. Roots are
             // probed INSIDE the worker — never here on the paint thread.
-            let pinned: Vec<PathBuf> = self
-                .packs
-                .iter()
-                .flatten()
-                .map(|p| p.path.clone())
+            let linked: Vec<PathBuf> = dpl_roots::locations()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|p| p.at)
                 .collect();
-            browse::warm_cache(&self.scan_cache, pinned);
+            browse::warm_cache(&self.scan_cache, linked);
         }
         if self.guides.is_none() {
             self.guides = Some(
@@ -2170,37 +2161,27 @@ impl Composer {
             };
     }
 
-    /// Open a Browse peer window rooted at `start`.
-    /// Link a folder as a location OFF the UI thread (ST5): record it,
-    /// index it in place, and make posters into the cache. Nothing is
-    /// copied, and nothing is written inside the folder.
-    fn add_location(&mut self, dir: PathBuf, ctx: &egui::Context) {
-        self.status = format!("Linking {} in place…", dir.display());
-        let (send, done) = std::sync::mpsc::channel();
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let result = link_location(&dir).map(|(_, line)| line);
-            let _ = send.send(result);
-            ctx.request_repaint();
-        });
-        self.location_jobs.push(done);
+    /// Link a folder as a location (ST5): it is recorded, waiting, and the
+    /// app's indexer (`index_waiting`) indexes it in place with posters in
+    /// the cache. Nothing is copied, and nothing is written inside it.
+    fn add_location(&mut self, dir: &Path) {
+        self.status = match dpl_roots::add_location(dir, "") {
+            Ok(location) => format!(
+                "Linking '{}' in place — indexing its files…",
+                location.label
+            ),
+            Err(error) => error,
+        };
+        self.locations = None;
     }
 
-    /// The locations' list, jobs and watch, once a frame (ST5).
-    fn tick_locations(&mut self, ctx: &egui::Context) {
-        let jobs = std::mem::take(&mut self.location_jobs);
-        for job in jobs {
-            match job.try_recv() {
-                Ok(result) => {
-                    self.status = result.unwrap_or_else(|error| error);
-                    self.locations = None;
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => self.location_jobs.push(job),
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
-            }
-        }
-        if !self.location_jobs.is_empty() {
-            ctx.request_repaint_after(Duration::from_millis(200));
+    /// The locations' list and what the indexer finished, once a frame
+    /// (ST5).
+    fn tick_locations(&mut self) {
+        if let Some(line) = take_indexed().pop() {
+            self.status = line;
+            // Its files join the footage list.
+            self.palette = None;
         }
         // The app's watch (ST5a′) looks every two seconds; a new count
         // means a location went, came back or moved, and the list says so.
@@ -2221,6 +2202,7 @@ impl Composer {
             .get_or_insert_with(|| dpl_roots::locations().unwrap_or_default());
     }
 
+    /// Open a Browse peer window rooted at `start`.
     fn open_browser(&mut self, start: PathBuf) {
         self.browsers.push(Arc::new(Mutex::new(browse::Browser::new(
             self.next_browser,
@@ -2289,17 +2271,6 @@ impl Composer {
             .expect("spawn ingest thread");
     }
 
-    /// Pin one folder as a pack source — the shelf lists it in place;
-    /// nothing is copied. The Browse-window chip and the
-    /// `--pin-pack <dir>` harness seam both land here.
-    pub fn pin_pack(&mut self, dir: &Path) {
-        self.status = match packs::add_source(&Self::content_root(), dir) {
-            Ok(()) => format!("Pinned {} to your Elements shelf.", dir.display()),
-            Err(e) => format!("Pin failed: {e}"),
-        };
-        self.packs = None;
-    }
-
     /// Show every open Browse window as a DEFERRED peer viewport (the
     /// chat window's law: a real window or an honest failure, never a
     /// silent embed). Closed windows are dropped.
@@ -2357,7 +2328,6 @@ impl Composer {
     /// on the timeline. Any import refreshes the project caches.
     fn drain_media_feeds(&mut self, ctx: &egui::Context) {
         let mut incoming: Vec<PathBuf> = Vec::new();
-        let mut pins: Vec<PathBuf> = Vec::new();
         let mut ingests: Vec<PathBuf> = Vec::new();
         let mut located: Vec<PathBuf> = Vec::new();
         let mut notices: Vec<String> = Vec::new();
@@ -2365,7 +2335,6 @@ impl Composer {
         for b in &self.browsers {
             let mut b = lock(b);
             incoming.append(&mut b.picked);
-            pins.append(&mut b.pinned);
             located.append(&mut b.located);
             relocated |= std::mem::take(&mut b.locations_changed);
             notices.extend(b.notice.take());
@@ -2373,11 +2342,8 @@ impl Composer {
                 ingests.push(dir);
             }
         }
-        for dir in pins {
-            self.pin_pack(&dir);
-        }
         for dir in located {
-            self.add_location(dir, ctx);
+            self.add_location(&dir);
         }
         if relocated {
             self.locations = None;
@@ -2874,9 +2840,10 @@ impl Composer {
     /// Route one imported file: videos AND images join the timeline
     /// (W7), elements file into the elements shelf — honestly.
     fn handle_import(&mut self, src: &Path) {
-        // REFERENCE in-place (symlink) when the operator has that mode on —
-        // their paid AE presets / image folders are used where they live, not
-        // copied into the app. Copy stays the default (safe, self-contained).
+        // REFERENCE in place (a location link, ST5b) when the operator has
+        // that mode on — their paid AE presets / image folders are used where
+        // they live, not copied into the app. Copy stays the default (safe,
+        // self-contained).
         let outcome = if self.prefer_reference {
             import::import_reference(src)
         } else {
@@ -2998,7 +2965,7 @@ impl Composer {
         self.show_browsers(ui.ctx());
         self.show_preview(ui.ctx());
         self.drain_media_feeds(ui.ctx());
-        self.tick_locations(ui.ctx());
+        self.tick_locations();
         // The ingest pill: progress while Running (the board row's counter),
         // one-shot status + cache reset when the row resolves.
         let finished = match self.ingest_job.clone() {
@@ -3039,7 +3006,6 @@ impl Composer {
         if finished {
             self.palette = None;
             self.elements = None;
-            self.packs = None;
         }
         // A render in flight keeps the frame alive so its status pill updates.
         if self
@@ -3330,7 +3296,7 @@ impl Composer {
                 self.prefer_reference = !self.prefer_reference;
                 reference_pref_save(self.prefer_reference);
                 self.status = if self.prefer_reference {
-                    "reference mode ON — pulled files are symlinked in place, not copied".into()
+                    "reference mode ON — pulled files are linked where they live, not copied".into()
                 } else {
                     "reference mode off — pulled files are copied into the app".into()
                 };
@@ -3814,16 +3780,16 @@ impl Composer {
                 (
                     "ref-link",
                     "in place",
-                    "Reference mode ON — pulled files are SYMLINKED where they live, so your \
-                     paid AE presets / image folders are used without copying them into the app. \
-                     Tap to switch back to copy.",
+                    "Reference mode ON — pulled files are LINKED where they live (their \
+                     folder joins your Locations), so your paid AE presets / image folders are \
+                     used without copying them into the app. Tap to switch back to copy.",
                 )
             } else {
                 (
                     "ref-copy",
                     "copy",
-                    "Copy mode — pulled files are copied in. Tap to REFERENCE in place (symlink) \
-                     instead: use your AE presets / folders directly, no duplication.",
+                    "Copy mode — pulled files are copied in. Tap to REFERENCE in place instead: \
+                     their folder joins your Locations and nothing is duplicated.",
                 )
             };
             if cl::tip(icon_word_btn(ui, ricon, rlabel, "ref-toggle"), rtip).clicked() {
@@ -3893,14 +3859,13 @@ impl Composer {
                     let id = p.location.id.as_str();
                     let label = p.location.label.as_str();
                     let online = p.at.is_some();
+                    let state = match (online, is_indexing(id)) {
+                        (true, true) => "indexing",
+                        (true, false) => "online",
+                        (false, _) => "offline",
+                    };
                     let resp = cl::tip(
-                        row_line(
-                            ui,
-                            "proj-location",
-                            label,
-                            if online { "online" } else { "offline" },
-                            ("lc", id),
-                        ),
+                        row_line(ui, "proj-location", label, state, ("lc", id)),
                         if online {
                             "Open this location in its own window — its files stay where they are"
                         } else {
@@ -3914,7 +3879,7 @@ impl Composer {
                             Role::Button,
                             label,
                         )
-                        .value(if online { "online" } else { "offline" }),
+                        .value(state),
                     );
                     if let (true, Some(at)) = (resp.clicked(), &p.at) {
                         *act = Some(Act::BrowseAt(at.clone()));
@@ -3955,49 +3920,13 @@ impl Composer {
                         }
                     });
                 }
-                section_header(ui, "ELEMENTS — your packs");
-                let shelf = self.packs.as_deref().unwrap_or(&[]);
-                if shelf.is_empty() {
-                    empty_line(
+                section_header(ui, "ELEMENTS — copied into your library");
+                match self.elements.filter(|n| *n > 0) {
+                    Some(n) => empty_line(ui, &format!("{n} element file(s) in your library")),
+                    None => empty_line(
                         ui,
-                        "none pinned — open Browse…, go to a pack folder, tap Pin pack",
-                    );
-                }
-                for p in shelf {
-                    let count = if !p.online {
-                        "offline".to_string()
-                    } else if p.ingested {
-                        "local".to_string()
-                    } else if p.files >= 1000 {
-                        "1000+".to_string()
-                    } else {
-                        format!("{}", p.files)
-                    };
-                    let resp = cl::tip(
-                        row_line(ui, "proj-pack", &p.name, &count, ("pk", p.name.as_str())),
-                        if p.online {
-                            "Open this pack in its own window — the files stay in place; \
-                             using one copies just that file"
-                        } else {
-                            "This pack's drive isn't connected — plug it back in and the \
-                             pack returns; anything you ingested stays local"
-                        },
-                    );
-                    ui.pilot_track(
-                        &resp,
-                        NodeMetadata::new(
-                            PilotId::new("composer.project.pack").child(&PilotKey::new(&p.name)),
-                            Role::Button,
-                            &p.name,
-                        )
-                        .value(if p.online { "online" } else { "offline" }),
-                    );
-                    if resp.clicked() && p.online {
-                        *act = Some(Act::BrowseAt(p.path.clone()));
-                    }
-                }
-                if let Some(n) = self.elements.filter(|n| *n > 0) {
-                    empty_line(ui, &format!("{n} imported element file(s) in your library"));
+                        "none yet — open a location, go to a pack, tap Ingest pack",
+                    ),
                 }
                 section_header(ui, "FOOTAGE");
                 let footage = self.palette.as_deref().unwrap_or(&[]);
@@ -4301,7 +4230,7 @@ impl Composer {
         };
         ui.label(RichText::new(&layer.id).strong());
         ui.label(
-            RichText::new(layer.source.reference())
+            RichText::new(source_label(layer.source.reference()))
                 .small()
                 .color(cl::ink::SUBTLE),
         );
@@ -4893,7 +4822,7 @@ impl Composer {
                     painter.text(
                         egui::pos2(r.min.x + 56.0, r.center().y),
                         egui::Align2::LEFT_CENTER,
-                        layer.source.reference(),
+                        source_label(layer.source.reference()),
                         egui::FontId::proportional(12.0),
                         if selected {
                             cl::ink::STRONG
@@ -4937,7 +4866,7 @@ impl Composer {
                         NodeMetadata::new(
                             PilotId::new("composer.outline").child(&PilotKey::new(&layer.id)),
                             Role::Button,
-                            layer.source.reference(),
+                            source_label(layer.source.reference()),
                         )
                         .value(if selected { "selected" } else { "row" }),
                     );
@@ -5007,7 +4936,7 @@ impl Composer {
                     painter.text(
                         egui::pos2(r.min.x + 56.0, r.center().y),
                         egui::Align2::LEFT_CENTER,
-                        layer.source.reference(),
+                        source_label(layer.source.reference()),
                         egui::FontId::proportional(12.0),
                         if selected {
                             cl::ink::STRONG
@@ -5052,7 +4981,7 @@ impl Composer {
                         NodeMetadata::new(
                             PilotId::new("composer.outline.fx").child(&PilotKey::new(&layer.id)),
                             Role::Button,
-                            layer.source.reference(),
+                            source_label(layer.source.reference()),
                         ),
                     );
                     if row_resp.clicked() {
@@ -5172,7 +5101,11 @@ impl Composer {
                     painter.text(
                         egui::pos2(bar.min.x + 6.0, bar.center().y),
                         egui::Align2::LEFT_CENTER,
-                        format!("{}  {:.1}s", layer.source.reference(), layer.span()),
+                        format!(
+                            "{}  {:.1}s",
+                            source_label(layer.source.reference()),
+                            layer.span()
+                        ),
                         egui::FontId::proportional(11.0),
                         cl::ink::STRONG,
                     );
@@ -6531,6 +6464,15 @@ fn swatch(ui: &mut egui::Ui, color: Option<Color32>, active: bool, key: &str) ->
 }
 
 /// A rel path's file stem — compact picker labels.
+/// How a layer's source reads on screen: a linked file by its path inside
+/// its location and that location's name (ST5b), never by its id.
+fn source_label(reference: &str) -> String {
+    match dpl_roots::location_of(reference).zip(reference.splitn(3, '/').nth(2)) {
+        Some((location, inside)) => format!("{inside} · on '{}'", location.label),
+        None => reference.to_owned(),
+    }
+}
+
 fn short_name(rel: &str) -> String {
     Path::new(rel)
         .file_stem()
@@ -6538,13 +6480,21 @@ fn short_name(rel: &str) -> String {
         .unwrap_or_else(|| rel.into())
 }
 
-/// Record `dir` as a location, index it in place, and make posters for its
-/// videos and pictures into the cache (ST5). Returns the line the status
-/// shows.
+/// Record `dir` as a location and index it now (ST5): the
+/// `--add-location` drill's path. In the app a new location waits for
+/// `index_waiting` instead, off the UI thread.
 pub fn link_location(dir: &Path) -> Result<(dpl_roots::Location, String), String> {
     let location = dpl_roots::add_location(dir, "")?;
+    let line = index_in_place(&location, dir)?;
+    Ok((location, line))
+}
+
+/// Index a location's videos and pictures where they are, cache a poster
+/// for each (a pack's own preview first, as Ingest does), and stop it
+/// waiting. Returns the line the status shows.
+fn index_in_place(location: &dpl_roots::Location, folder: &Path) -> Result<String, String> {
     let index = dpl_index::Index::open_default()?;
-    let report = index.index_location(&location.id, dir)?;
+    let report = index.index_location(&location.id, folder)?;
     let mut posters = 0;
     for row in index.list(None, Some(&format!("linked:{}", location.id)))? {
         let (Some(src), Some(out)) = (
@@ -6553,23 +6503,124 @@ pub fn link_location(dir: &Path) -> Result<(dpl_roots::Location, String), String
         ) else {
             continue;
         };
-        if dpl_engine_media::is_fresh(&src, &out) {
-            continue;
-        }
-        let Some(parent) = out.parent() else {
-            continue;
-        };
-        let parent = dpl_roots::writable(parent)?;
-        std::fs::create_dir_all(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-        if dpl_engine_media::write_poster(&src, &out).is_ok() {
+        if cache_poster(&src, &out, &row.kind)? {
             posters += 1;
         }
     }
-    let line = format!(
+    dpl_roots::location_indexed(&location.id)?;
+    Ok(format!(
         "Linked '{}' in place: {} file(s), {posters} poster(s) cached — nothing copied.",
         location.label, report.indexed
-    );
-    Ok((location, line))
+    ))
+}
+
+/// A linked file's poster in the cache (`out`): a video's pack preview when
+/// it ships one, else a frame; a still from a picture. `Ok(false)` when it
+/// was already fresh or couldn't be made.
+fn cache_poster(src: &Path, out: &Path, kind: &str) -> Result<bool, String> {
+    if dpl_engine_media::is_fresh(src, out) {
+        return Ok(false);
+    }
+    let Some(parent) = out.parent() else {
+        return Ok(false);
+    };
+    let parent = dpl_roots::writable(parent)?;
+    std::fs::create_dir_all(&parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    let shipped = (kind == "video")
+        .then(|| crate::rtfx::preview_poster(src))
+        .flatten();
+    Ok(match shipped {
+        Some(jpg) => std::fs::copy(&jpg, out).is_ok(),
+        None => dpl_engine_media::write_poster(src, out).is_ok(),
+    })
+}
+
+/// The location being indexed right now, so its row says so (ST5b).
+static INDEXING: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// One indexer at a time: a pack drive's posters are ffmpeg runs, and several
+/// big ones at once would bury the machine.
+static INDEXER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// What each finished indexing said, for Composer's status line.
+static INDEXED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Index every online location still waiting — one just added, a pinned
+/// pack moved in (Q-ST5b-1), an imported file's folder (Q-ST5b-2) — one
+/// after another on one thread, calling `done` as each finishes. The app
+/// calls this whenever the locations change, so it runs with the Editor
+/// closed too.
+pub fn index_waiting(done: impl Fn() + Send + 'static) {
+    use std::sync::atomic::Ordering;
+    if next_waiting(&std::collections::BTreeSet::new()).is_none()
+        || INDEXER.swap(true, Ordering::AcqRel)
+    {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("dpl-index-locations".into())
+        .spawn(move || {
+            let mut tried = std::collections::BTreeSet::new();
+            loop {
+                while let Some((location, folder)) = next_waiting(&tried) {
+                    tried.insert(location.id.clone());
+                    *INDEXING
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                        Some(location.id.clone());
+                    let line = index_in_place(&location, &folder).unwrap_or_else(|error| {
+                        format!("'{}' couldn't be indexed: {error}", location.label)
+                    });
+                    INDEXED
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(line);
+                    *INDEXING
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+                    done();
+                }
+                INDEXER.store(false, Ordering::Release);
+                // One that started waiting just now would otherwise wait for
+                // the next change.
+                if next_waiting(&tried).is_none() || INDEXER.swap(true, Ordering::AcqRel) {
+                    return;
+                }
+            }
+        });
+    if spawned.is_err() {
+        INDEXER.store(false, Ordering::Release);
+    }
+}
+
+/// The first online location still waiting that this run hasn't tried.
+fn next_waiting(
+    tried: &std::collections::BTreeSet<String>,
+) -> Option<(dpl_roots::Location, PathBuf)> {
+    dpl_roots::locations()
+        .unwrap_or_default()
+        .into_iter()
+        .find_map(|placed| {
+            let folder = placed.at?;
+            (placed.location.waiting && !tried.contains(&placed.location.id))
+                .then_some((placed.location, folder))
+        })
+}
+
+fn is_indexing(id: &str) -> bool {
+    INDEXING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_deref()
+        == Some(id)
+}
+
+fn take_indexed() -> Vec<String> {
+    std::mem::take(
+        &mut *INDEXED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    )
 }
 
 /// What the last look changed, in plain words: the first location that went
@@ -7180,8 +7231,6 @@ fn scan_inbox_for(root: &Path, marker: &str) -> Vec<(String, PathBuf)> {
 }
 
 /// Count files under a directory tree (the elements census). Absent → 0.
-/// The pack REGISTRY (`sources.json`, W3) lives in this tree but is not
-/// an element — counting it told a pinned-but-empty library it had one.
 fn count_files(dir: &Path) -> usize {
     let Ok(rd) = std::fs::read_dir(dir) else {
         return 0;
@@ -7191,8 +7240,6 @@ fn count_files(dir: &Path) -> usize {
             let p = e.path();
             if p.is_dir() {
                 count_files(&p)
-            } else if e.file_name() == "sources.json" {
-                0
             } else {
                 1
             }
@@ -7920,7 +7967,7 @@ mod tests {
     #[test]
     fn new_comp_resets_the_edit_and_keeps_the_session() {
         let mut c = Composer::default();
-        c.packs = Some(Vec::new());
+        c.locations = Some(Vec::new());
         c.palette = Some(Vec::new());
         c.add_clip(&video_rec("A", "inbox/a.mp4", Some(3)));
         c.save_name = "typed".into();
@@ -7931,7 +7978,7 @@ mod tests {
         assert!(!c.dirty);
         assert!(c.save_name.is_empty());
         assert!(
-            c.packs.is_some() && c.palette.is_some(),
+            c.locations.is_some() && c.palette.is_some(),
             "session caches survive New — only the comp resets"
         );
     }
@@ -7995,17 +8042,6 @@ mod tests {
             key_act(Key::Space, ctrl, None).is_none(),
             "ctrl+space is unbound"
         );
-    }
-
-    #[test]
-    fn the_elements_census_never_counts_the_registry() {
-        let dir = std::env::temp_dir().join(format!("dpl-composer-census-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("pack")).unwrap();
-        std::fs::write(dir.join("sources.json"), b"[]").unwrap();
-        std::fs::write(dir.join("pack").join("spark.mogrt"), b"x").unwrap();
-        assert_eq!(count_files(&dir), 1, "the registry is not an element");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// W11: the media-slide mapping — a video record becomes a `video` media
@@ -8195,6 +8231,7 @@ mod tests {
                 label: format!("{id} drive"),
                 path: PathBuf::from("videos"),
                 sample: Vec::new(),
+                waiting: false,
             },
             at: at.map(PathBuf::from),
         };

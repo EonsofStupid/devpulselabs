@@ -333,6 +333,38 @@ pub fn refresh_locations() -> Result<usize, String> {
     Ok(back)
 }
 
+/// The pinned packs and Browse's libraries join Locations, once (ST5b); a
+/// folder whose drive is away joins too, and is indexed when it is back.
+/// Returns how many joined and a note for each folder that couldn't.
+pub fn adopt_old_lists() -> Result<(usize, Vec<String>), String> {
+    let layout = location_store_paths()?;
+    locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    }
+    .adopt_old_lists(&layout.content)
+}
+
+/// `id`'s files are indexed (ST5b): it stops waiting.
+pub fn location_indexed(id: &str) -> Result<(), String> {
+    let layout = location_store_paths()?;
+    locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    }
+    .indexed(id)
+}
+
+/// The online location `file` sits in, and the path inside it.
+pub fn location_containing(file: &Path) -> Option<(Location, PathBuf)> {
+    let layout = location_store_paths().ok()?;
+    locations::Store {
+        library: &layout.library,
+        userdata: &layout.userdata,
+    }
+    .containing(file)
+}
+
 /// The location whose recorded folder is `folder`, from the record alone:
 /// no drive is touched, so a window may ask every frame.
 pub fn location_at(folder: &Path) -> Option<Location> {

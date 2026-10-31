@@ -149,6 +149,18 @@ and `.aidata/`.
     - Windows: the other drive letters;
     - Linux, any architecture: the kernel's mount table;
     - macOS: `/Volumes`.
+- **Amended 2026-10-29 (ST5b), one list:**
+  - **The old lists move in once.** The pinned packs
+    (`content/elements/sources.json`) and Browse's libraries
+    (`.userdata/libraries.json`) become locations, plugged in or not. Each
+    list is kept in `.userdata/moved-to-locations/`.
+  - **A new location waits to be indexed,** whether added, moved in or
+    brought in by a reference import. One indexer in the app indexes it,
+    with posters, once its folder is seen (Q-ST5b-1).
+  - **Import by reference links the file** as `locations/<id>/…` and brings
+    its folder in whole (Q-ST5b-2). There is no symlink and no copy.
+  - **The index takes one operation at a time in a process,** and a locked
+    database is never set aside as corrupt.
 
 Precedent: Unreal `Saved`/`Intermediate`/`Content`, Resolve
 cache/media-pool/gallery, Lightroom ingest/catalog/library. Embedded

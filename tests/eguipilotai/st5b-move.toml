@@ -1,0 +1,78 @@
+# ST5b: the pinned packs and Browse's libraries move into Locations at
+# launch, on the real exe. Profile `st5-live` with fixture `st5b-editor` (or
+# `st5b-editor-1100`), over the scratch library `target/st5b-proof/lib`:
+# - its `content/elements/sources.json` pins `packs-online` (here) and
+#   `S:\packs` (S: not mounted);
+# - its `.userdata/libraries.json` lists `presets`.
+# A background timeline mounts `target\st5b-proof\drive` as `S:` 20 s after
+# the lists move in (the app is ready about 12 s after that).
+#
+# At launch the three folders are Locations: the two that are here are
+# indexed and online, and "packs" is offline. Once S: is mounted, "packs" is
+# found and indexed while the app runs. The setup and the on-disk checks are
+# in docs/plans/portable-storage.md §8 (ST5b); remove `S:` after the run.
+id = "st5b-move"
+fixture = "st5b-editor"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 4000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "online"
+
+[steps.expectation.target]
+role = "button"
+name = "packs-online"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "online"
+
+[steps.expectation.target]
+role = "button"
+name = "presets"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "offline"
+
+[steps.expectation.target]
+role = "button"
+name = "packs"
+
+[[steps]]
+kind = "capture"
+name = "moved-in"
+
+# S: is mounted 8–19 s in, by how fast the app started; the watch finds
+# "packs" within 2 s and the indexer runs.
+[[steps]]
+kind = "wait"
+milliseconds = 20000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "online"
+
+[steps.expectation.target]
+role = "button"
+name = "packs"
+
+[[steps]]
+kind = "capture"
+name = "packs-back"

@@ -101,6 +101,20 @@ arguments = ["--route", "wiredfront/editor", "--window", "1100x700", "--mood", "
 [fixtures.st5-editor-1100.environment]
 CONTENT_ROOT = "target/st5-proof/lib/content"
 
+# ST5b: Composer's Locations on a scratch library whose old pack and library
+# lists move in at launch (tests/eguipilotai/st5b-move.toml).
+[fixtures.st5b-editor]
+arguments = ["--route", "wiredfront/editor", "--mood", "0", "--no-seam"]
+
+[fixtures.st5b-editor.environment]
+CONTENT_ROOT = "target/st5b-proof/lib/content"
+
+[fixtures.st5b-editor-1100]
+arguments = ["--route", "wiredfront/editor", "--window", "1100x700", "--mood", "0", "--no-seam"]
+
+[fixtures.st5b-editor-1100.environment]
+CONTENT_ROOT = "target/st5b-proof/lib/content"
+
 [fixtures.test-lab]
 arguments = ["--route", "workbench/test-lab", "--mood", "0"]
 
