@@ -4,6 +4,7 @@
 //! today's folders into a new library on the operator's tap. ST2a: these
 //! pages are the first stage of the app's one window, and a library that
 //! isn't connected is looked for every two seconds and opens by itself.
+//! ST3: a move asked for last session runs here, before the library opens.
 
 use dpl_coldlight::{self as cl, Fluid};
 use dpl_roots::Publish;
@@ -59,6 +60,8 @@ pub struct Startup {
     folder: String,
     linked: bool,
     bring: Option<BringIn>,
+    /// ST3: the library moving where the operator chose, before it opens.
+    relocating: Option<Relocating>,
     /// Opens the library once it is chosen: `ready`, outside tests.
     open: fn() -> Result<(), String>,
     screenshot: Option<PathBuf>,
@@ -86,6 +89,19 @@ struct Moving {
     files: u64,
     bytes: u64,
     done: mpsc::Receiver<Result<(), String>>,
+}
+
+/// ST3 (ruled 2026-10-31, "Restart, copy, then open"): the move asked for
+/// last session, running on its own thread while this page shows it.
+struct Relocating {
+    to: PathBuf,
+    progress: Arc<dpl_roots::MoveProgress>,
+    files: u64,
+    bytes: u64,
+    /// A note about the old copy when there is one, or why nothing moved.
+    done: mpsc::Receiver<Result<Option<String>, String>>,
+    /// How it ended, kept on the page when there is something to read.
+    outcome: Option<Result<Option<String>, String>>,
 }
 
 impl BringIn {
@@ -161,7 +177,7 @@ impl BringIn {
 }
 
 /// Bytes in the plainest unit that reads well.
-fn size(bytes: u64) -> String {
+pub(crate) fn size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["bytes", "KB", "MB", "GB"];
     let mut value = bytes as f64;
     let mut unit = 0;
@@ -196,7 +212,7 @@ fn track(ui: &mut egui::Ui, response: &egui::Response, key: &str, role: Role, na
     );
 }
 
-fn files(count: u64) -> String {
+pub(crate) fn files(count: u64) -> String {
     if count == 1 {
         "1 file".into()
     } else {
@@ -204,16 +220,85 @@ fn files(count: u64) -> String {
     }
 }
 
+/// A copy's title, what it is doing, and how far it has got: copying is the
+/// first half of the bar, checking byte for byte the second.
+fn copy_progress(
+    ui: &mut egui::Ui,
+    fluid: Fluid,
+    title: &str,
+    progress: &dpl_roots::MoveProgress,
+    total_files: u64,
+    total_bytes: u64,
+) {
+    let copied = progress.copied_files.load(Ordering::Relaxed);
+    let checked = progress.checked_files.load(Ordering::Relaxed);
+    let total = total_files.max(1) as f32;
+    let (line, fraction) = if copied < total_files {
+        (
+            format!(
+                "Copying {copied} of {} ({} of {})…",
+                files(total_files),
+                size(progress.copied_bytes.load(Ordering::Relaxed)),
+                size(total_bytes)
+            ),
+            copied as f32 / total / 2.0,
+        )
+    } else {
+        (
+            format!(
+                "Checking {checked} of {}, byte for byte…",
+                files(total_files)
+            ),
+            0.5 + checked as f32 / total / 2.0,
+        )
+    };
+    ui.label(
+        egui::RichText::new(title)
+            .size(fluid.fs_h1())
+            .color(cl::ink::STRONG),
+    );
+    ui.add_space(fluid.sp_3());
+    ui.label(egui::RichText::new(line).size(fluid.fs_body_lg()));
+    ui.add(egui::ProgressBar::new(fraction));
+}
+
 impl Startup {
+    /// ST3: the move asked for last session, started at once. Nothing else
+    /// runs: no watch, no other page, until it ends.
+    pub fn moving(to: PathBuf, ctx: &egui::Context) -> Self {
+        let mut startup = Self::pages(ctx, false, None, None, None);
+        let (files, bytes) = dpl_roots::plan_switch(&to)
+            .map(|plan| (plan.files, plan.bytes))
+            .unwrap_or_default();
+        let progress = Arc::new(dpl_roots::MoveProgress::default());
+        let (send, done) = mpsc::channel();
+        let (counters, repaint) = (Arc::clone(&progress), ctx.clone());
+        std::thread::spawn(move || {
+            let result = dpl_roots::run_pending_move(&counters).map(|moved| {
+                tracing::info!(
+                    library = %moved.layout.library.display(),
+                    old = %moved.old.display(),
+                    "library moved; the old copy is kept"
+                );
+                moved.note
+            });
+            let _ = send.send(result);
+            repaint.request_repaint();
+        });
+        startup.relocating = Some(Relocating {
+            to,
+            progress,
+            files,
+            bytes,
+            done,
+            outcome: None,
+        });
+        startup
+    }
+
     /// `error` is why the library didn't open; `bring_in` opens "Bring in my
     /// existing library" with its plan at once.
     pub fn new(error: String, bring_in: bool, ctx: &egui::Context) -> Self {
-        let args: Vec<String> = std::env::args().collect();
-        let argument = |name: &str| {
-            args.iter()
-                .position(|arg| arg == name)
-                .and_then(|index| args.get(index + 1))
-        };
         let setup = dpl_roots::needs_setup();
         let bring = (setup && bring_in).then(|| {
             let mut bring = BringIn::new(Publish::New);
@@ -222,7 +307,29 @@ impl Startup {
         });
         let away = dpl_roots::status();
         let linked = away.as_ref().is_some_and(|status| status.linked);
-        let mut startup = Self {
+        // The Disconnected page says it plainly; anything else is shown.
+        let error = (!setup && !linked).then_some(error);
+        let mut startup = Self::pages(ctx, setup, away, error, bring);
+        if !setup {
+            startup.look();
+        }
+        startup
+    }
+
+    fn pages(
+        ctx: &egui::Context,
+        setup: bool,
+        away: Option<dpl_roots::Status>,
+        error: Option<String>,
+        bring: Option<BringIn>,
+    ) -> Self {
+        let args: Vec<String> = std::env::args().collect();
+        let argument = |name: &str| {
+            args.iter()
+                .position(|arg| arg == name)
+                .and_then(|index| args.get(index + 1))
+        };
+        Self {
             program: dpl_roots::program_folder().unwrap_or_default(),
             opened: false,
             setup,
@@ -234,23 +341,118 @@ impl Startup {
             found: Arc::new(AtomicBool::new(false)),
             watch: None,
             ctx: ctx.clone(),
-            // The Disconnected page says it plainly; anything else is shown.
-            error: (!setup && !linked).then_some(error),
+            error,
             label: "My library".into(),
             folder: String::new(),
             linked: false,
             bring,
+            relocating: None,
             open: ready,
             screenshot: argument("--screenshot").map(PathBuf::from),
             shot_frame: argument("--shot-frame")
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(6),
             frames: 0,
-        };
-        if !setup {
-            startup.look();
         }
-        startup
+    }
+
+    /// ST3's page: the move's progress, then the library opens. A note about
+    /// the old copy, or why nothing moved, stays on the page until Open my
+    /// library is tapped.
+    fn relocating(&mut self, ui: &mut egui::Ui, fluid: Fluid) {
+        let Some(run) = self.relocating.as_mut() else {
+            return;
+        };
+        let node = |key: &str| PilotId::new("library.moving").child(&PilotKey::new(key));
+        if run.outcome.is_none() {
+            copy_progress(
+                ui,
+                fluid,
+                "Moving your library",
+                &run.progress,
+                run.files,
+                run.bytes,
+            );
+            let to = ui.label(
+                egui::RichText::new(format!("To {}", run.to.display()))
+                    .size(fluid.fs_body())
+                    .color(cl::ink::MUTED),
+            );
+            ui.pilot_track(
+                &to,
+                NodeMetadata::new(
+                    node("progress"),
+                    Role::Label,
+                    "Where your library is moving",
+                )
+                .value(run.to.display().to_string()),
+            );
+            match run.done.try_recv() {
+                Ok(Ok(None)) => {
+                    self.relocating = None;
+                    let result = (self.open)();
+                    self.finish(result);
+                }
+                Ok(outcome) => run.outcome = Some(outcome),
+                Err(mpsc::TryRecvError::Empty) => {
+                    ui.ctx().request_repaint_after(Duration::from_millis(100));
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    run.outcome = Some(Err(
+                        "The move stopped before it finished. Your library is where it was.".into(),
+                    ));
+                }
+            }
+            return;
+        }
+        let (title, text) = match &run.outcome {
+            Some(Ok(note)) => (
+                "Your library moved",
+                format!(
+                    "It opens from {}. {}",
+                    run.to.display(),
+                    note.as_deref().unwrap_or_default()
+                ),
+            ),
+            Some(Err(error)) => ("Your library wasn't moved", error.clone()),
+            None => return,
+        };
+        ui.label(
+            egui::RichText::new(title)
+                .size(fluid.fs_h1())
+                .color(cl::ink::STRONG),
+        );
+        ui.add_space(fluid.sp_3());
+        cl::card_frame().show(ui, |ui| {
+            let said = ui.label(
+                egui::RichText::new(&text)
+                    .size(fluid.fs_body())
+                    .color(cl::ink::BASE),
+            );
+            ui.pilot_track(
+                &said,
+                NodeMetadata::new(node("outcome"), Role::Alert, &text),
+            );
+        });
+        ui.add_space(fluid.sp_3());
+        let open = cl::tip(
+            wide(
+                ui,
+                fluid,
+                true,
+                egui::Button::new("Open my library").selected(true),
+            ),
+            "Open DevPULSE on your library.",
+        );
+        ui.pilot_track(
+            &open,
+            NodeMetadata::new(node("open"), Role::Button, "Open my library"),
+        );
+        if open.clicked() {
+            self.relocating = None;
+            let result = (self.open)();
+            self.finish(result);
+        }
     }
 
     /// True once a library is open and the app can start.
@@ -452,36 +654,14 @@ impl Startup {
 
     fn bring_in(&mut self, ui: &mut egui::Ui, fluid: Fluid, build: bool) {
         if let Some(moving) = self.bring.as_mut().and_then(|bring| bring.moving.as_ref()) {
-            let copied = moving.progress.copied_files.load(Ordering::Relaxed);
-            let checked = moving.progress.checked_files.load(Ordering::Relaxed);
-            let total = moving.files.max(1) as f32;
-            let (line, fraction) = if copied < moving.files {
-                (
-                    format!(
-                        "Copying {copied} of {} ({} of {})…",
-                        files(moving.files),
-                        size(moving.progress.copied_bytes.load(Ordering::Relaxed)),
-                        size(moving.bytes)
-                    ),
-                    copied as f32 / total / 2.0,
-                )
-            } else {
-                (
-                    format!(
-                        "Checking {checked} of {}, byte for byte…",
-                        files(moving.files)
-                    ),
-                    0.5 + checked as f32 / total / 2.0,
-                )
-            };
-            ui.label(
-                egui::RichText::new("Bringing in your library")
-                    .size(fluid.fs_h1())
-                    .color(cl::ink::STRONG),
+            copy_progress(
+                ui,
+                fluid,
+                "Bringing in your library",
+                &moving.progress,
+                moving.files,
+                moving.bytes,
             );
-            ui.add_space(fluid.sp_3());
-            ui.label(egui::RichText::new(line).size(fluid.fs_body_lg()));
-            ui.add(egui::ProgressBar::new(fraction));
             let landed = match moving.done.try_recv() {
                 Ok(result) => Some(result),
                 Err(mpsc::TryRecvError::Empty) => None,
@@ -879,6 +1059,51 @@ impl Startup {
     }
 }
 
+impl Startup {
+    /// The page this moment calls for, what went wrong if anything, and
+    /// Quit — except while a move copies, when quitting would leave a half
+    /// copy behind.
+    fn body(&mut self, ui: &mut egui::Ui, fluid: Fluid) {
+        let away = self.away.clone().filter(|status| status.linked);
+        let copying = self
+            .relocating
+            .as_ref()
+            .is_some_and(|run| run.outcome.is_none());
+        if self.relocating.is_some() {
+            self.relocating(ui, fluid);
+        } else if self.setup {
+            self.choice(ui, fluid);
+        } else if let Some(status) = away {
+            self.disconnected(ui, fluid, &status);
+        } else {
+            self.unavailable(ui, fluid);
+        }
+        if let Some(error) = &self.error {
+            ui.add_space(fluid.sp_3());
+            cl::card_frame().show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(error)
+                        .size(fluid.fs_body())
+                        .color(cl::ink::BASE),
+                );
+            });
+        }
+        ui.add_space(fluid.sp_3());
+        if !copying
+            && cl::tip(
+                ui.add_sized(
+                    [ui.available_width(), fluid.tap_min()],
+                    egui::Button::new("Quit"),
+                ),
+                "Close DevPULSE Labs.",
+            )
+            .clicked()
+        {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+}
+
 impl eframe::App for Startup {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if self.found.swap(false, Ordering::AcqRel) && !self.opened {
@@ -901,36 +1126,7 @@ impl eframe::App for Startup {
                             .color(cl::Tone::Cyan.color()),
                     );
                     ui.add_space(fluid.sp_4());
-                    let away = self.away.clone().filter(|status| status.linked);
-                    if self.setup {
-                        self.choice(ui, fluid);
-                    } else if let Some(status) = away {
-                        self.disconnected(ui, fluid, &status);
-                    } else {
-                        self.unavailable(ui, fluid);
-                    }
-                    if let Some(error) = &self.error {
-                        ui.add_space(fluid.sp_3());
-                        cl::card_frame().show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new(error)
-                                    .size(fluid.fs_body())
-                                    .color(cl::ink::BASE),
-                            );
-                        });
-                    }
-                    ui.add_space(fluid.sp_3());
-                    if cl::tip(
-                        ui.add_sized(
-                            [ui.available_width(), fluid.tap_min()],
-                            egui::Button::new("Quit"),
-                        ),
-                        "Close DevPULSE Labs.",
-                    )
-                    .clicked()
-                    {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
+                    self.body(ui, fluid);
                 });
             });
             ui.add_space(fluid.sp_6());
@@ -1002,6 +1198,7 @@ mod tests {
             folder: String::new(),
             linked: false,
             bring: None,
+            relocating: None,
             open: || Ok(()),
             screenshot: None,
             shot_frame: 0,
@@ -1032,14 +1229,7 @@ mod tests {
                         startup.finish(result);
                     }
                     let fluid = Fluid::of(ui.max_rect());
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        let away = startup.away.clone().filter(|status| status.linked);
-                        if startup.setup {
-                            startup.choice(ui, fluid);
-                        } else if let Some(status) = away {
-                            startup.disconnected(ui, fluid, &status);
-                        }
-                    });
+                    egui::ScrollArea::vertical().show(ui, |ui| startup.body(ui, fluid));
                 },
                 startup,
             )
@@ -1124,6 +1314,57 @@ mod tests {
             fs::read(program.join("library/notes.txt")).unwrap(),
             b"mine"
         );
+    }
+
+    /// ST3's page: no Quit while the copy runs; a clean move opens the
+    /// library by itself, and a note or a refusal waits to be read.
+    #[test]
+    fn the_moving_page_opens_the_library_or_says_why_it_waited() {
+        let cases = [
+            (Ok(None), None),
+            (
+                Ok(Some(
+                    "Your old copy stays at D:\\old. It is no longer used.".to_owned(),
+                )),
+                Some("Your library moved"),
+            ),
+            (
+                Err("E:\\DevPULSE already holds files.".to_owned()),
+                Some("Your library wasn't moved"),
+            ),
+        ];
+        for (outcome, said) in cases {
+            let program = scratch();
+            let mut startup = page(&program, false, None);
+            let (send, done) = mpsc::channel();
+            startup.relocating = Some(Relocating {
+                to: program.join("drive"),
+                progress: Arc::default(),
+                files: 3,
+                bytes: 30,
+                done,
+                outcome: None,
+            });
+            let mut harness = pages(startup);
+            harness.run_steps(2);
+            assert!(harness.query_by_label("Moving your library").is_some());
+            assert!(
+                harness.query_by_label("Quit").is_none(),
+                "no quitting mid-copy"
+            );
+            send.send(outcome).unwrap();
+            harness.run_steps(3);
+            match said {
+                None => assert!(harness.state().opened, "a clean move opens by itself"),
+                Some(said) => {
+                    assert!(harness.query_by_label(said).is_some(), "{said}");
+                    assert!(!harness.state().opened, "the page waits to be read");
+                    harness.get_by_label("Open my library").click();
+                    harness.run_steps(2);
+                    assert!(harness.state().opened);
+                }
+            }
+        }
     }
 
     /// The Disconnected page names the library and opens the app with no

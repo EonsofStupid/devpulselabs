@@ -97,9 +97,29 @@ fn main() -> eframe::Result {
     dpl_comp::set_write_guard(dpl_roots::writable);
     dpl_ledger::set_write_guard(dpl_roots::writable);
     let library = storage_startup::ready();
-    match &library {
-        Ok(()) => open_library(),
-        Err(error) => tracing::warn!(%error, "library startup needs attention"),
+    // ST3 (ruled 2026-10-31, "Restart, copy, then open"): a move asked for
+    // last session runs now, before anything opens the library. A library
+    // that isn't here can't move, so its move is forgotten, said plainly.
+    let moving = match (&library, dpl_roots::pending_move()) {
+        (Ok(()), Ok(Some(to))) => Some(to),
+        (_, Ok(None)) => None,
+        (Err(_), Ok(Some(to))) => {
+            tracing::warn!(to = %to.display(), "your library isn't connected, so the move you asked for was cancelled");
+            let _ = dpl_roots::cancel_move();
+            None
+        }
+        (_, Err(error)) => {
+            tracing::warn!(%error, "the move you asked for couldn't be read, so it was cancelled");
+            let _ = dpl_roots::cancel_move();
+            None
+        }
+    };
+    match (&library, &moving) {
+        (Ok(()), None) => open_library(),
+        (Ok(()), Some(to)) => {
+            tracing::info!(to = %to.display(), "moving the library before it opens");
+        }
+        (Err(error), _) => tracing::warn!(%error, "library startup needs attention"),
     }
     // Same honesty law, applied to AI accounting: name which providers
     // report usage and which do not, so an empty cost column is explained
@@ -686,9 +706,12 @@ fn main() -> eframe::Result {
                 ai_backfill: ai_backfill_on,
             };
             let mut root = Root {
-                stage: match library {
-                    Ok(()) => Stage::Opening,
-                    Err(error) => Stage::Library(Box::new(storage_startup::Startup::new(
+                stage: match (library, moving) {
+                    (Ok(()), Some(to)) => {
+                        Stage::Library(Box::new(storage_startup::Startup::moving(to, &cc.egui_ctx)))
+                    }
+                    (Ok(()), None) => Stage::Opening,
+                    (Err(error), _) => Stage::Library(Box::new(storage_startup::Startup::new(
                         error,
                         bring_in,
                         &cc.egui_ctx,
@@ -1565,6 +1588,66 @@ impl App {
         });
     }
 
+    /// The Library cell and card (ST3): where the library lives, every
+    /// frame, and the card's requests. Move it records the move and restarts,
+    /// so the copy runs before anything opens the library (ruled 2026-10-31).
+    fn library_card(&mut self, ctx: &egui::Context) {
+        self.shell
+            .set_library_home(dpl_roots::home().map(|home| dpl_shell::LibraryHome {
+                place: if home.drill {
+                    "test".into()
+                } else if home.linked {
+                    format!(
+                        "on {}",
+                        home.path.file_name().map_or_else(
+                            || home.path.display().to_string(),
+                            |name| { name.to_string_lossy().into_owned() }
+                        )
+                    )
+                } else {
+                    "with the program".into()
+                },
+                path: home.path.display().to_string(),
+                label: home.label,
+                linked: home.linked,
+                drill: home.drill,
+            }));
+        match self.shell.take_library_request() {
+            None => {}
+            Some(dpl_shell::LibraryRequest::Plan(folder)) => {
+                let to = match folder {
+                    None => dpl_roots::program_library(),
+                    Some(folder) if std::path::Path::new(&folder).is_absolute() => {
+                        Ok(std::path::PathBuf::from(folder))
+                    }
+                    Some(_) => {
+                        Err("Paste the full path of the folder, starting with the drive.".into())
+                    }
+                };
+                self.shell
+                    .set_library_plan(to.and_then(|to| dpl_roots::plan_switch(&to)).map(|plan| {
+                        dpl_shell::LibraryPlanView {
+                            from: plan.from.display().to_string(),
+                            to: plan.to,
+                            size: format!(
+                                "{} · {}",
+                                storage_startup::files(plan.files),
+                                storage_startup::size(plan.bytes)
+                            ),
+                        }
+                    }));
+            }
+            Some(dpl_shell::LibraryRequest::Move(to)) => match dpl_roots::request_move(&to) {
+                Ok(plan) => {
+                    tracing::info!(from = %plan.from.display(), to = %plan.to.display(), "library move asked for; restarting to run it");
+                    RESTART.store(true, std::sync::atomic::Ordering::Release);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                Err(error) => self.shell.set_library_plan(Err(error)),
+            },
+        }
+    }
+
     /// A library unplugged mid-session (ST2b). Saves already refuse; here
     /// the banner shows and the watch looks for it. Back where it was, the
     /// estate reopens and kept edits save; back somewhere new, kept edits
@@ -2036,6 +2119,7 @@ impl eframe::App for App {
         self.chat.root_close_requested(ui.ctx());
         fit_window(ui.ctx());
         self.watch_library(ui.ctx());
+        self.library_card(ui.ctx());
         self.index_locations(ui.ctx());
         self.shell.ui(ui);
 
