@@ -4,6 +4,7 @@
 //! ST1 supplies snapshots and marker checks; ST2a watches for a library that
 //! isn't connected and remembers where it reappears; ST2b owns live IO.
 
+mod copy;
 mod discovery;
 mod disk;
 mod guard;
@@ -12,18 +13,21 @@ mod locations;
 mod migrate;
 mod model;
 mod setup;
+mod switch;
 
+pub use copy::MoveProgress;
 pub use discovery::candidates_on_roots;
 pub use disk::read_marker;
 pub use guard::{generation, io_failed, is_unplugged, label, library, writable};
 pub use handle::Roots;
 pub use locations::{reference as location_reference, Location, Placed, PREFIX as LOCATIONS};
-pub use migrate::{has_legacy, plan_move, MoveItem, MovePlan, MoveProgress, LEGACY_RINGS};
+pub use migrate::{has_legacy, plan_move, MoveItem, MovePlan, LEGACY_RINGS};
 pub use model::{
     AccountId, Config, DrillRoots, Layout, LibraryId, Marker, Mode, Publish, State, CONFIG_FILE,
     MARKER_FILE, SCHEMA_VERSION,
 };
 pub use setup::{setup_at, stage_roots};
+pub use switch::{SwitchPlan, Switched, MOVE_FILE, RETIRED_MARKER};
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -637,6 +641,85 @@ pub fn bring_in(
     publish: Publish,
 ) -> Result<Layout, String> {
     migrate::move_in(program, source, library, label, progress, publish)
+}
+
+/// The open library, for the status bar's Library cell (ST3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Home {
+    pub label: String,
+    pub path: PathBuf,
+    /// On a drive or folder of its own rather than with the program.
+    pub linked: bool,
+    /// A drill or test seam: it is never moved.
+    pub drill: bool,
+}
+
+pub fn home() -> Option<Home> {
+    let roots = global().read().ok()?;
+    let roots = roots.as_ref()?;
+    let layout = roots.paths()?;
+    Some(match roots.config() {
+        Some(config) if !roots.is_drill() => Home {
+            label: config.label.clone(),
+            path: layout.library,
+            linked: config.mode == Mode::Linked,
+            drill: false,
+        },
+        _ => Home {
+            label: "Test library".into(),
+            path: layout.library,
+            linked: false,
+            drill: true,
+        },
+    })
+}
+
+/// Where "Keep it with the program" puts the library.
+pub fn program_library() -> Result<PathBuf, String> {
+    Ok(program_dir()?.join("library"))
+}
+
+/// The program folder of a library that can move: never a drill's.
+fn movable() -> Result<PathBuf, String> {
+    let roots = global()
+        .read()
+        .map_err(|_| "Library root state could not be locked")?;
+    match roots.as_ref() {
+        Some(roots) if roots.is_drill() => {
+            Err("This run uses a test library, so it can't be moved.".into())
+        }
+        Some(roots) => Ok(roots.program.clone()),
+        None => program_dir(),
+    }
+}
+
+/// What moving the library to `to` will do (ST3). Nothing is written.
+pub fn plan_switch(to: &Path) -> Result<SwitchPlan, String> {
+    switch::plan(&movable()?, to)
+}
+
+/// Record the move for the next launch (Q-ST3-2: "Restart, copy, then
+/// open"); the caller then restarts.
+pub fn request_move(to: &Path) -> Result<SwitchPlan, String> {
+    switch::request(&movable()?, to)
+}
+
+/// Where a waiting move goes. A drill never has one.
+pub fn pending_move() -> Result<Option<PathBuf>, String> {
+    match movable() {
+        Ok(program) => switch::pending(&program),
+        Err(_) => Ok(None),
+    }
+}
+
+pub fn cancel_move() -> Result<(), String> {
+    switch::cancel(&movable()?)
+}
+
+/// Run the waiting move before anything opens the library, then
+/// `initialize` again to open it where it is now.
+pub fn run_pending_move(progress: &MoveProgress) -> Result<Switched, String> {
+    switch::run_pending(&movable()?, progress)
 }
 
 #[cfg(test)]
