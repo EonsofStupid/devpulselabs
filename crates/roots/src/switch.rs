@@ -45,9 +45,13 @@ struct Pending {
     to: PathBuf,
 }
 
-/// Regenerable (ADR-014): never copied; the new library gets an empty one.
-fn temp_of(library: &Path) -> PathBuf {
-    library.join("common").join("temp")
+/// What the copy leaves out: `common/temp` is regenerable (ADR-014), so the
+/// new library gets an empty one, and the marker is published last.
+fn copied_skips(library: &Path) -> [PathBuf; 2] {
+    [
+        library.join("common").join("temp"),
+        library.join(MARKER_FILE),
+    ]
 }
 
 /// The open library, where it goes, and how much it holds. Refuses a
@@ -84,7 +88,7 @@ pub(crate) fn plan(program: &Path, to: &Path) -> Result<SwitchPlan, String> {
     }
     destination_free(&to)?;
     let (mut files, mut bytes) = (0, 0);
-    walk(&from, &[temp_of(&from)], &mut |_, meta| {
+    walk(&from, &copied_skips(&from), &mut |_, meta| {
         if meta.is_file() {
             files += 1;
             bytes += meta.len();
@@ -112,6 +116,7 @@ pub(crate) fn switch(
 ) -> Result<Switched, String> {
     // Planned again here: the library may have changed since the plan shown.
     let plan = plan(program, to)?;
+    progress.planned(plan.files, plan.bytes);
     let config = disk::read_config(program)?;
     let made_folder = !plan.to.exists();
     match copy_and_switch(program, &plan, &config, progress) {
@@ -133,7 +138,7 @@ fn copy_and_switch(
     progress: &MoveProgress,
 ) -> Result<Layout, String> {
     let marker = disk::read_marker(&plan.from)?;
-    let skip = [temp_of(&plan.from), plan.from.join(MARKER_FILE)];
+    let skip = copied_skips(&plan.from);
     let landing = |path: &Path| -> Result<PathBuf, String> {
         path.strip_prefix(&plan.from)
             .map(|rel| plan.to.join(rel))
@@ -141,6 +146,7 @@ fn copy_and_switch(
     };
     fs::create_dir_all(&plan.to).map_err(|e| format!("{}: {e}", plan.to.display()))?;
     walk(&plan.from, &skip, &mut |path, meta| {
+        progress.go_on()?;
         let to = landing(path)?;
         if meta.is_dir() {
             return fs::create_dir_all(&to).map_err(|e| format!("{}: {e}", to.display()));
@@ -152,6 +158,7 @@ fn copy_and_switch(
     })?;
     let mut checked = 0u64;
     walk(&plan.from, &skip, &mut |path, meta| {
+        progress.go_on()?;
         if meta.is_file() {
             same_bytes(path, &landing(path)?)?;
             checked += 1;

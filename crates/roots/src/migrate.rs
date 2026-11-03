@@ -132,6 +132,7 @@ pub(crate) fn move_in(
     crate::model::label(label)?;
     // Planned again here: the folders may have changed since the plan shown.
     let plan = plan_move(source, library)?;
+    progress.planned(plan.files(), plan.bytes());
     setup::reject_config_location(program, &plan.library)?;
     let made_folder = !plan.library.exists();
     match copy_and_publish(program, &plan, label, progress, publish) {

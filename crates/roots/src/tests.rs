@@ -1284,9 +1284,10 @@ fn a_library_switch_plan_counts_everything_but_temp_and_writes_nothing() {
     let config = fs::read(exe.join(CONFIG_FILE)).unwrap();
     let to = base.join("drive/DevPULSE");
     let plan = switch::plan(&exe, &to).unwrap();
+    // What the copy copies: the marker is published last, not copied.
     let kept: Vec<_> = before
         .iter()
-        .filter(|(rel, _)| !rel.starts_with("common/temp"))
+        .filter(|(rel, _)| !rel.starts_with("common/temp") && rel != Path::new(MARKER_FILE))
         .collect();
     assert_eq!(plan.files, kept.len() as u64);
     assert_eq!(
@@ -1430,6 +1431,77 @@ fn a_failed_switch_changes_nothing() {
     assert!(!to.exists());
     assert_eq!(fs::read(exe.join(CONFIG_FILE)).unwrap(), config);
     assert_eq!(snapshot(&layout.library), before);
+}
+
+#[test]
+fn a_stopped_move_removes_what_it_made_and_changes_nothing() {
+    let base = scratch();
+    let (exe, layout, _) = switchable(&base);
+    let before = snapshot(&layout.library);
+    let config = fs::read(exe.join(CONFIG_FILE)).unwrap();
+    let to = base.join("drive/DevPULSE");
+    let progress = MoveProgress::default();
+    progress.stop.store(true, Ordering::Relaxed);
+    let error = switch::switch(&exe, &to, &progress).unwrap_err();
+    assert!(error.contains("You stopped the move"), "{error}");
+    assert!(error.contains("Nothing was changed"), "{error}");
+    assert!(!to.exists());
+    assert_eq!(fs::read(exe.join(CONFIG_FILE)).unwrap(), config);
+    assert_eq!(snapshot(&layout.library), before);
+}
+
+#[test]
+fn the_progress_knows_its_totals_and_copying_reaches_them() {
+    let base = scratch();
+    let (exe, _, _) = switchable(&base);
+    let progress = MoveProgress::default();
+    switch::switch(&exe, &base.join("drive/DevPULSE"), &progress).unwrap();
+    let total = progress.total_files.load(Ordering::Relaxed);
+    assert!(total > 0);
+    assert_eq!(progress.copied_files.load(Ordering::Relaxed), total);
+    assert_eq!(progress.checked_files.load(Ordering::Relaxed), total);
+    assert_eq!(
+        progress.copied_bytes.load(Ordering::Relaxed),
+        progress.total_bytes.load(Ordering::Relaxed)
+    );
+}
+
+/// A location on the library's old drive is recorded in full once the library
+/// is on another drive, and relative again when it comes back. Only the
+/// record is read and written, so the drives needn't exist.
+#[test]
+fn a_location_is_recorded_in_full_when_the_library_changes_drive() {
+    #[cfg(windows)]
+    let (old, new, near) = (r"D:\work\DevPULSE", r"E:\DevPULSE", r"D:\work\near");
+    #[cfg(not(windows))]
+    let (old, new, near) = (
+        "/media/me/one/work/DevPULSE",
+        "/media/me/two/DevPULSE",
+        "/media/me/one/work/near",
+    );
+    let (old, new, near) = (Path::new(old), Path::new(new), Path::new(near));
+    let userdata = scratch();
+    let stored = |path: &Path| {
+        let record = serde_json::json!({
+            "v": 1,
+            "locations": [{ "id": "loc-near", "label": "near", "path": path, "sample": [] }]
+        });
+        fs::write(
+            userdata.join("locations.json"),
+            serde_json::to_string_pretty(&record).unwrap(),
+        )
+        .unwrap();
+    };
+    let recorded = || {
+        let raw = fs::read_to_string(userdata.join("locations.json")).unwrap();
+        let record: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        PathBuf::from(record["locations"][0]["path"].as_str().unwrap())
+    };
+    stored(Path::new("../near"));
+    locations::rebase(&userdata, old, new).unwrap();
+    assert_eq!(recorded(), near, "another drive: the whole path");
+    locations::rebase(&userdata, new, old).unwrap();
+    assert_eq!(recorded(), Path::new("../near"), "back: relative again");
 }
 
 #[test]

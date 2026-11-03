@@ -6,14 +6,35 @@ use crate::disk;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Counters a screen reads while a move runs on another thread.
 #[derive(Debug, Default)]
 pub struct MoveProgress {
+    /// What the move will copy: 0 until it has looked, so nothing has to
+    /// walk the library before a window can show.
+    pub total_files: AtomicU64,
+    pub total_bytes: AtomicU64,
     pub copied_files: AtomicU64,
     pub copied_bytes: AtomicU64,
     pub checked_files: AtomicU64,
+    /// Set from the page to stop between files; what the move made is removed.
+    pub stop: AtomicBool,
+}
+
+impl MoveProgress {
+    pub(crate) fn planned(&self, files: u64, bytes: u64) {
+        self.total_files.store(files, Ordering::Relaxed);
+        self.total_bytes.store(bytes, Ordering::Relaxed);
+    }
+
+    pub(crate) fn go_on(&self) -> Result<(), String> {
+        if self.stop.load(Ordering::Relaxed) {
+            Err("You stopped the move".into())
+        } else {
+            Ok(())
+        }
+    }
 }
 
 /// Every folder and file under `dir`, folders before what they hold, except

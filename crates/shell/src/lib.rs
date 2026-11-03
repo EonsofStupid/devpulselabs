@@ -431,6 +431,7 @@ impl Shell {
             ))
             .pivot(egui::Align2::LEFT_BOTTOM);
         let (folder, plan) = (&mut self.library_folder, &mut self.library_plan);
+        let checking = self.library_checking;
         let mut request = None;
         let response = area.show(ui.ctx(), |ui| {
             ui.set_width(width);
@@ -482,7 +483,10 @@ impl Shell {
                         ui.add_space(cl::space::S2);
                         ui.horizontal_wrapped(|ui| {
                             let go = cl::tip(
-                                ui.add(egui::Button::new("Move it").selected(true).min_size(tap)),
+                                ui.add_enabled(
+                                    !checking,
+                                    egui::Button::new("Move it").selected(true).min_size(tap),
+                                ),
                                 "Close DevPULSE, copy your library to the new place, check it, then open it from there",
                             );
                             ui.pilot_track(&go, NodeMetadata::new(node("move"), Role::Button, "Move it"));
@@ -504,7 +508,10 @@ impl Shell {
                     ui.add_space(cl::space::S1);
                     if home.linked {
                         let keep = cl::tip(
-                            ui.add(egui::Button::new("Keep it with the program").min_size(tap)),
+                            ui.add_enabled(
+                                !checking,
+                                egui::Button::new("Keep it with the program").min_size(tap),
+                            ),
                             "Copy your library into the program's own folder, so it travels with DevPULSE",
                         );
                         ui.pilot_track(
@@ -517,32 +524,33 @@ impl Shell {
                         ui.add_space(cl::space::S1);
                     }
                     ui.label(RichText::new("Move it to a drive or folder").small().color(cl::ink::MUTED));
-                    ui.horizontal(|ui| {
-                        let field = cl::tip(
-                            ui.add(
-                                egui::TextEdit::singleline(folder)
-                                    .hint_text("Paste the full path of an empty or new folder")
-                                    .desired_width(ui.available_width() - 96.0),
-                            ),
-                            "The folder your library moves into. It must be empty, or not exist yet",
-                        );
-                        ui.pilot_track(
-                            &field,
-                            NodeMetadata::new(node("folder"), Role::TextInput, "Folder for your library")
-                                .value(folder.clone()),
-                        );
-                        let check = cl::tip(
-                            ui.add_enabled(
-                                !folder.trim().is_empty(),
-                                egui::Button::new("Check").min_size(tap),
-                            ),
-                            "See what moving your library there would copy, before anything moves",
-                        );
-                        ui.pilot_track(&check, NodeMetadata::new(node("check"), Role::Button, "Check"));
-                        if check.clicked() {
-                            request = Some(LibraryRequest::Plan(Some(folder.trim().to_owned())));
-                        }
-                    });
+                    let field = cl::tip(
+                        ui.add(
+                            egui::TextEdit::singleline(folder)
+                                .hint_text("Paste the full path of an empty or new folder")
+                                .desired_width(f32::INFINITY)
+                                .min_size(tap),
+                        ),
+                        "The folder your library moves into. It must be empty, or not exist yet",
+                    );
+                    ui.pilot_track(
+                        &field,
+                        NodeMetadata::new(node("folder"), Role::TextInput, "Folder for your library")
+                            .value(folder.clone()),
+                    );
+                    ui.add_space(cl::space::S1);
+                    let check = cl::tip(
+                        ui.add_enabled(
+                            !checking && !folder.trim().is_empty(),
+                            egui::Button::new(if checking { "Checking…" } else { "Check" })
+                                .min_size(egui::vec2(ui.available_width(), fl.tap_min())),
+                        ),
+                        "See what moving your library there would copy, before anything moves",
+                    );
+                    ui.pilot_track(&check, NodeMetadata::new(node("check"), Role::Button, "Check"));
+                    if check.clicked() {
+                        request = Some(LibraryRequest::Plan(Some(folder.trim().to_owned())));
+                    }
                     if let Some(Err(error)) = plan.as_ref() {
                         ui.add_space(cl::space::S1);
                         let refused = ui.label(RichText::new(error).small().color(Tone::Amber.color()));
@@ -553,6 +561,7 @@ impl Shell {
         });
         if request.is_some() {
             self.library_request = request;
+            self.library_checking = true;
         }
         if !just_toggled && response.response.clicked_elsewhere() {
             self.library_open = false;
@@ -877,6 +886,8 @@ pub struct Shell {
     library_plan: Option<Result<LibraryPlanView, String>>,
     /// What the card asked for; the app takes it.
     library_request: Option<LibraryRequest>,
+    /// The app is working on what the card asked for.
+    library_checking: bool,
     /// The inspector overlay (PANEL zone): OPTIONAL — closed by default so
     /// the content well keeps the full width; open, it floats OVER the
     /// well's right edge (docs/shell.md, "rightside overlay the content").
@@ -971,6 +982,7 @@ impl Shell {
             library_folder: String::new(),
             library_plan: None,
             library_request: None,
+            library_checking: false,
             inspector_open: false,
             build: "",
             tooltip_mood: dpl_backdrop::random_mood_index(),
@@ -1355,6 +1367,7 @@ impl Shell {
     /// The app's answer to a Plan request, shown on the card.
     pub fn set_library_plan(&mut self, plan: Result<LibraryPlanView, String>) {
         self.library_plan = Some(plan);
+        self.library_checking = false;
     }
 
     /// The library banner under the top bar: plain words on a raised strip
@@ -2480,6 +2493,10 @@ mod tests {
             harness.state_mut().take_library_request(),
             Some(LibraryRequest::Plan(Some(r"E:\DevPULSE".into()))),
             "Check only asks the app"
+        );
+        assert!(
+            harness.state().library_checking,
+            "and says so while the app works it out"
         );
         harness.state_mut().set_library_plan(Ok(LibraryPlanView {
             from: r"C:\DevPULSE\library".into(),

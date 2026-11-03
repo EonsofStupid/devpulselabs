@@ -86,8 +86,6 @@ struct BringIn {
 
 struct Moving {
     progress: Arc<dpl_roots::MoveProgress>,
-    files: u64,
-    bytes: u64,
     done: mpsc::Receiver<Result<(), String>>,
 }
 
@@ -96,8 +94,6 @@ struct Moving {
 struct Relocating {
     to: PathBuf,
     progress: Arc<dpl_roots::MoveProgress>,
-    files: u64,
-    bytes: u64,
     /// A note about the old copy when there is one, or why nothing moved.
     done: mpsc::Receiver<Result<Option<String>, String>>,
     /// How it ended, kept on the page when there is something to read.
@@ -167,12 +163,7 @@ impl BringIn {
             let _ = send.send(result);
             ctx.request_repaint();
         });
-        self.moving = Some(Moving {
-            progress,
-            files: plan.files(),
-            bytes: plan.bytes(),
-            done,
-        });
+        self.moving = Some(Moving { progress, done });
     }
 }
 
@@ -222,24 +213,20 @@ pub(crate) fn files(count: u64) -> String {
 
 /// A copy's title, what it is doing, and how far it has got: copying is the
 /// first half of the bar, checking byte for byte the second.
-fn copy_progress(
-    ui: &mut egui::Ui,
-    fluid: Fluid,
-    title: &str,
-    progress: &dpl_roots::MoveProgress,
-    total_files: u64,
-    total_bytes: u64,
-) {
+fn copy_progress(ui: &mut egui::Ui, fluid: Fluid, title: &str, progress: &dpl_roots::MoveProgress) {
+    let total_files = progress.total_files.load(Ordering::Relaxed);
     let copied = progress.copied_files.load(Ordering::Relaxed);
     let checked = progress.checked_files.load(Ordering::Relaxed);
     let total = total_files.max(1) as f32;
-    let (line, fraction) = if copied < total_files {
+    let (line, fraction) = if total_files == 0 {
+        ("Looking through your files…".to_owned(), 0.0)
+    } else if copied < total_files {
         (
             format!(
                 "Copying {copied} of {} ({} of {})…",
                 files(total_files),
                 size(progress.copied_bytes.load(Ordering::Relaxed)),
-                size(total_bytes)
+                size(progress.total_bytes.load(Ordering::Relaxed))
             ),
             copied as f32 / total / 2.0,
         )
@@ -267,9 +254,6 @@ impl Startup {
     /// runs: no watch, no other page, until it ends.
     pub fn moving(to: PathBuf, ctx: &egui::Context) -> Self {
         let mut startup = Self::pages(ctx, false, None, None, None);
-        let (files, bytes) = dpl_roots::plan_switch(&to)
-            .map(|plan| (plan.files, plan.bytes))
-            .unwrap_or_default();
         let progress = Arc::new(dpl_roots::MoveProgress::default());
         let (send, done) = mpsc::channel();
         let (counters, repaint) = (Arc::clone(&progress), ctx.clone());
@@ -288,12 +272,19 @@ impl Startup {
         startup.relocating = Some(Relocating {
             to,
             progress,
-            files,
-            bytes,
             done,
             outcome: None,
         });
         startup
+    }
+
+    /// Something the page must say besides why the library didn't open.
+    pub fn say(mut self, notice: Option<String>) -> Self {
+        self.error = match (self.error.take(), notice) {
+            (Some(error), Some(notice)) => Some(format!("{error} {notice}")),
+            (error, notice) => error.or(notice),
+        };
+        self
     }
 
     /// `error` is why the library didn't open; `bring_in` opens "Bring in my
@@ -365,14 +356,7 @@ impl Startup {
         };
         let node = |key: &str| PilotId::new("library.moving").child(&PilotKey::new(key));
         if run.outcome.is_none() {
-            copy_progress(
-                ui,
-                fluid,
-                "Moving your library",
-                &run.progress,
-                run.files,
-                run.bytes,
-            );
+            copy_progress(ui, fluid, "Moving your library", &run.progress);
             let to = ui.label(
                 egui::RichText::new(format!("To {}", run.to.display()))
                     .size(fluid.fs_body())
@@ -387,6 +371,28 @@ impl Startup {
                 )
                 .value(run.to.display().to_string()),
             );
+            ui.add_space(fluid.sp_3());
+            let stopping = run.progress.stop.load(Ordering::Relaxed);
+            let stop = cl::tip(
+                wide(
+                    ui,
+                    fluid,
+                    !stopping,
+                    egui::Button::new(if stopping {
+                        "Stopping…"
+                    } else {
+                        "Stop, and leave my library where it is"
+                    }),
+                ),
+                "Stop copying and remove the partial copy. Your library stays where it is, unchanged.",
+            );
+            ui.pilot_track(
+                &stop,
+                NodeMetadata::new(node("stop"), Role::Button, "Stop the move"),
+            );
+            if stop.clicked() {
+                run.progress.stop.store(true, Ordering::Relaxed);
+            }
             match run.done.try_recv() {
                 Ok(Ok(None)) => {
                     self.relocating = None;
@@ -654,14 +660,7 @@ impl Startup {
 
     fn bring_in(&mut self, ui: &mut egui::Ui, fluid: Fluid, build: bool) {
         if let Some(moving) = self.bring.as_mut().and_then(|bring| bring.moving.as_ref()) {
-            copy_progress(
-                ui,
-                fluid,
-                "Bringing in your library",
-                &moving.progress,
-                moving.files,
-                moving.bytes,
-            );
+            copy_progress(ui, fluid, "Bringing in your library", &moving.progress);
             let landed = match moving.done.try_recv() {
                 Ok(result) => Some(result),
                 Err(mpsc::TryRecvError::Empty) => None,
@@ -1106,6 +1105,15 @@ impl Startup {
 
 impl eframe::App for Startup {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Closing the window mid-copy would leave a half copy behind, so it
+        // means Stop. The page then says so, and Quit is back.
+        if let Some(run) = self.relocating.as_ref().filter(|run| run.outcome.is_none()) {
+            if ui.input(|i| i.viewport().close_requested()) {
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                run.progress.stop.store(true, Ordering::Relaxed);
+            }
+        }
         if self.found.swap(false, Ordering::AcqRel) && !self.opened {
             let result = (self.open)();
             self.finish(result);
@@ -1337,11 +1345,10 @@ mod tests {
             let program = scratch();
             let mut startup = page(&program, false, None);
             let (send, done) = mpsc::channel();
+            let progress = Arc::new(dpl_roots::MoveProgress::default());
             startup.relocating = Some(Relocating {
                 to: program.join("drive"),
-                progress: Arc::default(),
-                files: 3,
-                bytes: 30,
+                progress: Arc::clone(&progress),
                 done,
                 outcome: None,
             });
@@ -1351,6 +1358,12 @@ mod tests {
             assert!(
                 harness.query_by_label("Quit").is_none(),
                 "no quitting mid-copy"
+            );
+            harness.get_by_label("Stop the move").click();
+            harness.run_steps(2);
+            assert!(
+                progress.stop.load(Ordering::Relaxed),
+                "Stop tells the copy to stop"
             );
             send.send(outcome).unwrap();
             harness.run_steps(3);

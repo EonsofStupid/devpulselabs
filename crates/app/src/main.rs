@@ -100,12 +100,17 @@ fn main() -> eframe::Result {
     // ST3 (ruled 2026-10-31, "Restart, copy, then open"): a move asked for
     // last session runs now, before anything opens the library. A library
     // that isn't here can't move, so its move is forgotten, said plainly.
+    let mut move_cancelled = None;
     let moving = match (&library, dpl_roots::pending_move()) {
         (Ok(()), Ok(Some(to))) => Some(to),
         (_, Ok(None)) => None,
         (Err(_), Ok(Some(to))) => {
             tracing::warn!(to = %to.display(), "your library isn't connected, so the move you asked for was cancelled");
             let _ = dpl_roots::cancel_move();
+            move_cancelled = Some(format!(
+                "Your library wasn't moved to {}: it wasn't connected when DevPULSE opened. Nothing was changed.",
+                to.display()
+            ));
             None
         }
         (_, Err(error)) => {
@@ -711,11 +716,10 @@ fn main() -> eframe::Result {
                         Stage::Library(Box::new(storage_startup::Startup::moving(to, &cc.egui_ctx)))
                     }
                     (Ok(()), None) => Stage::Opening,
-                    (Err(error), _) => Stage::Library(Box::new(storage_startup::Startup::new(
-                        error,
-                        bring_in,
-                        &cc.egui_ctx,
-                    ))),
+                    (Err(error), _) => Stage::Library(Box::new(
+                        storage_startup::Startup::new(error, bring_in, &cc.egui_ctx)
+                            .say(move_cancelled),
+                    )),
                 },
                 boot: Some(boot),
                 #[cfg(feature = "eguipilotai-devtools")]
@@ -1022,6 +1026,12 @@ struct App {
     library_opened: u64,
     /// Looks for the library while it is unplugged.
     library_watch: Option<dpl_roots::Watch>,
+    /// The Library card's request, on its own thread: walking a big library
+    /// on a slow drive must never freeze the window. True when it is a Move.
+    library_job: Option<(
+        bool,
+        std::sync::mpsc::Receiver<Result<dpl_roots::SwitchPlan, String>>,
+    )>,
     /// Looks at every location every two seconds while the library is open
     /// (ST5a′), and repaints when one went, came back or moved.
     location_watch: Option<dpl_roots::Watch>,
@@ -1534,6 +1544,7 @@ impl App {
             library_at: dpl_roots::library(),
             library_opened: dpl_roots::generation(),
             library_watch: None,
+            library_job: None,
             location_watch: None,
             locations_seen: 0,
             chrome_choices,
@@ -1595,7 +1606,7 @@ impl App {
         self.shell
             .set_library_home(dpl_roots::home().map(|home| dpl_shell::LibraryHome {
                 place: if home.drill {
-                    "test".into()
+                    "for this run".into()
                 } else if home.linked {
                     format!(
                         "on {}",
@@ -1612,39 +1623,64 @@ impl App {
                 linked: home.linked,
                 drill: home.drill,
             }));
-        match self.shell.take_library_request() {
-            None => {}
-            Some(dpl_shell::LibraryRequest::Plan(folder)) => {
-                let to = match folder {
-                    None => dpl_roots::program_library(),
-                    Some(folder) if std::path::Path::new(&folder).is_absolute() => {
-                        Ok(std::path::PathBuf::from(folder))
+        if let Some(request) = self.shell.take_library_request() {
+            let is_move = matches!(request, dpl_shell::LibraryRequest::Move(_));
+            let (send, done) = std::sync::mpsc::channel();
+            let repaint = ctx.clone();
+            std::thread::spawn(move || {
+                let result = match request {
+                    dpl_shell::LibraryRequest::Move(to) => dpl_roots::request_move(&to),
+                    dpl_shell::LibraryRequest::Plan(None) => {
+                        dpl_roots::program_library().and_then(|to| dpl_roots::plan_switch(&to))
                     }
-                    Some(_) => {
-                        Err("Paste the full path of the folder, starting with the drive.".into())
+                    dpl_shell::LibraryRequest::Plan(Some(folder)) => {
+                        let to = std::path::Path::new(&folder);
+                        if to.is_absolute() {
+                            dpl_roots::plan_switch(to)
+                        } else {
+                            Err(
+                                "Paste the full path of the folder, starting with the drive."
+                                    .into(),
+                            )
+                        }
                     }
                 };
-                self.shell
-                    .set_library_plan(to.and_then(|to| dpl_roots::plan_switch(&to)).map(|plan| {
-                        dpl_shell::LibraryPlanView {
-                            from: plan.from.display().to_string(),
-                            to: plan.to,
-                            size: format!(
-                                "{} · {}",
-                                storage_startup::files(plan.files),
-                                storage_startup::size(plan.bytes)
-                            ),
-                        }
-                    }));
+                let _ = send.send(result);
+                repaint.request_repaint();
+            });
+            self.library_job = Some((is_move, done));
+        }
+        let Some((is_move, done)) = &self.library_job else {
+            return;
+        };
+        let is_move = *is_move;
+        let result = match done.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                return;
             }
-            Some(dpl_shell::LibraryRequest::Move(to)) => match dpl_roots::request_move(&to) {
-                Ok(plan) => {
-                    tracing::info!(from = %plan.from.display(), to = %plan.to.display(), "library move asked for; restarting to run it");
-                    RESTART.store(true, std::sync::atomic::Ordering::Release);
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-                Err(error) => self.shell.set_library_plan(Err(error)),
-            },
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err("That stopped before it finished. Nothing was changed.".into())
+            }
+        };
+        self.library_job = None;
+        match result {
+            Ok(plan) if is_move => {
+                tracing::info!(from = %plan.from.display(), to = %plan.to.display(), "library move asked for; restarting to run it");
+                RESTART.store(true, std::sync::atomic::Ordering::Release);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Ok(plan) => self.shell.set_library_plan(Ok(dpl_shell::LibraryPlanView {
+                from: plan.from.display().to_string(),
+                to: plan.to,
+                size: format!(
+                    "{} · {}",
+                    storage_startup::files(plan.files),
+                    storage_startup::size(plan.bytes)
+                ),
+            })),
+            Err(error) => self.shell.set_library_plan(Err(error)),
         }
     }
 
