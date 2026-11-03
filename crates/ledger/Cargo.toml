@@ -15,7 +15,7 @@ parquet = { version = "59", default-features = false, features = ["arrow", "snap
 arrow-array = "59"
 # Must track parquet/arrow-array major: dual arrow-schema versions fail RecordBatch
 # construction with a type mismatch (dependabot #197/#198 left this at 55).
-arrow-schema = "59"
+arrow-schema = "60"
 
 [lints]
 workspace = true
