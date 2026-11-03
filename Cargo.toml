@@ -125,7 +125,7 @@ async-io = "2"
 async-process = "2"
 futures-lite = "2"
 # The mogrt reader (R2a.2, operator-ratified): .mogrt is a plain zip.
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 # The AEP orchestrator's capability probe (operator-ratified): read total
 # RAM cross-platform so the aerender tuning scales 16GB→128GB. "system"
 # feature only — no disk/network/component probing.
