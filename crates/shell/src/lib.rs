@@ -418,9 +418,8 @@ impl Shell {
             self.library_open = false;
             return;
         };
-        let fl = cl::Fluid::of(ui.ctx().content_rect());
+        let tone = self.active_tone();
         let node = |key: &str| PilotId::new("shell.library").child(&PilotKey::new(key));
-        let tap = egui::vec2(0.0, fl.tap_min());
         // The cell sits on the status bar's left, so the card opens there.
         let width = 420.0_f32.min(status.width() - cl::space::S4 * 2.0);
         let area = egui::Area::new(egui::Id::new("dpl_library_popup"))
@@ -482,72 +481,110 @@ impl Shell {
                         );
                         ui.add_space(cl::space::S2);
                         ui.horizontal_wrapped(|ui| {
-                            let go = cl::tip(
-                                ui.add_enabled(
-                                    !checking,
-                                    egui::Button::new("Move it").selected(true).min_size(tap),
-                                ),
-                                "Close DevPULSE, copy your library to the new place, check it, then open it from there",
+                            let go = ui
+                                .add_enabled_ui(!checking, |ui| {
+                                    launcher_chip(
+                                        ui,
+                                        cl::icon::LIBRARY,
+                                        "Move it",
+                                        tone,
+                                        "Close DevPULSE, copy your library to the new place, check it, then open it from there",
+                                    )
+                                })
+                                .inner;
+                            ui.pilot_track(
+                                &go,
+                                NodeMetadata::new(node("move"), Role::Button, "Move it"),
                             );
-                            ui.pilot_track(&go, NodeMetadata::new(node("move"), Role::Button, "Move it"));
                             if go.clicked() {
                                 request = Some(LibraryRequest::Move(view.to.clone()));
                             }
-                            let back = cl::tip(
-                                ui.add(egui::Button::new("Not now").min_size(tap)),
+                            let back = launcher_chip(
+                                ui,
+                                cl::icon::BACK,
+                                "Not now",
+                                tone,
                                 "Leave your library where it is",
                             );
-                            ui.pilot_track(&back, NodeMetadata::new(node("not-now"), Role::Button, "Not now"));
+                            ui.pilot_track(
+                                &back,
+                                NodeMetadata::new(node("not-now"), Role::Button, "Not now"),
+                            );
                             if back.clicked() {
                                 *plan = None;
                             }
                         });
                         return;
                     }
-                    ui.label(RichText::new("Move my library…").strong().color(cl::ink::BASE));
+                    ui.label(
+                        RichText::new("Move my library…")
+                            .strong()
+                            .color(cl::ink::BASE),
+                    );
                     ui.add_space(cl::space::S1);
                     if home.linked {
-                        let keep = cl::tip(
-                            ui.add_enabled(
-                                !checking,
-                                egui::Button::new("Keep it with the program").min_size(tap),
-                            ),
-                            "Copy your library into the program's own folder, so it travels with DevPULSE",
-                        );
+                        let keep = ui
+                            .add_enabled_ui(!checking, |ui| {
+                                launcher_chip(
+                                    ui,
+                                    cl::icon::HOME,
+                                    "Keep it with the program",
+                                    tone,
+                                    "Copy your library into the program's own folder, so it travels with DevPULSE",
+                                )
+                            })
+                            .inner;
                         ui.pilot_track(
                             &keep,
-                            NodeMetadata::new(node("with-program"), Role::Button, "Keep it with the program"),
+                            NodeMetadata::new(
+                                node("with-program"),
+                                Role::Button,
+                                "Keep it with the program",
+                            ),
                         );
                         if keep.clicked() {
                             request = Some(LibraryRequest::Plan(None));
                         }
-                        ui.add_space(cl::space::S1);
+                        ui.add_space(cl::space::S2);
                     }
-                    ui.label(RichText::new("Move it to a drive or folder").small().color(cl::ink::MUTED));
+                    ui.label(
+                        RichText::new("Or move it to a drive or folder")
+                            .small()
+                            .color(cl::ink::MUTED),
+                    );
                     let field = cl::tip(
                         ui.add(
                             egui::TextEdit::singleline(folder)
                                 .hint_text("Paste the full path of an empty or new folder")
-                                .desired_width(f32::INFINITY)
-                                .min_size(tap),
+                                .desired_width(f32::INFINITY),
                         ),
                         "The folder your library moves into. It must be empty, or not exist yet",
                     );
                     ui.pilot_track(
                         &field,
-                        NodeMetadata::new(node("folder"), Role::TextInput, "Folder for your library")
-                            .value(folder.clone()),
+                        NodeMetadata::new(
+                            node("folder"),
+                            Role::TextInput,
+                            "Folder for your library",
+                        )
+                        .value(folder.clone()),
                     );
                     ui.add_space(cl::space::S1);
-                    let check = cl::tip(
-                        ui.add_enabled(
-                            !checking && !folder.trim().is_empty(),
-                            egui::Button::new(if checking { "Checking…" } else { "Check" })
-                                .min_size(egui::vec2(ui.available_width(), fl.tap_min())),
-                        ),
-                        "See what moving your library there would copy, before anything moves",
+                    let check = ui
+                        .add_enabled_ui(!checking && !folder.trim().is_empty(), |ui| {
+                            launcher_chip(
+                                ui,
+                                cl::icon::MARK,
+                                if checking { "Checking…" } else { "Check" },
+                                tone,
+                                "See what moving your library there would copy, before anything moves",
+                            )
+                        })
+                        .inner;
+                    ui.pilot_track(
+                        &check,
+                        NodeMetadata::new(node("check"), Role::Button, "Check"),
                     );
-                    ui.pilot_track(&check, NodeMetadata::new(node("check"), Role::Button, "Check"));
                     if check.clicked() {
                         request = Some(LibraryRequest::Plan(Some(folder.trim().to_owned())));
                     }

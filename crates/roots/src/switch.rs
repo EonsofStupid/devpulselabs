@@ -6,7 +6,7 @@
 //! marker last. The old copy is retired, never deleted (ADR-014 law 4): its
 //! marker is renamed so nothing finds it again, and its folder is labelled.
 
-use crate::copy::{destination_free, inside, same_bytes, undo, walk, MoveProgress};
+use crate::copy::{copy_file, destination_free, inside, same_bytes, undo, walk, MoveProgress};
 use crate::{disk, handle, locations, setup, Config, Layout, Mode, MARKER_FILE, SCHEMA_VERSION};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -151,16 +151,15 @@ fn copy_and_switch(
         if meta.is_dir() {
             return fs::create_dir_all(&to).map_err(|e| format!("{}: {e}", to.display()));
         }
-        let bytes = fs::copy(path, &to).map_err(|e| format!("Copying {}: {e}", path.display()))?;
+        copy_file(path, &to, progress)?;
         progress.copied_files.fetch_add(1, Ordering::Relaxed);
-        progress.copied_bytes.fetch_add(bytes, Ordering::Relaxed);
         Ok(())
     })?;
     let mut checked = 0u64;
     walk(&plan.from, &skip, &mut |path, meta| {
         progress.go_on()?;
         if meta.is_file() {
-            same_bytes(path, &landing(path)?)?;
+            same_bytes(path, &landing(path)?, progress)?;
             checked += 1;
             progress.checked_files.fetch_add(1, Ordering::Relaxed);
         }

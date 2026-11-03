@@ -37,12 +37,43 @@ The design:
   launch, a "Moving your library" page runs the move before anything opens
   the library.
 
-## Exact next step
+## Done so far
 
-§4g step 1, the engine. Read `crates/roots/src/migrate.rs` (copy helpers)
-and `setup.rs` (`publish_identity`, `write_config`, `mode_for`). Then add
-the switch beside `migrate.rs`, moving the shared helpers so both moves use
-them, without a re-export.
+- **`6a36adb`, the engine (§4g steps 1–2):**
+  - `copy.rs` holds the shared copy helpers.
+  - `switch.rs`: `plan`, `switch` (copy, check, rebase, marker last,
+    config, retire), and `request`, `pending`, `cancel`, `run_pending`
+    over `move.toml`.
+  - `locations::rebase`.
+  - Public API: `dpl_roots::{home, program_library, plan_switch,
+    request_move, pending_move, cancel_move, run_pending_move}`; each
+    refuses a drill.
+- **dpl-roots: 46 tests (6 new), clippy and fmt clean.**
+
+## Parked 2026-11-03
+
+The operator put the recording program first
+(`2026-11-03-recording-for-ai.md`). ST3 stays committed on this branch,
+unmerged, until the operator says to land it or drop it.
+
+- **Proven on the real exe:** tap Move it → relaunch → copy → check → switch →
+  retire, and back with the program. A 900 MB file hashed identically. Stop and
+  a crash mid-copy behaved as planned.
+- **Left:** one clean run at both sizes (the last run's two failures were
+  scenario timing, fixed since), §8 evidence, the PR.
+
+## Exact next step (as of before parking)
+
+§4g step 3, the Library cell. Invoke the `coldlight-system` skill first,
+since this is a UI pass. Read `crates/shell/src/status.rs` (`CELLS`, near
+`:94`) and the popup pattern in `crates/shell/src/lib.rs:161-360`. The cell
+reads `dpl_roots::home()`.
+
+Then step 4: in `crates/app`, call `pending_move()` after `initialize()` and
+before any store opens. If a move is waiting, show a "Moving your library"
+page with `run_pending_move` on a thread and Bring-in's progress, then
+`initialize()` again. "Move it" calls `request_move`, then Restart now
+(`main.rs:707-717`).
 
 ## Landmines
 

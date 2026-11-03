@@ -211,32 +211,35 @@ pub(crate) fn files(count: u64) -> String {
     }
 }
 
-/// A copy's title, what it is doing, and how far it has got: copying is the
-/// first half of the bar, checking byte for byte the second.
+/// A copy's title, what it is doing, and how far it has got, by bytes so a
+/// big video moves the bar: copying is the first half, checking the second.
 fn copy_progress(ui: &mut egui::Ui, fluid: Fluid, title: &str, progress: &dpl_roots::MoveProgress) {
     let total_files = progress.total_files.load(Ordering::Relaxed);
+    let total_bytes = progress.total_bytes.load(Ordering::Relaxed);
     let copied = progress.copied_files.load(Ordering::Relaxed);
-    let checked = progress.checked_files.load(Ordering::Relaxed);
-    let total = total_files.max(1) as f32;
+    let copied_bytes = progress.copied_bytes.load(Ordering::Relaxed);
+    let checked_bytes = progress.checked_bytes.load(Ordering::Relaxed);
+    let whole = total_bytes.max(1) as f32;
     let (line, fraction) = if total_files == 0 {
         ("Looking through your files…".to_owned(), 0.0)
     } else if copied < total_files {
         (
             format!(
-                "Copying {copied} of {} ({} of {})…",
-                files(total_files),
-                size(progress.copied_bytes.load(Ordering::Relaxed)),
-                size(progress.total_bytes.load(Ordering::Relaxed))
+                "Copying {} of {} ({copied} of {})…",
+                size(copied_bytes),
+                size(total_bytes),
+                files(total_files)
             ),
-            copied as f32 / total / 2.0,
+            copied_bytes as f32 / whole / 2.0,
         )
     } else {
         (
             format!(
-                "Checking {checked} of {}, byte for byte…",
-                files(total_files)
+                "Checking every file, byte for byte: {} of {}…",
+                size(checked_bytes),
+                size(total_bytes)
             ),
-            0.5 + checked as f32 / total / 2.0,
+            0.5 + checked_bytes as f32 / whole / 2.0,
         )
     };
     ui.label(
@@ -1119,6 +1122,9 @@ impl eframe::App for Startup {
             self.finish(result);
         }
         crate::fit_window(ui.ctx());
+        // Before the app's own backdrop exists, these pages sit on its surface.
+        ui.painter()
+            .rect_filled(ui.max_rect(), egui::CornerRadius::ZERO, cl::surface::BASE);
         let fluid = Fluid::of(ui.max_rect());
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.add_space(fluid.sp_6());

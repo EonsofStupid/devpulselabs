@@ -1,0 +1,62 @@
+# ST3: stopping a move, on the real exe. Stop removes the partial copy and
+# says so; Open my library opens the library where it was.
+id = "st3-stop"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/library.moving/stop"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/library.moving/stop"
+
+[[steps]]
+kind = "wait"
+milliseconds = 15000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/library.moving/outcome"
+
+[[steps]]
+kind = "capture"
+name = "stopped"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/library.moving/open"
+
+[[steps]]
+kind = "wait"
+milliseconds = 8000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "My library · with the program"
+
+[steps.expectation.target]
+id = "root/shell.status.library"

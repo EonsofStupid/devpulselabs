@@ -1455,14 +1455,24 @@ fn the_progress_knows_its_totals_and_copying_reaches_them() {
     let base = scratch();
     let (exe, _, _) = switchable(&base);
     let progress = MoveProgress::default();
-    switch::switch(&exe, &base.join("drive/DevPULSE"), &progress).unwrap();
+    let card = "accounts/me/content/library/slides/one.json";
+    let when = fs::metadata(exe.join("library").join(card))
+        .unwrap()
+        .modified()
+        .unwrap();
+    let to = base.join("drive/DevPULSE");
+    switch::switch(&exe, &to, &progress).unwrap();
     let total = progress.total_files.load(Ordering::Relaxed);
     assert!(total > 0);
     assert_eq!(progress.copied_files.load(Ordering::Relaxed), total);
     assert_eq!(progress.checked_files.load(Ordering::Relaxed), total);
+    let bytes = progress.total_bytes.load(Ordering::Relaxed);
+    assert_eq!(progress.copied_bytes.load(Ordering::Relaxed), bytes);
+    assert_eq!(progress.checked_bytes.load(Ordering::Relaxed), bytes);
     assert_eq!(
-        progress.copied_bytes.load(Ordering::Relaxed),
-        progress.total_bytes.load(Ordering::Relaxed)
+        fs::metadata(to.join(card)).unwrap().modified().unwrap(),
+        when,
+        "a copy keeps when the file last changed"
     );
 }
 

@@ -4,9 +4,12 @@
 
 use crate::disk;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+/// How much of a file is copied or checked between looks at Stop.
+const PIECE: usize = 1 << 20;
 
 /// Counters a screen reads while a move runs on another thread.
 #[derive(Debug, Default)]
@@ -18,6 +21,7 @@ pub struct MoveProgress {
     pub copied_files: AtomicU64,
     pub copied_bytes: AtomicU64,
     pub checked_files: AtomicU64,
+    pub checked_bytes: AtomicU64,
     /// Set from the page to stop between files; what the move made is removed.
     pub stop: AtomicBool,
 }
@@ -73,12 +77,41 @@ pub(crate) fn walk(
     Ok(())
 }
 
-pub(crate) fn same_bytes(source: &Path, copy: &Path) -> Result<(), String> {
+/// Copy one file a piece at a time, so a big video shows progress and Stop
+/// works halfway through it. It keeps when the file was last changed.
+pub(crate) fn copy_file(source: &Path, to: &Path, progress: &MoveProgress) -> Result<(), String> {
+    let copying = |e: std::io::Error| format!("Copying {}: {e}", source.display());
+    let mut from = fs::File::open(source).map_err(copying)?;
+    let mut into = fs::File::create_new(to).map_err(|e| format!("{}: {e}", to.display()))?;
+    let mut piece = vec![0u8; PIECE];
+    loop {
+        progress.go_on()?;
+        let n = from.read(&mut piece).map_err(copying)?;
+        if n == 0 {
+            break;
+        }
+        into.write_all(&piece[..n])
+            .map_err(|e| format!("{}: {e}", to.display()))?;
+        progress.copied_bytes.fetch_add(n as u64, Ordering::Relaxed);
+    }
+    let meta = from.metadata().map_err(copying)?;
+    let modified = meta.modified().map_err(copying)?;
+    into.set_modified(modified)
+        .and_then(|()| into.set_permissions(meta.permissions()))
+        .map_err(|e| format!("{}: {e}", to.display()))
+}
+
+pub(crate) fn same_bytes(
+    source: &Path,
+    copy: &Path,
+    progress: &MoveProgress,
+) -> Result<(), String> {
     let open = |path: &Path| fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()));
     let (mut left, mut right) = (open(source)?, open(copy)?);
-    let mut one = vec![0u8; 1 << 16];
-    let mut two = vec![0u8; 1 << 16];
+    let mut one = vec![0u8; PIECE];
+    let mut two = vec![0u8; PIECE];
     loop {
+        progress.go_on()?;
         let n = fill(&mut left, &mut one).map_err(|e| format!("{}: {e}", source.display()))?;
         let m = fill(&mut right, &mut two).map_err(|e| format!("{}: {e}", copy.display()))?;
         if n != m || one[..n] != two[..m] {
@@ -87,6 +120,9 @@ pub(crate) fn same_bytes(source: &Path, copy: &Path) -> Result<(), String> {
         if n == 0 {
             return Ok(());
         }
+        progress
+            .checked_bytes
+            .fetch_add(n as u64, Ordering::Relaxed);
     }
 }
 
