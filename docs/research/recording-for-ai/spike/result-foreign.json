@@ -1,0 +1,30 @@
+{
+ "before": {
+  "label": "before foreign",
+  "questions": 288,
+  "hit_rate": 0.5833,
+  "hits": 168,
+  "median_px_off": 32.6,
+  "unparsed": 0,
+  "seconds": 339,
+  "examples": [
+   "'Add user' -> '[35,21]' (truth 53,35)",
+   "'Sync now' -> '[130,24]' (truth 141,35)",
+   "'Replace' -> '[226,24]' (truth 233,35)"
+  ]
+ },
+ "after": {
+  "label": "after foreign",
+  "questions": 288,
+  "hit_rate": 1.0,
+  "hits": 288,
+  "median_px_off": 4.7,
+  "unparsed": 0,
+  "seconds": 1031,
+  "examples": [
+   "'Add user' -> '52,32\\n29,32\\n29,32\\n29,3' (truth 53,35)",
+   "'Sync now' -> '142,32\\n142,32\\n142,32\\n1' (truth 141,35)",
+   "'Replace' -> '231,32\\n231,32\\n231,32\\n2' (truth 233,35)"
+  ]
+ }
+}

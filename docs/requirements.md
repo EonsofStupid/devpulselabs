@@ -24,7 +24,7 @@ an operator quote: other docs cite the R-id, and they never re-quote it.
 | 2 | [Linking, embedding, importing, caching, browsing](#2-linking-embedding-importing-caching-browsing) | 11 |
 | 3 | [WiredFRONT, Workbench, presets and the visual language](#3-wiredfront-workbench-presets-and-the-visual-language) | 85 |
 | 4 | [Slides, presenting, shows and episodes](#4-slides-presenting-shows-and-episodes) | 3 |
-| 5 | [Capture — ViziWiz, sessions, steps, guides](#5-capture--viziwiz-sessions-steps-guides) | 12 |
+| 5 | [Capture — ViziWiz, sessions, steps, guides](#5-capture--viziwiz-sessions-steps-guides) | 13 |
 | 6 | [Chat and AI providers](#6-chat-and-ai-providers) | 38 |
 | 7 | [Coach](#7-coach) | 14 |
 | 8 | [Signals, analytics and the rest](#8-signals-analytics-and-the-rest) | 21 |
@@ -1237,6 +1237,22 @@ Source: `docs-history-2026-10-12:docs/plans/w5-guide-export-proposal.md:4`
 Source: `docs-history-2026-10-12:docs/journal/2026-07-28-fable-session.md:20`
 
 Note: Verdict on the W5 guide export UX (capture to review to bundle to export).
+
+### R294 · 2026-11-03
+
+> so this needs to be consistent where we are truly building this so the complexity is handled so the Ui makes it quality of life easy.  We clearly get the overlay indication so we can click record on different apps pause resume and then be able to clean up at the end have it fed to AI to develop a new tailored workflow/training data
+
+> you understand that I want actual recordings, that are tuned and created to feed and extend the AIs capabilities and features
+
+> I TOLD YOU CUSTOM MADE REMOTION CLIPS THAT HAVE IT RECREATE THE EVENTS IN MACHINE CODE SCRIPTED EVENTS WE HAVE IT DEVELOP ACTUAL CONNNECTS, SKILLS ROUTINES WE DO THis aligned to real research we have it built so it is tailore to dynamically generate the files and the data video
+
+Source: the operator's messages in the Claude Code session of 2026-11-03 (first recorded here). **Operator rulings 2026-11-03:**
+- **When:** "Next, right after ST3".
+- **What one recording holds:** "Screen video", "App timeline and clicks", "Your voice, transcribed", "What you type", and the clips quoted above.
+- **What comes out:** "Skills your AIs load", "WiredFRONT workflows", "Training data export", "New app features, proposed".
+- **Before a recording reaches an AI:** "Local AI automatically, cloud on my tap".
+
+Note: "Machine code" and "scripted events" here mean deterministic code doing the work so AI doesn't have to, as in the operator's messages of 2026-09-23 and 2026-10-10. They don't mean CPU instructions.
 
 ## 6. Chat and AI providers
 

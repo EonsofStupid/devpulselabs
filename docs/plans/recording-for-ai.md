@@ -1,0 +1,192 @@
+# Recording for AI — the program plan (RA)
+
+**Status: DRAFT, for the operator's approval.** R294. Rulings so far (2026-11-03):
+"Next, right after ST3"; a recording holds screen video, app timeline and clicks,
+transcribed voice and typing; out come skills, WiredFRONT workflows, training data
+and proposed features; "Local AI automatically, cloud on my tap". Open decisions
+are at the end.
+
+**Evidence behind it:**
+[`research/recording-for-ai/training-python-vs-rust.md`](../research/recording-for-ai/training-python-vs-rust.md)
+(measured here), and the
+[demonstrations](../research/recording-for-ai/demonstrations-to-skills.md) and
+[clips and capture](../research/recording-for-ai/clips-and-capture.md) digests.
+
+## 1. Context
+
+The operator wants to press record in an overlay, work across real apps, pause
+and resume, clean it up, and have that recording **feed and extend what the AIs
+can do**. The recording isn't the product; it is raw input. It becomes
+machine-scripted events (R294: deterministic code, not CPU instructions), which
+drive generated clips that re-create what happened, and from those come real
+connectors, skills and routines.
+
+Today the app has three separate recorders and no path from a recording to any
+AI. Every existing AI plan has AI driving this app; none has the operator
+teaching AI by recording other apps.
+
+## 2. Goal and non-goals
+
+**Goal:** one recorder with one flow, where finishing a recording measurably gives
+an AI a capability it didn't have, shown by a score rather than claimed.
+
+**Non-goals:**
+- Sending anything to a cloud AI without the operator's tap.
+- Recording anyone without their knowledge: the overlay always shows it.
+- Generating a skill per recording by default. Evidence says untested generated
+  skills don't help (§7).
+- Training a model from scratch. Tuning open models is what's proven here.
+
+## 3. Ground truth (read 2026-11-03)
+
+- **Three recorders:** Video (`viziwiz/src/lib.rs:884` →
+  `engine-capture/src/lib.rs:1434`), Session (`viziwiz/src/session.rs:195`) and
+  Steps (`engine-steps/src/lib.rs`).
+- **Across apps:** only Steps follows focus. Video locks its crop at start
+  (`engine-capture/src/lib.rs:1454-1478`). Session records the primary monitor.
+- **Overlay:** only Steps has a REC pill (`viziwiz/src/palette.rs:669`). Closing
+  the palette hides Video's and Session's controls while they keep recording
+  (`viziwiz/src/lib.rs:1225`).
+- **Pause and resume:** none. ffmpeg gets piped frames and a stop flag
+  (`engine-capture/src/lib.rs:1361-1391`).
+- **Clean up:** four separate places, no redaction.
+- **On disk:** `guide.json` has no timestamps or typed text
+  (`engine-steps/src/lib.rs:155-168`). Session's `events.jsonl` holds this app's
+  events only. No transcription exists.
+- **To AI:** no path. `tailor()` takes a bible and has test callers only
+  (`workflows/src/lib.rs:503`).
+- **Built twice:** three REC displays, three step structs, two `parse_events`.
+
+**Measured 2026-11-04:** labels from EguiPilotAI's semantic tree trained a local
+vision model from 37.9% to 90.8% on controls it never saw. Details and limits are
+in the training doc. Real third-party apps are unmeasured.
+
+## 4. Design
+
+### 4.1 The flow
+
+```
+Overlay: record, pause, resume, stop
+   │  one recording: video, app timeline, clicks + what they hit, typing, voice
+   ▼
+Clean up: one page. Trim, delete parts, blur. Nothing has left this machine.
+   ▼
+Local AI reads it (automatic). Cloud AI only on a tap, after review.
+   ▼
+Scripted events: the recording as code. Replays with no AI; AI only fills gaps.
+   ├─▶ Generated clips: re-create the events, exact labels on every frame
+   ├─▶ Dataset and tuning: a model that scores better, or it doesn't ship
+   ├─▶ Skills and connectors the AIs load, tested by replay first
+   ├─▶ WiredFRONT workflows
+   └─▶ Proposed features, for the operator to approve
+```
+
+### 4.2 Consistency: where this is built
+
+No new product crate. **One recorder replaces the three**, in the existing
+capture boundary (`engine-capture`, `engine-steps`, `viziwiz`), so there is one
+REC display, one step format and one events format. The review page lives in
+WiredFRONT. Training is a depot tool, never a crate (the ADR-009 pattern).
+
+### 4.3 What a recording records
+
+**Structure comes first.** Published tests found video alone the weakest input,
+and removing images, UI annotations or key logs each cost 14–22 points of task
+success (Work2Skill).
+
+- One timeline, anchored to video frames, with pauses producing no frames.
+- For each action: the frame **before the mouse moved**, so no future leaks in.
+- A **selector bundle** per click, from UI Automation where it exists: id, type,
+  name, parent path, process, window class, box, and a small image crop.
+- The alignment error is **measured** by injecting a known click. No published work
+  reports it.
+
+**Privacy is prevention first.** Redaction misses things (the best published
+screenshot detector reached 0.753 mAP). So: per-app "never record" rules, password
+fields masked via UI Automation's password flag, and a plain off switch for
+typing. Then blur on review. Recordings live in the library, which git never
+tracks.
+
+### 4.4 Passes (each one PR, double-green, real-exe proof)
+
+| Pass | What you get | Done means |
+|---|---|---|
+| **RA1 One recorder** | Overlay record, pause, resume, stop, across apps, always showing it's on. Format v1. | A recording across two real apps, paused and resumed, opens with all streams aligned. The old recorders are migrated and deleted. |
+| **RA2 Clean up** | One review page: trim, delete parts, blur. | A password typed mid-recording never reaches disk. |
+| **RA3 First real score** | Recording to dataset to tuned local model, as a depot tool, with a before/after score in the app. | A score on **real third-party apps**, labelled from UI Automation, on questions never trained on. |
+| **RA4 Scripted events** | Recording to replayable script: selectors, parameters, checks. AI fills gaps only. | A recorded task replays with no AI, and verifies by reading state back rather than trusting the screen. |
+| **RA5 Generated clips** | The script drives clips with exact labels per frame. | Used as test fixtures first. They train only if they lift the score on held-out real recordings. |
+| **RA6 What the AIs get** | Skills (`.agents/skills` and `.claude/skills`), connectors, workflows, proposed features. | Each skill passes a replay test before it ships, and an agent finishes more tasks with it than without. |
+
+RA3 comes before the scripted events and clips because it produces a number
+first, and every later pass is judged by that number.
+
+## 5. Wiring
+
+| Where | Change | Pass |
+|---|---|---|
+| `engine-capture`, `engine-steps`, `viziwiz` | one recorder, format v1, pause and resume; the old three deleted | RA1 |
+| `viziwiz` | the non-activating overlay, with a hit-test so overlay taps aren't logged as clicks | RA1 |
+| `hubs/wiredfront` | the review page, the score | RA2, RA3 |
+| depot (`dptools-deps`) | whisper.cpp; the training tool and its Python runtime | RA1, RA3 |
+| `workflows` | a capture as input to `tailor()` | RA6 |
+
+### 5b. Reach outside the repo, for sign-off
+
+| What | Why | Proposed |
+|---|---|---|
+| One FFI exception for `WS_EX_NOACTIVATE`, named in `architecture.md` | so tapping the overlay doesn't steal focus from the app being recorded; no safe crate does this | Confirm |
+| Safe-API crates for capture and input (`xcap`, `rdev`, `uiautomation`) | window following, global clicks and keys, what was clicked | Confirm |
+| Global key capture | it can see passwords; hence §4.3's prevention and off switch | Confirm |
+| whisper.cpp in the depot, starting with `small.en-q5_1` (190 MB) | local transcription; first check if the depot's ffmpeg has the `whisper` filter | Confirm |
+| A Python training runtime in the depot (about 4 GB) | tuning; Rust has no equivalent | Q-RA-2 |
+| Model downloads from Hugging Face (Qwen3.5-2B, Apache-2.0, 4.5 GB) | the model being tuned | Confirm |
+| Remotion, Node and Chromium in the depot, if chosen | Q-RA-1 | Q-RA-1 |
+
+## 6. Proof
+
+- **Unit:** the format, alignment, pause and resume, masks.
+- **EguiPilotAI on the real exe**, at 1440×900 and 1100×700.
+- **Real recording of real apps**, on a scratch library, only with the operator's
+  consent, since it captures their desktop. A disposable app under the test's
+  control comes first.
+- **The score** is the proof for RA3 onward: held-out questions, before and after,
+  with the raw results committed.
+
+## 7. Risks
+
+- **Clips may not help training.** GUI-Perturbed found random variation gave no
+  average lift and more samples made it worse (one model, low-rank tune). Targeted
+  synthesis gained about 11 points (LearnWeak). Hence fixtures first, and window
+  size and zoom before themes.
+- **Generated skills can hurt.** Curated skills gained 16.2 points and self-written
+  ones lost 1.3 (SkillsBench, terminal tasks). Work2Skill's demonstration-induced
+  skills did help on GUI tasks. Hence replay tests before shipping.
+- **AI repairs can cheat.** One case study documents weakened assertions and deleted
+  tests. Any repair is a proposed diff that can't touch its own checks.
+- **The numbers so far may not reach real apps.** RA3 exists to find that out early.
+- **Dropped narration value.** No study measures spoken narration. Measure it: skill
+  tests with narration on and off.
+- **Windows evidence is thin.** Most benchmarks are Linux or web. UI Automation ids
+  aren't guaranteed stable, per Microsoft, hence selector bundles.
+- **Training time.** 47 to 99 minutes per run on slow kernels; the recording flow
+  must not wait on it.
+
+## 8. Evidence
+
+The spike's numbers and scripts are in
+[`research/recording-for-ai/`](../research/recording-for-ai/training-python-vs-rust.md).
+Pass evidence lands here as each one ships.
+
+## Questions for the operator
+
+- **Q-RA-1, the clip renderer.** The operator named Remotion. The research recommends
+  a native compositor: only re-enactment gives exact labels, neither can redraw
+  another company's app (so both animate over real screenshots), the native one
+  writes each frame's label as it draws, and it reuses the ffmpeg path. Remotion has
+  no per-frame label output and needs Node, Chromium and a React copy of the UI. Its
+  licence is not the blocker for a solo operator.
+- **Q-RA-2, where training runs.** Python as a depot subprocess (recommended), or
+  build it in Rust.
+- **§5b's sign-offs.**
+- **ST3.** Parked on its branch, unmerged: land it or drop it.

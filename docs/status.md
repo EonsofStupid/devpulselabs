@@ -1,6 +1,6 @@
 ---
-updated: 2026-10-30
-active_lane: portable-storage
+updated: 2026-11-04
+active_lane: recording-for-ai
 dirty: false
 ---
 
@@ -13,9 +13,15 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-10-30. Main has ST5b (#309: Locations become the one
-list) on top of `bbac4f5` (#311: public repository, hosted CI). The release
-exe is rebuilt from main after the merge.
+**Updated:** 2026-11-04. Main has ST5b (#309) on top of `bbac4f5` (#311: public
+repository, hosted CI). **The operator put recording for AI first (R294,
+`docs/plans/recording-for-ai.md`, in draft for approval).** ST3 is parked unmerged
+on `feat/portable-storage-st3`, to land or drop on their word.
+
+**Measured 2026-11-04:** a local vision model trained on the app's own labelled
+frames went from 37.9% to 90.8% on controls it never saw. PyTorch trained 12×
+faster than Burn on Vulkan, at about the same accuracy. Real third-party apps are
+not measured yet. See `docs/research/recording-for-ai/training-python-vs-rust.md`.
 
 **Public repository setup (R293).** Public visibility is verified and both
 estate runner registrations are removed. Green now targets GitHub-hosted
@@ -304,9 +310,12 @@ release) are still to come.
 
 ## Next, in order
 
+0. **Recording for AI** (R294, `docs/plans/recording-for-ai.md`): the plan is in
+   draft for the operator's approval, with Q-RA-1 (the clip renderer), Q-RA-2
+   (where training runs) and §5b's sign-offs open.
 1. **Portable, linked storage** (`docs/plans/portable-storage.md`): ST1,
-   ST1b, ST2a/b, ST5a, ST5a′ and ST5b are done. Next is **ST3** (§4.2:
-   switch a library between the program folder and a drive), then ST4. The operator's own USB drive check (§6) is owed, and
+   ST1b, ST2a/b, ST5a, ST5a′ and ST5b are done. **ST3** is parked unmerged
+   (`feat/portable-storage-st3`), then ST4. The operator's own USB drive check (§6) is owed, and
    their two pinned themeforest folders index the first time that drive
    is plugged in.
 2. **Owed on the operator's own setup:** the move (open the exe → Bring in

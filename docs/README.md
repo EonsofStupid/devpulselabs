@@ -39,6 +39,8 @@ named first and the others are marked **P2**: they merge into it during
 | [`ops/definition-of-done.md`](ops/definition-of-done.md) | What "done" means. |
 | [`../SECURITY.md`](../SECURITY.md) | Private vulnerability reporting and supported security fixes. |
 | [`plans/public-repository-setup.md`](plans/public-repository-setup.md) | R293 public transition, hosted CI and repository protection delivery. |
+| [`plans/recording-for-ai.md`](plans/recording-for-ai.md) | R294, draft: one overlay recorder whose recordings become scripted events, generated clips, skills, workflows and training data. |
+| [`research/recording-for-ai/training-python-vs-rust.md`](research/recording-for-ai/training-python-vs-rust.md) · [`demonstrations-to-skills.md`](research/recording-for-ai/demonstrations-to-skills.md) · [`clips-and-capture.md`](research/recording-for-ai/clips-and-capture.md) | R294's research: Python vs Rust measured on this machine, and what published work says about recordings, clips and capture. |
 
 ## The library (content, rings, embedded / imported / linked)
 

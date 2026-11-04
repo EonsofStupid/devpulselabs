@@ -1,0 +1,65 @@
+{
+ "model": "Qwen/Qwen3.5-2B",
+ "steps": 1200,
+ "rank": 16,
+ "before": {
+  "never_seen_control": {
+   "label": "before never_seen_control",
+   "questions": 87,
+   "hit_rate": 0.3793,
+   "hits": 33,
+   "median_px_off": 68.1,
+   "unparsed": 0,
+   "seconds": 157,
+   "examples": [
+    "'Make something' -> '[100,280,300,380]' (truth 215,347)",
+    "'How AI actually works' -> '100,136' (truth 275,170)",
+    "'Make something' -> '[100,260,370,370]' (truth 206,320)"
+   ]
+  },
+  "seen_control_new_size": {
+   "label": "before seen_control_new_size",
+   "questions": 150,
+   "hit_rate": 0.2067,
+   "hits": 31,
+   "median_px_off": 140.7,
+   "unparsed": 0,
+   "seconds": 202,
+   "examples": [
+    "'guide' -> '[310,102]' (truth 212,112)",
+    "'Open your library card' -> '[974,10]' (truth 186,954)",
+    "'Shows' -> '[98, 100, 100, 103]' (truth 22,222)"
+   ]
+  }
+ },
+ "after": {
+  "never_seen_control": {
+   "label": "after never_seen_control",
+   "questions": 87,
+   "hit_rate": 0.908,
+   "hits": 79,
+   "median_px_off": 4.6,
+   "unparsed": 0,
+   "seconds": 284,
+   "examples": [
+    "'Make something' -> '319,348\\n319,348\\n319,34' (truth 215,347)",
+    "'How AI actually works' -> '283,171\\nuser\\n283,171\\n283,' (truth 275,170)",
+    "'Make something' -> '312,308\\n29,308\\n24,308' (truth 206,320)"
+   ]
+  },
+  "seen_control_new_size": {
+   "label": "after seen_control_new_size",
+   "questions": 150,
+   "hit_rate": 0.9733,
+   "hits": 146,
+   "median_px_off": 4.2,
+   "unparsed": 0,
+   "seconds": 425,
+   "examples": [
+    "'guide' -> '212,107\\n\\n212,107\\n\\n21' (truth 212,112)",
+    "'Open your library card' -> '179,953\\n24,853\\n24,953' (truth 186,954)",
+    "'Shows' -> '24,226\\n24,226\\n24,226\\n2' (truth 22,222)"
+   ]
+  }
+ }
+}
