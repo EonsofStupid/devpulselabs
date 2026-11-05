@@ -1,0 +1,93 @@
+{
+ "model": "Qwen/Qwen3.5-2B",
+ "steps": 3000,
+ "rank": 16,
+ "before": {
+  "new_size": {
+   "label": "before new_size",
+   "questions": 150,
+   "hit_rate": 0.2133,
+   "hits": 32,
+   "median_px_off": 140.0,
+   "unparsed": 0,
+   "seconds": 120,
+   "examples": [
+    "'Build a new piece' -> '[840,250,977,380]' (truth 837,320)",
+    "'static · title-neon' -> '[290,350,490,410]' (truth 275,467)",
+    "'Home' -> '[19, 116]' (truth 22,124)"
+   ]
+  },
+  "new_screen": {
+   "label": "before new_screen",
+   "questions": 126,
+   "hit_rate": 0.2381,
+   "hits": 30,
+   "median_px_off": 329.5,
+   "unparsed": 0,
+   "seconds": 91,
+   "examples": [
+    "'Providers — AI · ChatGPT' -> '780,920' (truth 802,956)",
+    "'Open your library card' -> '[960,11]' (truth 254,949)",
+    "'Open Chat' -> '[954,914]' (truth 952,949)"
+   ]
+  },
+  "new_control": {
+   "label": "before new_control",
+   "questions": 6,
+   "hit_rate": 1.0,
+   "hits": 6,
+   "median_px_off": 20.3,
+   "unparsed": 0,
+   "seconds": 5,
+   "examples": [
+    "'+ New lesson' -> '[100,234]' (truth 103,256)",
+    "'+ New lesson' -> '[100,250,200,310]' (truth 137,285)",
+    "'+ New lesson' -> '[100,250,170,310]' (truth 126,277)"
+   ]
+  }
+ },
+ "after": {
+  "new_size": {
+   "label": "after new_size",
+   "questions": 150,
+   "hit_rate": 0.9467,
+   "hits": 142,
+   "median_px_off": 3.9,
+   "unparsed": 0,
+   "seconds": 454,
+   "examples": [
+    "'Build a new piece' -> '842,956\\n952,956\\n952,956\\n9' (truth 837,320)",
+    "'static · title-neon' -> '275,466\\n275,466\\n275,466\\n2' (truth 275,467)",
+    "'Home' -> '24,119\\n24,119\\n24,119\\n24,1' (truth 22,124)"
+   ]
+  },
+  "new_screen": {
+   "label": "after new_screen",
+   "questions": 126,
+   "hit_rate": 1.0,
+   "hits": 126,
+   "median_px_off": 0.5,
+   "unparsed": 0,
+   "seconds": 306,
+   "examples": [
+    "'Providers — AI · ChatGPT' -> '799,956' (truth 802,956)",
+    "'Open your library card' -> '254,949\\n254,949\\n254,949\\n2' (truth 254,949)",
+    "'Open Chat' -> '952,949\\n952,949\\n952,949\\n9' (truth 952,949)"
+   ]
+  },
+  "new_control": {
+   "label": "after new_control",
+   "questions": 6,
+   "hit_rate": 1.0,
+   "hits": 6,
+   "median_px_off": 2.6,
+   "unparsed": 0,
+   "seconds": 13,
+   "examples": [
+    "'+ New lesson' -> '102,256\\n107,256\\n107,256\\n1' (truth 103,256)",
+    "'+ New lesson' -> '141,286\\n141,286\\n141,286\\n1' (truth 137,285)",
+    "'+ New lesson' -> '124,274\\n124,274\\n124,274\\n1' (truth 126,277)"
+   ]
+  }
+ }
+}
