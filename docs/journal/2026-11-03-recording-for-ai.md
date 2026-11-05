@@ -136,7 +136,22 @@ RTX 5090 Laptop, 24 GB VRAM, 63 GB RAM.
 They go into `docs/research/` with the plan. The second recommends a native clip
 compositor over Remotion. **The operator named Remotion, so that is their call.**
 
-## Exact next step
+## Approved 2026-11-05, and the exact next step
+
+- **The plan:** `docs/plans/recording-for-ai.md`, approved with RA1, on PR #312.
+- **Rulings:** native renderer; tuning in Python behind one command; §5b signed off
+  and configurable; the whole monitor; keep the old readers; hide the overlay from
+  recordings, with a tiny crate. ST3 stays parked.
+- **Next:** land #312 on double-green (it's docs only), then **RA1a**, the format and
+  engine (§4.6). Branch `feat/recording-ra1a` from main.
+  - First, read `crates/engine-capture/src/lib.rs:270-420,1280-1440`,
+    `crates/viziwiz/src/session.rs` and `crates/index/src/lib.rs:470-500,840-900`.
+  - Then write the v1 format under the document law
+    (`docs/design/architecture.md:149-150`).
+- **RA1a must fix, not inherit:** the non-recursive rescan that hides organized
+  captures, and the frozen-video loop that saves a dead stream as fine (§4.6).
+
+## Earlier next step (superseded)
 
 Land ST3 only on the operator's word. Then: the research digests in
 `docs/research/recording-for-ai.md`, the program plan

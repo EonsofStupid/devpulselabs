@@ -12,6 +12,15 @@ and proposed features; "Local AI automatically, cloud on my tap".
 - §5b's four items: signed off, and "configurable" (§4.3).
 - ST3: "Leave it parked for now".
 
+**APPROVED 2026-11-05,** with RA1 (§4.6), "Approve, start RA1a". Rulings:
+- Q-RA-3, what the video holds across apps: "The whole monitor".
+- Q-RA-4, old captures once the old recorders go: "Keep the readers".
+- Q-RA-5, the overlay: "Hide it from recordings, tiny crate". One leaf crate holds
+  both Windows calls (don't take focus; leave the overlay out of capture), as
+  `dpl-lottie-render` holds its FFI. That bends §4.2's "no new product crate", by
+  ruling. Whether capture exclusion works with this capture method is proven in
+  RA1b, not assumed.
+
 **Evidence behind it:**
 [`research/recording-for-ai/training-python-vs-rust.md`](../research/recording-for-ai/training-python-vs-rust.md)
 (measured here), and the
@@ -148,6 +157,73 @@ out. The app knows nothing about Python, so Burn can take over later if it earns
 **Unverified:** running a tuned Qwen3.5 from Rust (a merged model through a local
 runtime or Candle). RA3 checks this before relying on it.
 
+### 4.6 RA1 execution queue, grounded 2026-11-05
+
+Read on `plan/recording-for-ai`, by a census of the capture crates and everything
+that consumes their output. Paths are under `crates/`.
+
+What the reading found:
+
+- **Keepable:** the frame loop, `frame_deadline` and `finish_recording`
+  (`engine-capture/src/lib.rs:304,273`), the one `rdev` hook and chords
+  (`engine-steps/src/lib.rs:216,545`), `EventLog`, the `land_*` policy.
+- **Duplicated:** REC displays (`viziwiz/src/palette.rs:329,447,677`), `parse_events`
+  (`guide/src/lib.rs:166`, `hubs/wiredfront/src/lib.rs:184`), step structs
+  (`engine-steps/src/lib.rs:155`, `edit.rs:27`, `guide/src/lib.rs:31`).
+- **Pause needs segments.** Video time is frames ÷ 30, so not feeding frames leaves
+  no video gap, but the mic is a second live input in that ffmpeg
+  (`engine-capture/src/lib.rs:1309,1320-1334`) and keeps recording speech the
+  operator thinks is paused. So pause finishes the process, and resume spawns
+  another. A zero-frame segment errors today (`:285`), so drop it instead.
+- **The clocks don't agree.** Event `ms` starts before ffmpeg
+  (`viziwiz/src/session.rs:41`) and stamps at UI drain, ignoring `Stamped.ms` (`:83`).
+  v1 needs one recorder-owned frame counter. Nothing measures the audio start offset.
+- **Typing needs no new crate:** `rdev` already computes each key's name. Only
+  `uiautomation` is new.
+- **Consumers to keep working:** the index's `folder_kind` (`index/src/lib.rs:851`),
+  the gallery (`hubs/wiredfront/src/lib.rs:895-908`), the session player (`:184,980`),
+  Composer's Guide review (`composer/src/lib.rs:2003-2017,6055`), `--export-guide` and
+  DG1 (`guide/src/lib.rs:470,495`), and four drills. Removing a flag fails the census
+  unless `CLAUDE.md` changes too (`xtask/src/main.rs:1737`).
+
+Bugs this must fix, not inherit:
+
+- **Rescan hides organized captures.** `scan_inbox` isn't recursive
+  (`index/src/lib.rs:878-891`), reindex soft-clears unseen inbox rows (`:480`), and
+  every bucket lands in a subfolder (`landing/src/lib.rs:187`). The files survive,
+  but their rows don't come back.
+- **A frozen video is reported as saved.** Any non-timeout DXGI error ends xcap's
+  thread, the loop keeps writing the last frame (`engine-capture/src/lib.rs:1392-1409`),
+  and the cached slot stays dead until restart (`:1348`). UAC or a lock screen likely
+  triggers it (untested). Over a long recording across apps, that would silently waste
+  the recording.
+- **`update_guide` loses data:** it drops `session`, `guideVideo` and `replayGif` from
+  exported guides and writes non-atomically (`engine-steps/src/edit.rs:146-157`).
+
+**RA1a: the format and engine** (one PR). Format v1 under the document law,
+segments, one clock, a stopped-frames alarm, the rescan fix. **Proves:** a paused
+recording opens aligned on a scratch root.
+
+**RA1b: the overlay** (one PR). One pill with timer, pause, resume and stop, the
+non-activating window, and a hit-test so overlay taps aren't logged as clicks (with
+focus staying put, `engine-capture/src/lib.rs:854` stops filtering them). The new
+leaf crate (Q-RA-5) holds the two Windows calls; `architecture.md` §1, §3 and §4 and
+the audit's `LINTS_OVERRIDE_ALLOWED` and `EGUI_FREE` change in the same commit
+(`xtask/src/main.rs:1626,1493`). **Proves:** focus stays on the recorded app, and the
+pill is absent from the recorded frames, at both window sizes.
+
+**RA1c: the streams** (one PR). App timeline, clicks with selector bundles, voice,
+and typing **with its masks in the same PR**: typing doesn't ship before the masks,
+which moves them up from RA2. **Proves:** the injected-click alignment error, and a
+password never reaches disk.
+
+**RA1d: one recorder** (one PR). Consumers move to v1; the old tabs, drills, flags and
+duplicates go; `CLAUDE.md` changes with them. The readers of old guides and sessions
+stay (Q-RA-4). **Proves:** old captures still open.
+
+Recording is the **whole monitor** (Q-RA-3): one monitor, chosen when recording
+starts. The app timeline lets cleanup and the dataset crop to each app later.
+
 ## 5. Wiring
 
 | Where | Change | Pass |
@@ -214,4 +290,4 @@ Chromium and a React copy of the UI. Its licence was not the blocker.
 
 ## Questions for the operator
 
-None open. **The plan itself still needs approval,** with RA1's execution queue.
+None open. Approved 2026-11-05.
