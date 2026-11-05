@@ -310,9 +310,9 @@ release) are still to come.
 
 ## Next, in order
 
-0. **Recording for AI** (R294, `docs/plans/recording-for-ai.md`): the plan is in
-   draft for the operator's approval, with Q-RA-1 (the clip renderer), Q-RA-2
-   (where training runs) and §5b's sign-offs open.
+0. **Recording for AI** (R294, `docs/plans/recording-for-ai.md`, draft PR #312):
+   ruled 2026-11-04, a native clip renderer, tuning in Python behind one command,
+   and §5b signed off. The plan awaits approval with RA1's execution queue.
 1. **Portable, linked storage** (`docs/plans/portable-storage.md`): ST1,
    ST1b, ST2a/b, ST5a, ST5a′ and ST5b are done. **ST3** is parked unmerged
    (`feat/portable-storage-st3`), then ST4. The operator's own USB drive check (§6) is owed, and

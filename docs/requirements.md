@@ -1252,6 +1252,12 @@ Source: the operator's messages in the Claude Code session of 2026-11-03 (first 
 - **What comes out:** "Skills your AIs load", "WiredFRONT workflows", "Training data export", "New app features, proposed".
 - **Before a recording reaches an AI:** "Local AI automatically, cloud on my tap".
 
+**Operator rulings 2026-11-04** (`docs/plans/recording-for-ai.md`):
+- **The clip renderer:** "Native renderer", replacing Remotion in the third quote.
+- **Where training runs:** "python or rust?  im fine with python if that is the better move if rust has bigger pay off but more work i am willing to do the work".
+- **Outside-the-repo items:** the overlay's FFI exception, global clicks and keys, model downloads, whisper.cpp in the depot, and "configurable".
+- **ST3:** "Leave it parked for now".
+
 Note: "Machine code" and "scripted events" here mean deterministic code doing the work so AI doesn't have to, as in the operator's messages of 2026-09-23 and 2026-10-10. They don't mean CPU instructions.
 
 ## 6. Chat and AI providers

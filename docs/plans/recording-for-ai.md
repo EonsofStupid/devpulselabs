@@ -1,10 +1,16 @@
 # Recording for AI — the program plan (RA)
 
-**Status: DRAFT, for the operator's approval.** R294. Rulings so far (2026-11-03):
-"Next, right after ST3"; a recording holds screen video, app timeline and clicks,
+**Status: DRAFT, for the operator's approval.** R294. Rulings (2026-11-03): "Next,
+right after ST3"; a recording holds screen video, app timeline and clicks,
 transcribed voice and typing; out come skills, WiredFRONT workflows, training data
-and proposed features; "Local AI automatically, cloud on my tap". Open decisions
-are at the end.
+and proposed features; "Local AI automatically, cloud on my tap".
+
+**Rulings 2026-11-04:**
+- Q-RA-1, the clip renderer: "Native renderer".
+- Q-RA-2, where training runs: the operator asked for the better move, and would do
+  the Rust work if it paid more. **Python, behind one command** (§4.5).
+- §5b's four items: signed off, and "configurable" (§4.3).
+- ST3: "Leave it parked for now".
 
 **Evidence behind it:**
 [`research/recording-for-ai/training-python-vs-rust.md`](../research/recording-for-ai/training-python-vs-rust.md)
@@ -107,6 +113,10 @@ fields masked via UI Automation's password flag, and a plain off switch for
 typing. Then blur on review. Recordings live in the library, which git never
 tracks.
 
+**Configurable (ruled 2026-11-04).** Each stream can be turned on or off (video,
+clicks, typing, voice), with defaults the operator sets. The speech model and the
+model being tuned are chosen, not hard-coded.
+
 ### 4.4 Passes (each one PR, double-green, real-exe proof)
 
 | Pass | What you get | Done means |
@@ -115,11 +125,28 @@ tracks.
 | **RA2 Clean up** | One review page: trim, delete parts, blur. | A password typed mid-recording never reaches disk. |
 | **RA3 First real score** | Recording to dataset to tuned local model, as a depot tool, with a before/after score in the app. | A score on **real third-party apps**, labelled from UI Automation, on questions never trained on. |
 | **RA4 Scripted events** | Recording to replayable script: selectors, parameters, checks. AI fills gaps only. | A recorded task replays with no AI, and verifies by reading state back rather than trusting the screen. |
-| **RA5 Generated clips** | The script drives clips with exact labels per frame. | Used as test fixtures first. They train only if they lift the score on held-out real recordings. |
+| **RA5 Generated clips** | The script drives clips from the native renderer (Q-RA-1), with exact labels per frame. | Used as test fixtures first. They train only if they lift the score on held-out real recordings. |
 | **RA6 What the AIs get** | Skills (`.agents/skills` and `.claude/skills`), connectors, workflows, proposed features. | Each skill passes a replay test before it ships, and an agent finishes more tasks with it than without. |
 
 RA3 comes before the scripted events and clips because it produces a number
 first, and every later pass is judged by that number.
+
+### 4.5 Python for tuning, Rust for everything else (Q-RA-2)
+
+The operator offered to do the Rust work if it paid more. It doesn't, for tuning:
+
+- **Rust's payoff is a small, self-reliant install** (R289). That comes from
+  *running* the tuned model in Rust, which doesn't need a training stack.
+- **Tuning in Rust means porting** each new model's architecture and tuning layer
+  by hand, indefinitely, in a field that keeps releasing models.
+- **Measured:** about 12× slower on one small model, on Vulkan. Burn on CUDA is
+  unmeasured.
+
+So tuning is a replaceable tool behind one command: dataset in, adapter and score
+out. The app knows nothing about Python, so Burn can take over later if it earns it.
+
+**Unverified:** running a tuned Qwen3.5 from Rust (a merged model through a local
+runtime or Candle). RA3 checks this before relying on it.
 
 ## 5. Wiring
 
@@ -135,13 +162,12 @@ first, and every later pass is judged by that number.
 
 | What | Why | Proposed |
 |---|---|---|
-| One FFI exception for `WS_EX_NOACTIVATE`, named in `architecture.md` | so tapping the overlay doesn't steal focus from the app being recorded; no safe crate does this | Confirm |
-| Safe-API crates for capture and input (`xcap`, `rdev`, `uiautomation`) | window following, global clicks and keys, what was clicked | Confirm |
-| Global key capture | it can see passwords; hence §4.3's prevention and off switch | Confirm |
-| whisper.cpp in the depot, starting with `small.en-q5_1` (190 MB) | local transcription; first check if the depot's ffmpeg has the `whisper` filter | Confirm |
-| A Python training runtime in the depot (about 4 GB) | tuning; Rust has no equivalent | Q-RA-2 |
-| Model downloads from Hugging Face (Qwen3.5-2B, Apache-2.0, 4.5 GB) | the model being tuned | Confirm |
-| Remotion, Node and Chromium in the depot, if chosen | Q-RA-1 | Q-RA-1 |
+| One FFI exception for `WS_EX_NOACTIVATE`, named in `architecture.md` | so tapping the overlay doesn't steal focus from the app being recorded; no safe crate does this | **Ruled** 2026-11-04 |
+| Safe-API crates for capture and input (`xcap`, `rdev`, `uiautomation`) | window following, global clicks and keys, what was clicked | **Ruled** 2026-11-04 |
+| Global key capture | it can see passwords; hence §4.3's prevention and off switch | **Ruled** 2026-11-04 |
+| whisper.cpp in the depot, starting with `small.en-q5_1` (190 MB) | local transcription; first check if the depot's ffmpeg has the `whisper` filter | **Ruled** 2026-11-04 |
+| A Python training runtime in the depot (about 4 GB) | tuning; Rust has no equivalent | **Ruled** 2026-11-04 (Q-RA-2) |
+| Model downloads from Hugging Face (Qwen3.5-2B, Apache-2.0, 4.5 GB) | the model being tuned | **Ruled** 2026-11-04 |
 
 ## 6. Proof
 
@@ -178,15 +204,14 @@ The spike's numbers and scripts are in
 [`research/recording-for-ai/`](../research/recording-for-ai/training-python-vs-rust.md).
 Pass evidence lands here as each one ships.
 
+## Why the native renderer (Q-RA-1)
+
+The operator named Remotion, then chose native on the research. Only re-enactment
+gives exact labels. Neither renderer can redraw another company's app, so both
+animate over real screenshots. The native one writes each frame's label as it draws
+and reuses the ffmpeg path. Remotion has no per-frame label output and needs Node,
+Chromium and a React copy of the UI. Its licence was not the blocker.
+
 ## Questions for the operator
 
-- **Q-RA-1, the clip renderer.** The operator named Remotion. The research recommends
-  a native compositor: only re-enactment gives exact labels, neither can redraw
-  another company's app (so both animate over real screenshots), the native one
-  writes each frame's label as it draws, and it reuses the ffmpeg path. Remotion has
-  no per-frame label output and needs Node, Chromium and a React copy of the UI. Its
-  licence is not the blocker for a solo operator.
-- **Q-RA-2, where training runs.** Python as a depot subprocess (recommended), or
-  build it in Rust.
-- **§5b's sign-offs.**
-- **ST3.** Parked on its branch, unmerged: land it or drop it.
+None open. **The plan itself still needs approval,** with RA1's execution queue.
