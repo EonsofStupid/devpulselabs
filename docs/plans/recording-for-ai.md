@@ -280,6 +280,24 @@ The spike's numbers and scripts are in
 [`research/recording-for-ai/`](../research/recording-for-ai/training-python-vs-rust.md).
 Pass evidence lands here as each one ships.
 
+**RA1a, 2026-11-06:**
+- **Unit:**
+  - `dpl-index` has 24 tests, 1 new: organized captures, `-poster.jpg`, an unsaved
+    guide, a recording folder as one item, and nothing cleared on a second rescan.
+  - `dpl-engine-capture` has 13 tests, 4 new: an ended capture against an idle
+    screen, where it stopped, and the pause, resume and stop states. The clock is
+    the video timeline, and the description round-trips and refuses a newer one.
+- **Real screen,** approved by the operator for this run (screen only, deleted
+  after). `capture-cli record` on the 2560×1440 primary monitor, 6 s, paused 2–4 s:
+  - two segments, frames 0–47 (1.567 s) and 47–107 (2.000 s);
+  - the clock held at frame 47 through the pause;
+  - each segment's video length matched its frame count.
+  - **Found:** the first segment starts about 0.43 s after Record, which is how long
+    the capture and ffmpeg take to start. The timeline stays exact, but the first
+    moment isn't captured. RA1b's pill can show that it's getting ready.
+- **Not yet proven:** the microphone across a pause (screen-only run), and an ended
+  capture on real hardware (a lock screen mid-recording).
+
 ## Why the native renderer (Q-RA-1)
 
 The operator named Remotion, then chose native on the research. Only re-enactment

@@ -844,12 +844,14 @@ pub mod sidecar {
 
 // ── the disk scan (reindex's truth feed) ────────────────────────────────
 
-/// What a FOLDER artifact is, by its marker file: a guide (guide.json)
-/// or a session (session.mp4 / events.jsonl — a partial session with
-/// only the event track still counts; files are the truth). None = not
-/// an artifact folder.
+/// What a FOLDER artifact is, by its marker file: a recording
+/// (recording.json, RA1a), a guide (guide.json) or a session (session.mp4 /
+/// events.jsonl — a partial session with only the event track still counts;
+/// files are the truth). None = not an artifact folder.
 fn folder_kind(dir: &Path) -> Option<&'static str> {
-    if dir.join("guide.json").is_file() {
+    if dir.join("recording.json").is_file() {
+        Some("recording")
+    } else if dir.join("guide.json").is_file() {
         Some("guide")
     } else if dir.join("session.mp4").is_file() || dir.join("events.jsonl").is_file() {
         Some("session")
@@ -1341,9 +1343,16 @@ mod tests {
             .join("s1");
         let image = root.join("inbox").join("brainstorm").join("image");
         let unsaved = root.join("inbox").join("guide-2");
-        for dir in [&video, &session, &image, &unsaved] {
+        let recording = root
+            .join("inbox")
+            .join("brainstorm")
+            .join("recording")
+            .join("r1");
+        for dir in [&video, &session, &image, &unsaved, &recording] {
             std::fs::create_dir_all(dir).unwrap();
         }
+        std::fs::write(recording.join("recording.json"), "{}").unwrap();
+        std::fs::write(recording.join("segment-001.mp4"), b"vid").unwrap();
         std::fs::write(video.join("clip.mp4"), b"vid").unwrap();
         std::fs::write(video.join("clip-poster.jpg"), b"poster").unwrap();
         std::fs::write(session.join("session.mp4"), b"vid").unwrap();
@@ -1353,7 +1362,15 @@ mod tests {
 
         let ix = Index::open(&root.join("artifacts.db")).unwrap();
         let report = ix.reindex(&root).unwrap();
-        assert_eq!(report.indexed, 3, "the video, the session and the picture");
+        assert_eq!(
+            report.indexed, 4,
+            "the video, the session, the picture, the recording"
+        );
+        assert_eq!(
+            ix.list(Some("recording"), None).unwrap()[0].rel_path,
+            "inbox/brainstorm/recording/r1",
+            "a recording is one item, its segments inside it"
+        );
         let video_rows = ix.list(Some("video"), None).unwrap();
         assert_eq!(video_rows.len(), 1, "the poster is not a row of its own");
         assert_eq!(
@@ -1377,7 +1394,7 @@ mod tests {
         assert_eq!(
             again,
             ReindexReport {
-                indexed: 3,
+                indexed: 4,
                 cleared: 0
             }
         );

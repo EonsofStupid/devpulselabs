@@ -12,12 +12,17 @@
 //! all output paths
 //! use forward slashes. Linux X11 is expected-good; Wayland is the known gap
 //! (old-app:docs/screen-capture.md, open item #18).
+//!
+//! RA1a adds `recording`: the whole monitor in segments with one frame clock,
+//! so pause and resume work and everything shares the video's timeline.
+pub mod recording;
+
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -651,7 +656,7 @@ pub fn list_targets() -> (Vec<MonitorInfo>, Vec<WindowInfo>) {
     (monitors, windows)
 }
 
-fn monitor_by_id(id: u32) -> Result<Monitor, String> {
+pub(crate) fn monitor_by_id(id: u32) -> Result<Monitor, String> {
     Monitor::all()
         .map_err(|e| format!("Monitor::all: {e}"))?
         .into_iter()
@@ -1315,16 +1320,22 @@ fn recorders() -> &'static Mutex<HashMap<u32, (VideoRecorder, Receiver<Frame>)>>
 }
 
 /// The Start/Stop recorder: same constant-fps xcap→ffmpeg pipe as `record_monitor`,
-/// but the loop runs until `stop` is set (or `opts.max_seconds` elapses), the
+/// but the loop runs while `go_on` says so (and until `opts.max_seconds`), the
 /// encoder/container/scale come from `opts`, and an optional audio device is muxed
 /// in as a second input. Returns what the verified recording proves: frames
 /// written and the wall-clock seconds the loop ran.
-fn record_monitor_ctl(
+///
+/// `clock` is set for one segment of a longer recording (RA1a): each frame
+/// written advances it, so everything stamped from it shares the video's
+/// timeline, and a segment that ended before any frame arrived is dropped
+/// rather than refused.
+pub(crate) fn record_monitor_ctl(
     mon: &Monitor,
     crop: Option<CropRect>,
     out_path: &str,
     opts: &VideoOpts,
-    stop: &AtomicBool,
+    go_on: &dyn Fn() -> bool,
+    clock: Option<&AtomicU64>,
 ) -> Result<Recorded, String> {
     let full_w = mon.width().map_err(|e| format!("width: {e}"))?;
     let full_h = mon.height().map_err(|e| format!("height: {e}"))?;
@@ -1424,7 +1435,7 @@ fn record_monitor_ctl(
     let mut capture_lost_at = None;
     let mut crop_buf = crop.map(|c| vec![0u8; (c.w * c.h * 4) as usize]);
     loop {
-        if stop.load(Ordering::Relaxed) {
+        if !go_on() {
             break;
         }
         if let Some(cap) = opts.max_seconds {
@@ -1451,6 +1462,9 @@ fn record_monitor_ctl(
                 break;
             }
             frames += 1;
+            if let Some(clock) = clock {
+                clock.fetch_add(1, Ordering::Release);
+            }
         }
         tick += 1;
         let next = frame_deadline(start, tick);
@@ -1475,6 +1489,12 @@ fn record_monitor_ctl(
         seconds,
         capture_lost_at,
     };
+    if clock.is_some() && frames == 0 {
+        // A segment paused or stopped before any frame arrived holds nothing.
+        let _ = ff.wait();
+        let _ = std::fs::remove_file(out_path);
+        return Ok(recorded);
+    }
     finish_recording(ff, tail, recorded, out_path, has_audio)
 }
 
@@ -1486,10 +1506,11 @@ pub fn record_ctl_to(
     opts: &VideoOpts,
     stop: &AtomicBool,
 ) -> Result<Recorded, String> {
+    let go_on = || !stop.load(Ordering::Relaxed);
     match target {
         RecTarget::Monitor(id) => {
             let mon = monitor_by_id(id)?;
-            record_monitor_ctl(&mon, None, out_path, opts, stop)
+            record_monitor_ctl(&mon, None, out_path, opts, &go_on, None)
         }
         RecTarget::Region(frac) => {
             let mon = primary_monitor()?;
@@ -1498,7 +1519,7 @@ pub fn record_ctl_to(
                 _ => return Err("bad monitor size".into()),
             };
             let crop = to_crop(frac, fw, fh).ok_or("region too small or out of bounds")?;
-            record_monitor_ctl(&mon, Some(crop), out_path, opts, stop)
+            record_monitor_ctl(&mon, Some(crop), out_path, opts, &go_on, None)
         }
         RecTarget::Window(id) => {
             let win = window_by_id(id)?;
@@ -1524,7 +1545,7 @@ pub fn record_ctl_to(
                 h: f64::from(wh) / f64::from(fh),
             };
             let crop = to_crop(frac, fw, fh).ok_or("window is off-screen or too small")?;
-            record_monitor_ctl(&mon, Some(crop), out_path, opts, stop)
+            record_monitor_ctl(&mon, Some(crop), out_path, opts, &go_on, None)
         }
     }
 }
