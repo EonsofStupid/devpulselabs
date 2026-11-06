@@ -922,7 +922,11 @@ const VIDEO_EXTENSIONS: [&str; 3] = ["mp4", "webm", "mkv"];
 /// The poster law: a video's companion picture is not an artifact of its own.
 /// Both names are in use: `vix.jpg` and the capture convention `vix-poster.jpg`.
 fn is_poster(path: &Path) -> bool {
-    let beside = |stem: &Path| VIDEO_EXTENSIONS.iter().any(|v| stem.with_extension(v).is_file());
+    let beside = |stem: &Path| {
+        VIDEO_EXTENSIONS
+            .iter()
+            .any(|v| stem.with_extension(v).is_file())
+    };
     let stem = path.with_extension("");
     if beside(&stem) {
         return true;
@@ -935,9 +939,12 @@ fn is_poster(path: &Path) -> bool {
 /// The poster that rides a video, under either name `is_poster` knows.
 fn poster_of(video: &Path) -> Option<PathBuf> {
     let stem = video.file_stem()?.to_string_lossy();
-    [video.with_file_name(format!("{stem}-poster.jpg")), video.with_extension("jpg")]
-        .into_iter()
-        .find(|poster| poster.is_file())
+    [
+        video.with_file_name(format!("{stem}-poster.jpg")),
+        video.with_extension("jpg"),
+    ]
+    .into_iter()
+    .find(|poster| poster.is_file())
 }
 
 /// A guide closed before Save: its step pictures with no guide.json.
@@ -1327,7 +1334,11 @@ mod tests {
     fn reindex_keeps_organized_captures_and_their_posters() {
         let root = scratch("organized");
         let video = root.join("inbox").join("brainstorm").join("video");
-        let session = root.join("inbox").join("brainstorm").join("session").join("s1");
+        let session = root
+            .join("inbox")
+            .join("brainstorm")
+            .join("session")
+            .join("s1");
         let image = root.join("inbox").join("brainstorm").join("image");
         let unsaved = root.join("inbox").join("guide-2");
         for dir in [&video, &session, &image, &unsaved] {
@@ -1354,13 +1365,22 @@ mod tests {
             "inbox/brainstorm/session/s1"
         );
         assert!(
-            ix.recent(10, None).unwrap().iter().all(|r| !r.rel_path.contains("guide-2")),
+            ix.recent(10, None)
+                .unwrap()
+                .iter()
+                .all(|r| !r.rel_path.contains("guide-2")),
             "a guide closed before Save stays out, as before"
         );
 
         // A second rescan keeps them: nothing organized is cleared.
         let again = ix.reindex(&root).unwrap();
-        assert_eq!(again, ReindexReport { indexed: 3, cleared: 0 });
+        assert_eq!(
+            again,
+            ReindexReport {
+                indexed: 3,
+                cleared: 0
+            }
+        );
     }
 
     #[test]
