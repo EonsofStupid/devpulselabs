@@ -151,6 +151,19 @@ compositor over Remotion. **The operator named Remotion, so that is their call.*
 - **RA1a must fix, not inherit:** the non-recursive rescan that hides organized
   captures, and the frozen-video loop that saves a dead stream as fine (§4.6).
 
+### RA1a progress, on `feat/recording-ra1a` (from main `95a6516`)
+
+1. **Done:** Rescan walks the organized inbox, `-poster.jpg` rides its video, and
+   an unsaved guide stays out (`index/src/lib.rs`, a new test, 24 index tests).
+2. **Done:** an ended screen capture stops the recording and says where, and the
+   dead recorder slot is dropped (`pull_latest`, `Recorded::capture_lost_at` and
+   `lost_note`, a new test).
+3. **Next:** format v1 with segments and one clock (notes below). The overlay is
+   RA1b, so a recording API and a test drive v1 here, not the palette.
+
+The release exe was rebuilt from main `95a6516` on 2026-11-05 (stamp
+`95a6516 · 2026-11-05 23:40z`).
+
 ### RA1a design notes, from reading `engine-capture/src/lib.rs:1275-1430`
 
 - **Frozen video, the cause.** `record_monitor_ctl` reads frames with
