@@ -12,13 +12,18 @@
 //! all output paths
 //! use forward slashes. Linux X11 is expected-good; Wayland is the known gap
 //! (old-app:docs/screen-capture.md, open item #18).
+//!
+//! RA1a adds `recording`: the whole monitor in segments with one frame clock,
+//! so pause and resume work and everything shares the video's timeline.
+pub mod recording;
+
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use xcap::{Frame, Monitor, VideoRecorder};
@@ -235,9 +240,28 @@ pub struct Recorded {
     pub frames: u32,
     /// Wall-clock seconds the recording loop actually ran.
     pub seconds: f64,
+    /// Seconds in when the screen capture itself ended (a lock screen or a
+    /// permission prompt can end it), if it did. The recording stops there and
+    /// keeps what came before, rather than repeating the last frame as "saved".
+    pub capture_lost_at: Option<f64>,
 }
 
 impl Recorded {
+    /// Said after "saved" when the screen capture ended early; empty otherwise.
+    pub fn lost_note(&self) -> String {
+        match self.capture_lost_at {
+            Some(at) => {
+                let whole = at as u64;
+                format!(
+                    " — the screen capture stopped at {}:{:02} (a lock screen or a permission prompt can do this); everything before it is kept",
+                    whole / 60,
+                    whole % 60
+                )
+            }
+            None => String::new(),
+        }
+    }
+
     /// How far the video timeline (frames ÷ 30) strays from the wall clock a
     /// live microphone records against. File durations cannot show this:
     /// `-shortest` trims both streams to the same length however far apart
@@ -296,6 +320,27 @@ fn finish_recording(
     }
     verify_recording(out_path, want_audio)?;
     Ok(recorded)
+}
+
+/// Take the newest frame waiting, or wait briefly for a first one. False once
+/// the capture has ended: xcap's capture thread stops on most capture errors,
+/// while an idle screen only sends nothing, so silence is never taken for this.
+fn pull_latest<T>(rx: &Receiver<T>, last: &mut Option<T>, wait: Duration) -> bool {
+    loop {
+        match rx.try_recv() {
+            Ok(frame) => *last = Some(frame),
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => return false,
+        }
+    }
+    if last.is_none() {
+        match rx.recv_timeout(wait) {
+            Ok(frame) => *last = Some(frame),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => return false,
+        }
+    }
+    true
 }
 
 /// The instant frame `tick` is due at exactly 30 fps. Computed from the start,
@@ -364,18 +409,15 @@ fn record_monitor(
     let start = Instant::now();
     let mut tick = 0u64;
     let mut frames = 0u32;
-    let mut last: Option<Vec<u8>> = None;
+    let mut last = None;
+    let mut capture_lost_at = None;
     let mut crop_buf = crop.map(|c| vec![0u8; (c.w * c.h * 4) as usize]);
     while start.elapsed() < Duration::from_secs(seconds.max(1) as u64) {
-        while let Ok(f) = rx.try_recv() {
-            last = Some(f.raw);
+        if !pull_latest(&rx, &mut last, Duration::from_millis(300)) {
+            capture_lost_at = Some(start.elapsed().as_secs_f64());
+            break;
         }
-        if last.is_none() {
-            if let Ok(f) = rx.recv_timeout(Duration::from_millis(300)) {
-                last = Some(f.raw);
-            }
-        }
-        if let Some(ref buf) = last {
+        if let Some(buf) = last.as_ref().map(|frame: &Frame| &frame.raw) {
             let wrote = match (crop, crop_buf.as_mut()) {
                 (Some(c), Some(cbuf)) => {
                     if crop_frame(buf, full_w, &c, cbuf) {
@@ -401,7 +443,12 @@ fn record_monitor(
     let seconds = start.elapsed().as_secs_f64();
     recorder.stop().ok();
     drop(stdin);
-    finish_recording(ff, tail, Recorded { frames, seconds }, out_path, false).map(|r| r.frames)
+    let recorded = Recorded {
+        frames,
+        seconds,
+        capture_lost_at,
+    };
+    finish_recording(ff, tail, recorded, out_path, false).map(|r| r.frames)
 }
 
 fn primary_monitor() -> Result<Monitor, String> {
@@ -609,7 +656,7 @@ pub fn list_targets() -> (Vec<MonitorInfo>, Vec<WindowInfo>) {
     (monitors, windows)
 }
 
-fn monitor_by_id(id: u32) -> Result<Monitor, String> {
+pub(crate) fn monitor_by_id(id: u32) -> Result<Monitor, String> {
     Monitor::all()
         .map_err(|e| format!("Monitor::all: {e}"))?
         .into_iter()
@@ -1273,16 +1320,22 @@ fn recorders() -> &'static Mutex<HashMap<u32, (VideoRecorder, Receiver<Frame>)>>
 }
 
 /// The Start/Stop recorder: same constant-fps xcap→ffmpeg pipe as `record_monitor`,
-/// but the loop runs until `stop` is set (or `opts.max_seconds` elapses), the
+/// but the loop runs while `go_on` says so (and until `opts.max_seconds`), the
 /// encoder/container/scale come from `opts`, and an optional audio device is muxed
 /// in as a second input. Returns what the verified recording proves: frames
 /// written and the wall-clock seconds the loop ran.
-fn record_monitor_ctl(
+///
+/// `clock` is set for one segment of a longer recording (RA1a): each frame
+/// written advances it, so everything stamped from it shares the video's
+/// timeline, and a segment that ended before any frame arrived is dropped
+/// rather than refused.
+pub(crate) fn record_monitor_ctl(
     mon: &Monitor,
     crop: Option<CropRect>,
     out_path: &str,
     opts: &VideoOpts,
-    stop: &AtomicBool,
+    go_on: &dyn Fn() -> bool,
+    clock: Option<&AtomicU64>,
 ) -> Result<Recorded, String> {
     let full_w = mon.width().map_err(|e| format!("width: {e}"))?;
     let full_h = mon.height().map_err(|e| format!("height: {e}"))?;
@@ -1378,10 +1431,11 @@ fn record_monitor_ctl(
     let start = Instant::now();
     let mut tick = 0u64;
     let mut frames = 0u32;
-    let mut last: Option<Vec<u8>> = None;
+    let mut last = None;
+    let mut capture_lost_at = None;
     let mut crop_buf = crop.map(|c| vec![0u8; (c.w * c.h * 4) as usize]);
     loop {
-        if stop.load(Ordering::Relaxed) {
+        if !go_on() {
             break;
         }
         if let Some(cap) = opts.max_seconds {
@@ -1389,15 +1443,11 @@ fn record_monitor_ctl(
                 break;
             }
         }
-        while let Ok(f) = rx.try_recv() {
-            last = Some(f.raw);
+        if !pull_latest(rx, &mut last, Duration::from_millis(300)) {
+            capture_lost_at = Some(start.elapsed().as_secs_f64());
+            break;
         }
-        if last.is_none() {
-            if let Ok(f) = rx.recv_timeout(Duration::from_millis(300)) {
-                last = Some(f.raw);
-            }
-        }
-        if let Some(ref buf) = last {
+        if let Some(buf) = last.as_ref().map(|frame: &Frame| &frame.raw) {
             let wrote = match (crop, crop_buf.as_mut()) {
                 (Some(c), Some(cbuf)) => {
                     if crop_frame(buf, full_w, &c, cbuf) {
@@ -1412,6 +1462,9 @@ fn record_monitor_ctl(
                 break;
             }
             frames += 1;
+            if let Some(clock) = clock {
+                clock.fetch_add(1, Ordering::Release);
+            }
         }
         tick += 1;
         let next = frame_deadline(start, tick);
@@ -1425,8 +1478,24 @@ fn record_monitor_ctl(
     // Keep the recorder + frame channel CACHED in RECORDERS for the next clip —
     // dropping them would leak xcap's capture thread and burn this monitor's one
     // DXGI duplication. Just release the registry lock (at scope end) + ffmpeg.
+    // A capture that ended has no thread left to leak: its slot is dropped, so
+    // the next recording opens a fresh one instead of a dead one.
+    if capture_lost_at.is_some() {
+        reg.remove(&monitor_id);
+    }
     drop(stdin);
-    finish_recording(ff, tail, Recorded { frames, seconds }, out_path, has_audio)
+    let recorded = Recorded {
+        frames,
+        seconds,
+        capture_lost_at,
+    };
+    if clock.is_some() && frames == 0 {
+        // A segment paused or stopped before any frame arrived holds nothing.
+        let _ = ff.wait();
+        let _ = std::fs::remove_file(out_path);
+        return Ok(recorded);
+    }
+    finish_recording(ff, tail, recorded, out_path, has_audio)
 }
 
 /// Resolve a `RecTarget` to a monitor + optional crop, then record it Start/Stop
@@ -1437,10 +1506,11 @@ pub fn record_ctl_to(
     opts: &VideoOpts,
     stop: &AtomicBool,
 ) -> Result<Recorded, String> {
+    let go_on = || !stop.load(Ordering::Relaxed);
     match target {
         RecTarget::Monitor(id) => {
             let mon = monitor_by_id(id)?;
-            record_monitor_ctl(&mon, None, out_path, opts, stop)
+            record_monitor_ctl(&mon, None, out_path, opts, &go_on, None)
         }
         RecTarget::Region(frac) => {
             let mon = primary_monitor()?;
@@ -1449,7 +1519,7 @@ pub fn record_ctl_to(
                 _ => return Err("bad monitor size".into()),
             };
             let crop = to_crop(frac, fw, fh).ok_or("region too small or out of bounds")?;
-            record_monitor_ctl(&mon, Some(crop), out_path, opts, stop)
+            record_monitor_ctl(&mon, Some(crop), out_path, opts, &go_on, None)
         }
         RecTarget::Window(id) => {
             let win = window_by_id(id)?;
@@ -1475,7 +1545,7 @@ pub fn record_ctl_to(
                 h: f64::from(wh) / f64::from(fh),
             };
             let crop = to_crop(frac, fw, fh).ok_or("window is off-screen or too small")?;
-            record_monitor_ctl(&mon, Some(crop), out_path, opts, stop)
+            record_monitor_ctl(&mon, Some(crop), out_path, opts, &go_on, None)
         }
     }
 }
@@ -1581,6 +1651,7 @@ mod honest_media_tests {
         let on_clock = Recorded {
             frames: 1799,
             seconds: 59.98,
+            capture_lost_at: None,
         };
         assert!(on_clock.drift_seconds() < 1.0 / 30.0);
         // The old fixed 33 ms step wrote ~1818 frames a minute: the video ran
@@ -1588,8 +1659,50 @@ mod honest_media_tests {
         let old_pacing = Recorded {
             frames: 1818,
             seconds: 60.0,
+            capture_lost_at: None,
         };
         assert!(old_pacing.drift_seconds() > 0.5);
+    }
+
+    /// RA1a: an idle screen only sends nothing, but an ended capture
+    /// disconnects. The first keeps recording; the second stops it, and the
+    /// status says where.
+    #[test]
+    fn an_ended_capture_stops_the_recording_and_idle_never_does() {
+        let (send, frames) = std::sync::mpsc::channel::<u8>();
+        let mut last = None;
+        assert!(
+            pull_latest(&frames, &mut last, Duration::from_millis(5)),
+            "idle: still recording"
+        );
+        send.send(7).unwrap();
+        send.send(8).unwrap();
+        assert!(pull_latest(&frames, &mut last, Duration::from_millis(5)));
+        assert_eq!(last, Some(8), "the newest frame wins");
+        drop(send);
+        assert!(
+            !pull_latest(&frames, &mut last, Duration::from_millis(5)),
+            "ended: stop"
+        );
+
+        let lost = Recorded {
+            frames: 2475,
+            seconds: 82.5,
+            capture_lost_at: Some(82.4),
+        };
+        assert!(
+            lost.lost_note().contains("stopped at 1:22"),
+            "{}",
+            lost.lost_note()
+        );
+        assert_eq!(
+            Recorded {
+                capture_lost_at: None,
+                ..lost
+            }
+            .lost_note(),
+            ""
+        );
     }
 
     #[test]
