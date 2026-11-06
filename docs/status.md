@@ -312,8 +312,10 @@ release) are still to come.
 
 0. **Recording for AI** (R294, `docs/plans/recording-for-ai.md`, draft PR #312):
    ruled 2026-11-04, a native clip renderer, tuning in Python behind one command,
-   and §5b signed off. **Approved 2026-11-05.** Next is **RA1a**, the format and
-   engine (§4.6), then RA1b, RA1c and RA1d.
+   and §5b signed off. **Approved 2026-11-05.** **RA1a done** (#313, `fd61108`):
+   recordings pause and resume on one clock, Rescan keeps organized captures, and
+   a screen capture that ends says so. Next is **RA1b**, the overlay pill (§4.6),
+   then RA1c and RA1d.
 1. **Portable, linked storage** (`docs/plans/portable-storage.md`): ST1,
    ST1b, ST2a/b, ST5a, ST5a′ and ST5b are done. **ST3** is parked unmerged
    (`feat/portable-storage-st3`), then ST4. The operator's own USB drive check (§6) is owed, and
