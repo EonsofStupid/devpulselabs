@@ -151,6 +151,34 @@ compositor over Remotion. **The operator named Remotion, so that is their call.*
 - **RA1a must fix, not inherit:** the non-recursive rescan that hides organized
   captures, and the frozen-video loop that saves a dead stream as fine (§4.6).
 
+### RA1a design notes, from reading `engine-capture/src/lib.rs:1275-1430`
+
+- **Frozen video, the cause.** `record_monitor_ctl` reads frames with
+  `while let Ok(f) = rx.try_recv()` (`:1392`) and `recv_timeout` (`:1396`), so it never
+  sees `Disconnected` when xcap's capture thread dies. It keeps writing `last` forever.
+  - **Fix:** on `Disconnected`, end the segment, evict that monitor's `RECORDERS` slot
+    (`:1348`) so the next recording recreates it, and report "the screen capture
+    stopped at mm:ss; what was recorded until then is kept".
+  - An idle screen legitimately sends no frames (WGC is change-driven), so only
+    `Disconnected` counts as dead, never silence.
+- **Segments.** Each segment is one ffmpeg process with its own audio input:
+  `finish_recording` (`:273`) per segment.
+  - Pause: drop stdin, finish, record the segment. Resume: spawn the next, rebase
+    `start` and `tick` (`:1378-1379`), and drain the channel first (`:1358`).
+  - A segment with zero frames is dropped, not an error (`:285`).
+- **One clock.** One recorder-owned frame counter runs across segments. Every event
+  records `frame` plus `ms` on the recorder's clock, never the UI drain time
+  (`viziwiz/src/session.rs:83`).
+- **Format v1** (a new folder kind, under the document law):
+  - `recording.json`: `v: 1`, `kind: "recording"`, the monitor (id, width, height),
+    30 fps, streams on or off, and `segments[]`, each with file, first frame, frames,
+    start ms, seconds and audio.
+  - `segment-NNN.mp4`, `events.jsonl` and `poster.jpg` beside it.
+  - The index's `folder_kind` (`index/src/lib.rs:851`) learns it.
+- **The rescan fix** lands first, with a test, since organized captures already
+  vanish: `scan_inbox` (`index/src/lib.rs:878-891`) walks every bucket, and reindex
+  (`:480`) clears only rows whose file is really gone.
+
 ## Earlier next step (superseded)
 
 Land ST3 only on the operator's word. Then: the research digests in

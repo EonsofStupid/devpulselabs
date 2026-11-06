@@ -872,14 +872,24 @@ fn kind_of(path: &Path) -> Option<&'static str> {
 }
 
 /// Scan `root/inbox` for artifacts: media files (skipping sidecars,
-/// transients, and a video's poster jpg) and guide folders (a subfolder
-/// holding guide.json). Fs facts + sidecar-authored fields merge into
-/// full Records.
+/// transients, and a video's poster) and artifact folders (a guide or a
+/// session). Fs facts + sidecar-authored fields merge into full Records.
 fn scan_inbox(root: &Path) -> Result<Vec<Record>, String> {
-    let inbox = root.join("inbox");
     let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(&inbox) else {
-        return Ok(out); // no inbox yet = an honest empty scan
+    // No inbox yet = an honest empty scan.
+    scan_inbox_dir(root, &root.join("inbox"), &mut out);
+    Ok(out)
+}
+
+/// One folder of the inbox, every level down: captures land organized in
+/// `inbox/<bucket>/<kind>/`, so a scan of the top level alone missed them, and
+/// reindex then cleared their rows (RA1a). An artifact folder is one record and
+/// is not entered. A folder of step pictures with no guide.json (a guide closed
+/// before Save) is skipped, as it always was. A linked folder is recorded when it
+/// is an artifact, but never walked.
+fn scan_inbox_dir(root: &Path, dir: &Path, out: &mut Vec<Record>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -887,6 +897,8 @@ fn scan_inbox(root: &Path) -> Result<Vec<Record>, String> {
         if path.is_dir() {
             if let Some(kind) = folder_kind(&path) {
                 out.push(record_for(&path, root, kind, &name));
+            } else if !entry.file_type().is_ok_and(|t| t.is_symlink()) && !unsaved_guide(&path) {
+                scan_inbox_dir(root, &path, out);
             }
             continue;
         }
@@ -898,20 +910,44 @@ fn scan_inbox(root: &Path) -> Result<Vec<Record>, String> {
             continue;
         }
         let Some(kind) = kind_of(&path) else { continue };
-        // The poster law: `vix.jpg` beside `vix.mp4` is a companion, not
-        // an artifact of its own.
-        if kind == "image" {
-            let stem = path.with_extension("");
-            if ["mp4", "webm", "mkv"]
-                .iter()
-                .any(|v| stem.with_extension(v).is_file())
-            {
-                continue;
-            }
+        if kind == "image" && is_poster(&path) {
+            continue;
         }
         out.push(record_for(&path, root, kind, &name));
     }
-    Ok(out)
+}
+
+const VIDEO_EXTENSIONS: [&str; 3] = ["mp4", "webm", "mkv"];
+
+/// The poster law: a video's companion picture is not an artifact of its own.
+/// Both names are in use: `vix.jpg` and the capture convention `vix-poster.jpg`.
+fn is_poster(path: &Path) -> bool {
+    let beside = |stem: &Path| VIDEO_EXTENSIONS.iter().any(|v| stem.with_extension(v).is_file());
+    let stem = path.with_extension("");
+    if beside(&stem) {
+        return true;
+    }
+    stem.to_str()
+        .and_then(|s| s.strip_suffix("-poster"))
+        .is_some_and(|video| beside(Path::new(video)))
+}
+
+/// The poster that rides a video, under either name `is_poster` knows.
+fn poster_of(video: &Path) -> Option<PathBuf> {
+    let stem = video.file_stem()?.to_string_lossy();
+    [video.with_file_name(format!("{stem}-poster.jpg")), video.with_extension("jpg")]
+        .into_iter()
+        .find(|poster| poster.is_file())
+}
+
+/// A guide closed before Save: its step pictures with no guide.json.
+fn unsaved_guide(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            name.starts_with("step-") && name.ends_with(".webp")
+        })
+    })
 }
 
 /// Walk a location for images and videos, every level down. Folders a
@@ -995,8 +1031,7 @@ fn record_for(path: &Path, root: &Path, kind: &str, file_name: &str) -> Record {
         ..Record::default()
     };
     if kind == "video" {
-        let poster = path.with_extension("jpg");
-        if poster.is_file() {
+        if let Some(poster) = poster_of(path) {
             r.poster_rel_path = Some(rel_path_of(&poster, root));
         }
     }
@@ -1283,6 +1318,49 @@ mod tests {
             }
         );
         assert_eq!(ix.recent(10, None).unwrap().len(), 2);
+    }
+
+    /// RA1a: captures land in `inbox/<bucket>/<kind>/`. A scan of the top level
+    /// alone missed them, and reindex cleared their rows. Every level is walked
+    /// now; a `-poster.jpg` rides its video; an unsaved guide stays out.
+    #[test]
+    fn reindex_keeps_organized_captures_and_their_posters() {
+        let root = scratch("organized");
+        let video = root.join("inbox").join("brainstorm").join("video");
+        let session = root.join("inbox").join("brainstorm").join("session").join("s1");
+        let image = root.join("inbox").join("brainstorm").join("image");
+        let unsaved = root.join("inbox").join("guide-2");
+        for dir in [&video, &session, &image, &unsaved] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(video.join("clip.mp4"), b"vid").unwrap();
+        std::fs::write(video.join("clip-poster.jpg"), b"poster").unwrap();
+        std::fs::write(session.join("session.mp4"), b"vid").unwrap();
+        std::fs::write(session.join("session.jpg"), b"poster").unwrap();
+        std::fs::write(image.join("shot.png"), b"img").unwrap();
+        std::fs::write(unsaved.join("step-001.webp"), b"step").unwrap();
+
+        let ix = Index::open(&root.join("artifacts.db")).unwrap();
+        let report = ix.reindex(&root).unwrap();
+        assert_eq!(report.indexed, 3, "the video, the session and the picture");
+        let video_rows = ix.list(Some("video"), None).unwrap();
+        assert_eq!(video_rows.len(), 1, "the poster is not a row of its own");
+        assert_eq!(
+            video_rows[0].poster_rel_path.as_deref(),
+            Some("inbox/brainstorm/video/clip-poster.jpg")
+        );
+        assert_eq!(
+            ix.list(Some("session"), None).unwrap()[0].rel_path,
+            "inbox/brainstorm/session/s1"
+        );
+        assert!(
+            ix.recent(10, None).unwrap().iter().all(|r| !r.rel_path.contains("guide-2")),
+            "a guide closed before Save stays out, as before"
+        );
+
+        // A second rescan keeps them: nothing organized is cleared.
+        let again = ix.reindex(&root).unwrap();
+        assert_eq!(again, ReindexReport { indexed: 3, cleared: 0 });
     }
 
     #[test]
