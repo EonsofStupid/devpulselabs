@@ -46,6 +46,13 @@ The tool depot is staged beside it from
   - Deleted docs stay readable at `git show docs-history-2026-10-12:<path>`.
 - **PRs, not direct pushes**: branch → `gh pr create` → merge. Pre-release
   means move fast, not push blind.
+- **One milestone, one PR, one CI run** (R296): push the branch as often as
+  needed, because CI only runs once a PR exists. Open the PR when the
+  milestone is complete, with its docs, rulings and status inside it. A
+  status note, a one-line fix or a single dependency bump rides with the
+  milestone it belongs to, never its own PR. Keep one PR open at a time, so
+  a merge never forces another PR to rebuild. The gate itself is never
+  reduced to save time.
 - **MERGE ONLY ON DOUBLE-GREEN** (2026-07-29 incident law): never merge a
   PR until BOTH Actions lanes (`green-windows` + `green-linux`) are
   COMPLETED SUCCESS — `gh pr checks <n> --watch` first, then merge. The
@@ -97,6 +104,8 @@ The tool depot is staged beside it from
   `git config core.hooksPath .githooks` once) runs formatting and clippy
   only (R295). Never bypass it with --no-verify. The full gate, `cargo
   green`, runs on both hosted lanes for every PR (see CI below).
+- Never share one `CARGO_TARGET_DIR` between worktrees of this repo: cargo
+  reuses another branch's compiled crates and reports false errors.
 - Harness flags (ground-truthed vs `crates/app/src/main.rs` 2026-07-27):
   `--screenshot <png> --shot-frame <n> --route <hub/sub> --focus <id>
   --lib-section <slug> --author-editor --author-container <kind>
@@ -147,6 +156,7 @@ The tool depot is staged beside it from
 
 ## Session end (every session, no exceptions)
 
-1. Land the work on `main` via PR. 2. Rebuild `target\release\
+1. Land a finished milestone on `main` via PR; push an unfinished one to its
+branch and say so in `docs/status.md`. 2. Rebuild `target\release\
 devpulselabs.exe` HERE and verify mtime. 3. Rewrite `docs/status.md` (now /
 known broken / next — rewritten, never appended).
