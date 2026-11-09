@@ -1159,14 +1159,15 @@ impl Viziwiz {
                 self.status = match result {
                     Ok(recorded) => {
                         let frames = recorded.frames;
+                        let lost = recorded.lost_note();
                         self.last_video = Some((out.clone(), recorded));
                         let pending = self.seed_pending(CaptureKind::Video, out.clone(), None, 0);
                         match self.land(pending) {
                             LandOutcome::Filed(warn) => {
-                                format!("saved {} ({frames} frames){warn}", out.display())
+                                format!("saved {} ({frames} frames){lost}{warn}", out.display())
                             }
                             LandOutcome::Pending => format!(
-                                "saved {} ({frames} frames) — review on the Save card",
+                                "saved {} ({frames} frames){lost} — review on the Save card",
                                 out.display()
                             ),
                         }
@@ -1194,9 +1195,10 @@ impl Viziwiz {
                 };
                 self.status = match result {
                     Ok(recorded) => format!(
-                        "session saved {} ({} frames · {n} events){suffix}",
+                        "session saved {} ({} frames · {n} events){}{suffix}",
                         dir.display(),
-                        recorded.frames
+                        recorded.frames,
+                        recorded.lost_note()
                     ),
                     Err(e) => format!("session video: {e} · partial kept ({n} events){suffix}",),
                 };
