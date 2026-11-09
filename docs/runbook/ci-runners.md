@@ -12,6 +12,10 @@ Windows publishes the app/helper pair only from main after its full gate
 passes, retained for one day (#310). PRs run the same build/test gate without
 uploading. Missing main artifacts or failed uploads remain failures.
 
+Nightly builds are manual (R295): `gh workflow run nightly` publishes the
+rolling `nightly` release for Windows, Linux x64 and Linux ARM. The local
+pre-push hook runs formatting and clippy; the full gate runs on both lanes.
+
 **Never connect self-hosted runners to this public repository's
 `pull_request` workflows.** Before changing visibility, disable Actions
 dispatch, check for active jobs, deregister this repository's idle estate

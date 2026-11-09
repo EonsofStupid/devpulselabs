@@ -1,6 +1,7 @@
 name: nightly
 
 # Rolling nightlies on GITHUB-HOSTED runners → GitHub Release tag `nightly`.
+# Manual since 2026-11-09 (R295): `gh workflow run nightly` or the Actions tab.
 #
 # Self-hosted until 2026-07-30: the estate runners were deregistered when the
 # repo went public (green moved to hosted in #168) and this workflow was left
@@ -16,9 +17,6 @@ name: nightly
 # private tools via `cargo xtask stage-tool-deps`.
 
 on:
-  schedule:
-    # 07:15 UTC daily — after the usual overnight quiet window.
-    - cron: "15 7 * * *"
   workflow_dispatch:
 
 permissions:
