@@ -309,7 +309,11 @@ fn read_bodymovin_json(path: &Path) -> Option<Vec<u8>> {
     // dotLottie layout: manifest.json + animations/<id>.json. Pick the
     // first animation JSON (or any non-manifest .json).
     let names: Vec<String> = (0..zip.len())
-        .filter_map(|i| zip.by_index(i).ok().map(|e| e.name().to_string()))
+        .filter_map(|i| {
+            let entry = zip.by_index(i).ok()?;
+            let name = entry.name().ok()?.to_string();
+            Some(name)
+        })
         .collect();
     let pick = names
         .iter()
