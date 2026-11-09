@@ -2311,3 +2311,13 @@ Source: `docs-history-2026-10-12:docs/plans/chat-native-program.md:17`
 Source: operator session, 2026-10-30. Authorizes public repository visibility
 and the corresponding hosted CI, security settings and branch protection.
 
+### R295 · 2026-11-09
+
+> im not running any strict strange CI am I for this since I still do not even have an offocial release
+
+> we need them merged please i want them merged and i want one established version so i know where i am and we can then moveforward
+
+Source: operator session, 2026-11-09, approving a proposal to lighten CI with
+"yes now". Authorizes a formatting-and-clippy pre-push hook, manual nightly
+builds, landing the outstanding branches, and one established version.
+

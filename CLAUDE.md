@@ -93,10 +93,10 @@ The tool depot is staged beside it from
     set `CONTENT_ROOT` to a disposable absolute scratch content folder;
     clear or redirect `ASSETS_ROOT` and `USERDATA_ROOT` as well. No test
     should discover the operator's library implicitly.
-- The gate is WIRED as a pre-push hook (`.githooks/pre-push`; fresh
-  clones run `git config core.hooksPath .githooks` once). Never bypass
-  with --no-verify. The hook proves the pusher's own OS only — the two
-  hosted lanes are what prove the other one (see CI below).
+- The pre-push hook (`.githooks/pre-push`; fresh clones run
+  `git config core.hooksPath .githooks` once) runs formatting and clippy
+  only (R295). Never bypass it with --no-verify. The full gate, `cargo
+  green`, runs on both hosted lanes for every PR (see CI below).
 - Harness flags (ground-truthed vs `crates/app/src/main.rs` 2026-07-27):
   `--screenshot <png> --shot-frame <n> --route <hub/sub> --focus <id>
   --lib-section <slug> --author-editor --author-container <kind>
@@ -139,6 +139,8 @@ The tool depot is staged beside it from
 - Keep `main` protected: PRs, resolved review conversations and both green
   checks are required; force pushes and branch deletion are disabled.
   Verify completed checks with `gh pr checks <n> --watch` before merging.
+- Nightly builds are manual (R295): `gh workflow run nightly` publishes the
+  rolling `nightly` release.
 - Workflow tokens have read-only default permissions and cannot approve
   PRs. All external fork contributors require workflow approval. Report
   suspected vulnerabilities through the private route in `SECURITY.md`.

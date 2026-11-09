@@ -158,8 +158,41 @@ compositor over Remotion. **The operator named Remotion, so that is their call.*
 2. **Done:** an ended screen capture stops the recording and says where, and the
    dead recorder slot is dropped (`pull_latest`, `Recorded::capture_lost_at` and
    `lost_note`, a new test).
-3. **Next:** format v1 with segments and one clock (notes below). The overlay is
-   RA1b, so a recording API and a test drive v1 here, not the palette.
+3. **Done:** `engine-capture/src/recording.rs`: `Recording` (state and frame clock),
+   `Manifest` (v1, saved after each segment), and `record()`. `record_monitor_ctl`
+   takes a keep-going check and an optional clock. The index knows a recording folder.
+   `capture-cli record <dir> <s> [<pause> <resume>]` takes `FFMPEG=<depot ffmpeg>`.
+   - The real-screen proof was operator-approved (screen only, deleted after):
+     segments 0–47 and 47–107, the clock held through the pause.
+   - About 0.43 s of startup isn't captured.
+4. **Landed:** #313 merged as `fd61108` on double-green (Linux 14m57s, Windows
+   19m17s). The release exe was rebuilt from it (stamp `fd61108 · 2026-11-06 08:45z`).
+   RA1b is branched from it, as `feat/recording-ra1b`.
+
+**Next: RA1b, the overlay** (§4.6). First read `viziwiz/src/lib.rs:1225-1320`
+(the palette viewport and the Steps pill), `palette.rs:325-349,443-470,669`, and
+`xtask/src/main.rs:1493,1626` (`EGUI_FREE`, `LINTS_OVERRIDE_ALLOWED`). Model the new
+leaf crate on `crates/lottie-render`. Its two Windows calls are `WS_EX_NOACTIVATE`
+and `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`; whether the second hides
+the pill from xcap's capture is the open question, proven with `capture-cli`.
+
+**RA1b grounding (2026-11-06), simpler than planned:**
+- **Capture exclusion needs no new unsafe.** egui has
+  `ViewportCommand::ContentProtected(bool)` (`egui-winit-0.36.1/src/lib.rs:1914`).
+  winit 0.30.13 implements it as `SetWindowDisplayAffinity(hwnd,
+  WDA_EXCLUDEFROMCAPTURE)` (`winit/src/platform_impl/windows/window.rs:1029`). Send
+  it to the pill's viewport. Prove xcap honours it with `capture-cli`.
+- **No-activate keeps ADR-009's subprocess model.** winit doesn't expose
+  `WS_EX_NOACTIVATE` for app windows (only internally). Windows allows
+  `SetWindowLongPtrW(GWL_EXSTYLE)` from another process at the same integrity level;
+  only `GWLP_WNDPROC` is refused across processes, and SetWindowDisplayAffinity is
+  the call that must come from the owner.
+  - So the tiny crate can be a spawned helper like `dpl-lottie-render`: it finds the
+    pill by process id and title (`EnumWindows`) and adds `WS_EX_NOACTIVATE` with
+    `SWP_FRAMECHANGED`. No unsafe in the app process.
+  - Verify it on a real window before relying on it.
+- **Still owed in RA1b:** the hit-test (`engine-capture/src/lib.rs:854`), so taps
+  on the pill aren't logged as clicks in the recorded app.
 
 The release exe was rebuilt from main `95a6516` on 2026-11-05 (stamp
 `95a6516 · 2026-11-05 23:40z`).
