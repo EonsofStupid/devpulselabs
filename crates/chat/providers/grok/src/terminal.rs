@@ -1,5 +1,5 @@
 use super::allowed_environment_keys;
-use agent_client_protocol::schema::v1::{
+use agent_client_protocol::v1::schema::{
     CreateTerminalRequest, CreateTerminalResponse, KillTerminalRequest, KillTerminalResponse,
     ReleaseTerminalRequest, ReleaseTerminalResponse, TerminalExitStatus, TerminalOutputRequest,
     TerminalOutputResponse, WaitForTerminalExitRequest, WaitForTerminalExitResponse,
@@ -306,7 +306,7 @@ fn public_io_reason(error: &std::io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol::schema::v1::SessionId;
+    use agent_client_protocol::v1::schema::SessionId;
 
     #[test]
     fn terminal_rejects_working_directories_outside_the_workspace() {

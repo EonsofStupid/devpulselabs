@@ -15,13 +15,18 @@ operator's words) → [`README.md`](README.md) (the map of every doc).
 
 **Updated:** 2026-11-09. **Baseline `v0.1.0` (R295, R296):** the tag marks the
 merge of everything through RA1a (#313), ST3, and all ten open dependency
-updates, which clear the nine open security alerts. Chat resume (PC1b) landed
-after the tag, with native resume and standalone launch still disabled until
-they are qualified. **The operator put recording for AI first (R294,
+updates, which clear the nine open security alerts. Tag `v0.1.1` adds chat
+resume's code (PC1b), with native resume and standalone launch still disabled
+until they are qualified, and the next batch of dependency updates. **The operator put recording for AI first (R294,
 `docs/plans/recording-for-ai.md`, in draft for approval).**
 
 **Pre-release CI (R295).** The pre-push hook runs formatting and clippy only,
 and nightly builds run on request. Both hosted checks still gate every PR.
+
+**egui 0.37 is held back.** It lays text rows out 1-2 px taller, which shifts
+cards and truncates labels, so the app stays on egui 0.36. The working migration
+is saved on this machine as the tag `parked/egui-0.37-migration`, to land as its
+own milestone with a design pass.
 
 **Measured 2026-11-04:** a local vision model trained on the app's own labelled
 frames went from 37.9% to 90.8% on controls it never saw. PyTorch trained 12×
