@@ -275,6 +275,57 @@ impl ChatRuntime {
         Ok(())
     }
 
+    /// Commit one completely loaded native snapshot without restoring other
+    /// sessions or importing provider authority. The host saves the previous
+    /// project revision before replacement and attaches the live binding only
+    /// after this succeeds. Every draft, including inactive drafts, survives.
+    pub fn replace_session_history(
+        &mut self,
+        provider_id: ProviderId,
+        session: SessionSummary,
+        events: Vec<ChatEvent>,
+    ) -> Result<(), String> {
+        if session.provider_id != provider_id
+            || events
+                .iter()
+                .any(|event| event.provider_id != provider_id || event.session_id != session.id)
+        {
+            return Err("Native history contains mismatched provider/session identities".into());
+        }
+        let mut next = self.clone();
+        let entry = next
+            .entry_mut(provider_id)
+            .map_err(|error| error.to_string())?;
+        if entry.registration.sessions.iter().any(|old| {
+            (old.id == session.id && old.provider_session_id != session.provider_session_id)
+                || (old.id != session.id
+                    && session.provider_session_id.is_some()
+                    && old.provider_session_id == session.provider_session_id)
+        }) {
+            return Err(
+                "Native history would change or duplicate an existing session identity".into(),
+            );
+        }
+        let id = session.id;
+        next.upsert_session(provider_id, session)
+            .map_err(|error| error.to_string())?;
+        let entry = next
+            .entry_mut(provider_id)
+            .map_err(|error| error.to_string())?;
+        entry
+            .registration
+            .events
+            .retain(|event| event.session_id != id);
+        entry.registration.events.extend(events);
+        entry.active_session = Some(id);
+        next.selected_provider = Some(provider_id);
+        // The same bounds, duplicate-ID checks and content validation as a
+        // durable project save. Validate the clone, never read-only restore it.
+        next.archive()?;
+        *self = next;
+        Ok(())
+    }
+
     pub fn append_event(
         &mut self,
         provider_id: ProviderId,
@@ -437,6 +488,22 @@ impl ChatRuntime {
                 });
             }
             entry.registration.qualified_capabilities.insert(capability);
+        }
+        Ok(())
+    }
+
+    /// Qualification belongs to a live profile/connection, not its archive.
+    pub fn revoke_capabilities(
+        &mut self,
+        provider_id: ProviderId,
+        capabilities: impl IntoIterator<Item = Capability>,
+    ) -> Result<(), RegistryError> {
+        let entry = self.entry_mut(provider_id)?;
+        for capability in capabilities {
+            entry
+                .registration
+                .qualified_capabilities
+                .remove(&capability);
         }
         Ok(())
     }
@@ -622,6 +689,14 @@ mod tests {
                 capability: Capability::StreamTurns,
             })
         );
+        runtime
+            .revoke_capabilities(ID, [Capability::ReadSessions])
+            .unwrap();
+        assert!(!runtime
+            .selected_provider()
+            .unwrap()
+            .registration
+            .has_capability(Capability::ReadSessions));
     }
 
     #[test]
@@ -778,6 +853,51 @@ mod tests {
             events[0].content,
             ChatEventContent::StatusUpdated("The user is asking".into())
         );
+    }
+
+    #[test]
+    fn native_history_commit_preserves_other_sessions_and_every_draft() {
+        let mut runtime =
+            ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)]).unwrap();
+        runtime.upsert_session(ID, session(ID, 1, "saved")).unwrap();
+        runtime
+            .upsert_session(ID, session(ID, 2, "running"))
+            .unwrap();
+        runtime.set_draft(ID, "first draft".into()).unwrap();
+        runtime.select_session(ID, ChatSessionId(2)).unwrap();
+        runtime.set_draft(ID, "second draft".into()).unwrap();
+        runtime
+            .set_session_state(ID, ChatSessionId(2), SessionState::Running)
+            .unwrap();
+        let event = ChatEvent {
+            id: ChatEventId(1),
+            provider_id: ID,
+            session_id: ChatSessionId(1),
+            turn_id: None,
+            content: ChatEventContent::StatusUpdated("persisted history".into()),
+        };
+        runtime
+            .replace_session_history(ID, session(ID, 1, "native"), vec![event.clone()])
+            .unwrap();
+        let view = runtime.provider_view(ID).unwrap();
+        assert_eq!(view.draft, "first draft");
+        assert_eq!(view.registration.events, vec![event.clone()]);
+        assert_eq!(view.registration.sessions[1].state, SessionState::Running);
+        runtime.select_session(ID, ChatSessionId(2)).unwrap();
+        assert_eq!(runtime.provider_view(ID).unwrap().draft, "second draft");
+        let before = runtime.archive().unwrap();
+        let mut invalid = event;
+        invalid.session_id = ChatSessionId(2);
+        assert!(runtime
+            .replace_session_history(ID, session(ID, 1, "wrong"), vec![invalid])
+            .is_err());
+        assert_eq!(runtime.archive().unwrap(), before);
+        let mut oversized = session(ID, 1, "large");
+        oversized.title = "x".repeat(1024 * 1024 + 1);
+        assert!(runtime
+            .replace_session_history(ID, oversized, Vec::new())
+            .is_err());
+        assert_eq!(runtime.archive().unwrap(), before);
     }
 
     fn session(provider_id: ProviderId, id: u64, title: &str) -> SessionSummary {

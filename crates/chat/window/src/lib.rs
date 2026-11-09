@@ -45,6 +45,9 @@ pub use projects::{
 };
 
 pub const WINDOW_KEY: AppWindowKey = AppWindowKey("chat.primary");
+pub const RESUME_CHAT_ID: PilotId = PilotId::new("chat.session.resume");
+pub const REFRESH_NATIVE_CHATS_ID: PilotId = PilotId::new("chat.sessions.refresh-native");
+
 pub const LAUNCHER_ID: PilotId = PilotId::new("shell.window.chat");
 pub const AI_MODE_ID: PilotId = PilotId::new("chat.mode.ai");
 pub const ROOM_LIBRARY_ID: PilotId = PilotId::new("chat.library");
@@ -364,6 +367,11 @@ pub enum ChatWindowIntent {
         expanded: bool,
     },
     NewSession(ProviderId),
+    LoadSession {
+        provider: ProviderId,
+        session: ChatSessionId,
+    },
+    RefreshNativeSessions(ProviderId),
     SendTurn {
         provider: ProviderId,
         session: ChatSessionId,
@@ -558,6 +566,11 @@ pub enum HostIntent {
     SaveProviderProfile(ProviderProfileDraft),
     CopyProviderAuthorizationCode(ProviderId),
     NewSession(ProviderId),
+    LoadSession {
+        provider: ProviderId,
+        session: ChatSessionId,
+    },
+    RefreshNativeSessions(ProviderId),
     SendTurn {
         provider: ProviderId,
         session: ChatSessionId,
@@ -692,12 +705,20 @@ struct ProviderPermissionBinding {
     reject: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NativeSessionStatus {
+    pub qualified: bool,
+    pub loading: Option<ChatSessionId>,
+    pub listing: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct ChatWindow {
     runtime: ChatRuntime,
     project_view: ProjectView,
     project_ui: projects::ProjectUi,
     project_input_locked: bool,
+    native_sessions: BTreeMap<ProviderId, NativeSessionStatus>,
     route_context: RouteContextState,
     histories: HashMap<ProviderId, ProviderHistory>,
     /// The transcript the operator is reading, if any. Distinct from the live
@@ -862,6 +883,7 @@ impl ChatWindow {
             project_view: ProjectView::default(),
             project_ui: projects::ProjectUi::default(),
             project_input_locked: false,
+            native_sessions: BTreeMap::new(),
             route_context,
             histories,
             history_focus: None,
@@ -1376,6 +1398,12 @@ impl ChatWindow {
                 Ok(None)
             }
             ChatWindowIntent::NewSession(provider) => Ok(Some(HostIntent::NewSession(provider))),
+            ChatWindowIntent::LoadSession { provider, session } => {
+                Ok(Some(HostIntent::LoadSession { provider, session }))
+            }
+            ChatWindowIntent::RefreshNativeSessions(provider) => {
+                Ok(Some(HostIntent::RefreshNativeSessions(provider)))
+            }
             ChatWindowIntent::SendTurn {
                 provider,
                 session,
@@ -1594,6 +1622,56 @@ impl ChatWindow {
         capabilities: impl IntoIterator<Item = Capability>,
     ) -> Result<(), ChatWindowError> {
         self.runtime.qualify_capabilities(provider, capabilities)?;
+        Ok(())
+    }
+
+    pub fn set_native_session_status(&mut self, provider: ProviderId, status: NativeSessionStatus) {
+        if !status.qualified {
+            let _ = self
+                .runtime
+                .revoke_capabilities(provider, [Capability::ResumeSession]);
+        }
+        self.native_sessions.insert(provider, status);
+    }
+
+    pub fn merge_native_sessions(
+        &mut self,
+        provider: ProviderId,
+        sessions: Vec<SessionSummary>,
+    ) -> Result<(), String> {
+        let mut staged = self.runtime.clone();
+        for session in sessions {
+            staged
+                .upsert_session(provider, session)
+                .map_err(|error| error.to_string())?;
+        }
+        staged.archive()?;
+        self.runtime = staged;
+        Ok(())
+    }
+
+    pub fn replace_native_session_history(
+        &mut self,
+        provider: ProviderId,
+        session: SessionSummary,
+        events: Vec<ChatEvent>,
+    ) -> Result<(), String> {
+        let previous = self
+            .runtime
+            .provider_view(provider)
+            .and_then(|view| view.active_session);
+        let loaded = session.id;
+        let mut staged = self.runtime.clone();
+        staged.replace_session_history(provider, session, events)?;
+        // A slow load must not steal focus from a chat selected in the meantime.
+        if let Some(previous) = previous.filter(|previous| *previous != loaded) {
+            staged
+                .select_session(provider, previous)
+                .map_err(|error| error.to_string())?;
+        }
+        self.runtime = staged;
+        self.history_focus = None;
+        self.history_page = None;
         Ok(())
     }
 
@@ -2042,6 +2120,14 @@ impl ChatWindow {
                                 .has_capability(Capability::StartSession),
                     )
                 });
+                if let Some((provider, _, _)) = target {
+                    let status = self.native_sessions.get(&provider).copied().unwrap_or_default();
+                    if status.qualified {
+                        let response = sidebar_destination_button(ui, "Refresh saved chats", !status.listing && status.loading.is_none() && !self.project_input_locked);
+                        ui.pilot_track(&response, NodeMetadata::new(REFRESH_NATIVE_CHATS_ID, Role::Button, "Refresh saved chats"));
+                        if response.clicked() { intents.push(ChatWindowIntent::RefreshNativeSessions(provider)); }
+                    }
+                }
                 let can_start = target.is_some_and(|(_, _, can_start)| can_start);
                 let new_chat = sidebar_destination_button(ui, "＋  New chat", can_start);
                 let mut metadata = NodeMetadata::new(
@@ -3137,6 +3223,43 @@ impl ChatWindow {
             return;
         }
         if reading_project_archive {
+            let status = self
+                .native_sessions
+                .get(&descriptor.id)
+                .copied()
+                .unwrap_or_default();
+            if status.qualified {
+                if let Some(session) = provider.active_session.filter(|id| {
+                    provider
+                        .registration
+                        .sessions
+                        .iter()
+                        .any(|saved| saved.id == *id && saved.provider_session_id.is_some())
+                }) {
+                    let ready = status.loading.is_none()
+                        && !status.listing
+                        && !self.project_input_locked
+                        && provider.registration.activation.is_activated();
+                    let response = ui.add_enabled(
+                        ready,
+                        egui::Button::new(if status.loading == Some(session) {
+                            "Resuming chat..."
+                        } else {
+                            "Resume chat"
+                        }),
+                    );
+                    ui.pilot_track(
+                        &response,
+                        NodeMetadata::new(RESUME_CHAT_ID, Role::Button, "Resume saved chat"),
+                    );
+                    if response.clicked() {
+                        intents.push(ChatWindowIntent::LoadSession {
+                            provider: descriptor.id,
+                            session,
+                        });
+                    }
+                }
+            }
             ui.label(
                 RichText::new("Saved project chat — read-only")
                     .small()
@@ -3635,7 +3758,9 @@ impl ChatWindow {
                                 let reason = if reading_history {
                                     "This is a past transcript — it is read-only.".to_owned()
                                 } else if archived_session {
-                                    "Saved project chat is read-only. Start a new chat; native resume is not connected yet.".to_owned()
+                                    if self.native_sessions.values().any(|status| status.qualified) {
+                                        "Resume this saved chat before sending. Your draft stays here.".to_owned()
+                                    } else { "Saved project chat is read-only. Start a new chat; native resume is not connected yet.".to_owned() }
                                 } else if let Some(c) =
                                     command.as_ref().and_then(|d| dpl_chat_core::command(&d.slug))
                                 {
@@ -6350,6 +6475,42 @@ mod tests {
         for (intent, expected) in pairs {
             assert_eq!(window.apply(intent).unwrap(), Some(expected));
         }
+    }
+
+    #[test]
+    fn native_resume_is_explicit_and_does_not_replace_plain_archive_selection() {
+        let mut window = window();
+        window
+            .set_provider_session_state(PROVIDER, ChatSessionId(1), SessionState::ReadOnly)
+            .unwrap();
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::SelectSession {
+                    provider: PROVIDER,
+                    session: ChatSessionId(1)
+                })
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::LoadSession {
+                    provider: PROVIDER,
+                    session: ChatSessionId(1)
+                })
+                .unwrap(),
+            Some(HostIntent::LoadSession {
+                provider: PROVIDER,
+                session: ChatSessionId(1)
+            })
+        );
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::RefreshNativeSessions(PROVIDER))
+                .unwrap(),
+            Some(HostIntent::RefreshNativeSessions(PROVIDER))
+        );
+        assert!(window.project_session_read_only());
     }
 
     #[test]

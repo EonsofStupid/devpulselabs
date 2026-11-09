@@ -58,6 +58,15 @@ pub struct RuntimeSessionSummary {
     pub updated_at: Option<String>,
 }
 
+/// Persisted provider history, delivered only after an entire bounded load
+/// succeeds. Native identities make replay distinguishable from live tokens.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RuntimeHistoryItem {
+    pub provider_turn_id: String,
+    pub provider_item_id: String,
+    pub updates: Vec<RuntimeUpdate>,
+}
+
 /// A fragment of a turn, as it arrives.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeUpdate {
@@ -187,6 +196,12 @@ pub enum RuntimeEvent {
     SessionReady {
         provider_session_id: String,
         is_new: bool,
+    },
+    /// Atomic native attachment and history snapshot. Never account these
+    /// updates as live tokens; a failed load emits no partial snapshot.
+    SessionLoaded {
+        session: RuntimeSessionSummary,
+        items: Vec<RuntimeHistoryItem>,
     },
     TurnStarted {
         provider_session_id: String,
