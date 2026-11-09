@@ -94,7 +94,8 @@ Seven phases, stopping at the first red: `fmt --check` → docs status → spawn
 audit → **structure audit** → `clippy -D warnings` → workspace tests → release
 build with an exe-regression assert.
 
-It is wired as a pre-push hook. Fresh clones enable it once:
+The pre-push hook runs only the two fast checks, formatting and clippy. Fresh
+clones enable it once:
 
 ```bash
 git config core.hooksPath .githooks

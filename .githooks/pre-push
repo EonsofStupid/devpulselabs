@@ -1,6 +1,8 @@
 #!/bin/sh
-# The green gate, unskippable at the edge of the machine: nothing leaves
-# this repo without fmt + clippy -D warnings + tests + release build.
+# Fast check before a push: formatting and clippy -D warnings (R295).
+# The full gate, `cargo green`, runs on both hosted lanes for every PR.
 # Wired via `git config core.hooksPath .githooks` (see CLAUDE.md).
-echo "[pre-push] cargo green — the gate runs before anything leaves"
-cargo green
+set -e
+echo "[pre-push] fmt + clippy"
+cargo fmt --all -- --check
+cargo gate

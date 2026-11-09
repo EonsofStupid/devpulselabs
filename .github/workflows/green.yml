@@ -2,7 +2,8 @@ name: green
 
 # Public-repository CI runs only on disposable GitHub-hosted machines.
 # Estate registrations must stay removed; see docs/runbook/ci-runners.md.
-# Both platforms run the same cargo green gate as the local pre-push hook.
+# Both platforms run the full cargo green gate; the local pre-push hook runs
+# only formatting and clippy (R295).
 # rust-toolchain.toml pins the compiler, clippy, rustfmt and wasm target.
 
 on:

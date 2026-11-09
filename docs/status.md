@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-04
+updated: 2026-11-09
 active_lane: recording-for-ai
 dirty: false
 ---
@@ -17,6 +17,9 @@ operator's words) → [`README.md`](README.md) (the map of every doc).
 repository, hosted CI). **The operator put recording for AI first (R294,
 `docs/plans/recording-for-ai.md`, in draft for approval).** ST3 is parked unmerged
 on `feat/portable-storage-st3`, to land or drop on their word.
+
+**Pre-release CI (R295).** The pre-push hook runs formatting and clippy only,
+and nightly builds run on request. Both hosted checks still gate every PR.
 
 **Measured 2026-11-04:** a local vision model trained on the app's own labelled
 frames went from 37.9% to 90.8% on controls it never saw. PyTorch trained 12×
