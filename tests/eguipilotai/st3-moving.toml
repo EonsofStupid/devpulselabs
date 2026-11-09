@@ -1,0 +1,68 @@
+# ST3: a waiting move at launch, on the real exe. The scratch program folder
+# holds `move.toml` and a large file, so the copy is still running when the
+# first shot is taken. The move opens the library by itself, on its new
+# place, with its location still online.
+id = "st3-moving"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/library.moving/progress"
+
+# No capture here: a capture waits for a still screen, and the bar keeps moving.
+# The page's shot is taken with `--screenshot` (portable-storage.md §8, ST3).
+[[steps]]
+kind = "wait"
+milliseconds = 30000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "My library · on DevPULSE"
+
+[steps.expectation.target]
+id = "root/shell.status.library"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "online"
+
+[steps.expectation.target]
+role = "button"
+name = "near"
+
+[[steps]]
+kind = "capture"
+name = "moved"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.status.library"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.library/with-program"
+
+[[steps]]
+kind = "capture"
+name = "card-moved"

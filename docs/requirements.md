@@ -2321,3 +2321,10 @@ Source: operator session, 2026-11-09, approving a proposal to lighten CI with
 "yes now". Authorizes a formatting-and-clippy pre-push hook, manual nightly
 builds, landing the outstanding branches, and one established version.
 
+### R296 · 2026-11-09
+
+> i do not want shortcuts but I do want this smart, and I want it so we are not just writing bullshit one or two changes for a full CI run if that makes sense there has to be a proper way to have AI structured to ensure this all gets done correctly because I need my actualy baseline fully established first and i am losing so much time it feels like for no reason
+
+Source: operator session, 2026-11-09. Establishes one PR per milestone, grouped
+dependency updates, and the `v0.1.0` baseline.
+

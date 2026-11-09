@@ -1,0 +1,84 @@
+# ST3: moving the library back with the program, on the real exe, after
+# st3-ask moved it to a folder. Move it closes the app, which opens again and
+# moves; the result is checked on disk (docs/plans/portable-storage.md §8).
+id = "st3-back"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "My library · on DevPULSE"
+
+[steps.expectation.target]
+id = "root/shell.status.library"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "online"
+
+[steps.expectation.target]
+role = "button"
+name = "near"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.status.library"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.library/with-program"
+
+[[steps]]
+kind = "capture"
+name = "card-linked"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.library/with-program"
+
+# The plan is worked out on its own thread, so it takes a moment.
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.library/move"
+
+[[steps]]
+kind = "capture"
+name = "plan-back"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.library/move"

@@ -318,6 +318,7 @@ impl Shell {
         self.providers_open = false;
         self.presets_open = false;
         self.jobs_open = false;
+        self.library_open = false;
     }
 
     /// The job board: the missing consumer of the fabric's JobBoard
@@ -402,6 +403,208 @@ impl Shell {
         }
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.jobs_open = false;
+        }
+    }
+
+    /// The Library card (ST3): the library's name and folder, and Move my
+    /// library…. The card only asks: the app works out the plan, shows it
+    /// here, and on Move it records the move and restarts, so the copy runs
+    /// before anything opens the library (ruled 2026-10-31).
+    fn library_popup(&mut self, ui: &mut egui::Ui, status: Rect, just_toggled: bool) {
+        if !self.library_open {
+            return;
+        }
+        let Some(home) = self.library_home.clone() else {
+            self.library_open = false;
+            return;
+        };
+        let tone = self.active_tone();
+        let node = |key: &str| PilotId::new("shell.library").child(&PilotKey::new(key));
+        // The cell sits on the status bar's left, so the card opens there.
+        let width = 420.0_f32.min(status.width() - cl::space::S4 * 2.0);
+        let area = egui::Area::new(egui::Id::new("dpl_library_popup"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(
+                status.min.x + cl::space::S4,
+                status.min.y - cl::space::S3,
+            ))
+            .pivot(egui::Align2::LEFT_BOTTOM);
+        let (folder, plan) = (&mut self.library_folder, &mut self.library_plan);
+        let checking = self.library_checking;
+        let mut request = None;
+        let response = area.show(ui.ctx(), |ui| {
+            ui.set_width(width);
+            egui::Frame::new()
+                .fill(cl::surface::OVERLAY)
+                .corner_radius(egui::CornerRadius::same(cl::RADIUS_LG))
+                .inner_margin(egui::Margin::same(cl::space::S3 as i8))
+                .stroke(egui::Stroke::new(1.0, cl::surface::RAISED))
+                .show(ui, |ui| {
+                    let title = ui.label(
+                        RichText::new(format!("Your library — {}", home.label))
+                            .strong()
+                            .color(cl::ink::STRONG),
+                    );
+                    ui.pilot_track(
+                        &title,
+                        NodeMetadata::new(node("card"), Role::Label, &home.label)
+                            .value(home.path.clone()),
+                    );
+                    ui.label(RichText::new(&home.path).small().color(cl::ink::SUBTLE));
+                    ui.add_space(cl::space::S2);
+                    if home.drill {
+                        ui.label(
+                            RichText::new("This run uses a test library, so it can't be moved.")
+                                .small()
+                                .color(cl::ink::MUTED),
+                        );
+                        return;
+                    }
+                    if let Some(Ok(view)) = plan.clone() {
+                        let lines = [
+                            format!("From {}", view.from),
+                            format!("To {}", view.to.display()),
+                            view.size.clone(),
+                        ];
+                        for line in lines {
+                            ui.label(RichText::new(line).color(cl::ink::BASE));
+                        }
+                        ui.add_space(cl::space::S1);
+                        ui.label(
+                            RichText::new(
+                                "DevPULSE closes, copies your library there, checks every \
+                                 file, then opens it from there. Your old copy is kept and \
+                                 renamed, never deleted.",
+                            )
+                            .small()
+                            .color(cl::ink::MUTED),
+                        );
+                        ui.add_space(cl::space::S2);
+                        ui.horizontal_wrapped(|ui| {
+                            let go = ui
+                                .add_enabled_ui(!checking, |ui| {
+                                    launcher_chip(
+                                        ui,
+                                        cl::icon::LIBRARY,
+                                        "Move it",
+                                        tone,
+                                        "Close DevPULSE, copy your library to the new place, check it, then open it from there",
+                                    )
+                                })
+                                .inner;
+                            ui.pilot_track(
+                                &go,
+                                NodeMetadata::new(node("move"), Role::Button, "Move it"),
+                            );
+                            if go.clicked() {
+                                request = Some(LibraryRequest::Move(view.to.clone()));
+                            }
+                            let back = launcher_chip(
+                                ui,
+                                cl::icon::BACK,
+                                "Not now",
+                                tone,
+                                "Leave your library where it is",
+                            );
+                            ui.pilot_track(
+                                &back,
+                                NodeMetadata::new(node("not-now"), Role::Button, "Not now"),
+                            );
+                            if back.clicked() {
+                                *plan = None;
+                            }
+                        });
+                        return;
+                    }
+                    ui.label(
+                        RichText::new("Move my library…")
+                            .strong()
+                            .color(cl::ink::BASE),
+                    );
+                    ui.add_space(cl::space::S1);
+                    if home.linked {
+                        let keep = ui
+                            .add_enabled_ui(!checking, |ui| {
+                                launcher_chip(
+                                    ui,
+                                    cl::icon::HOME,
+                                    "Keep it with the program",
+                                    tone,
+                                    "Copy your library into the program's own folder, so it travels with DevPULSE",
+                                )
+                            })
+                            .inner;
+                        ui.pilot_track(
+                            &keep,
+                            NodeMetadata::new(
+                                node("with-program"),
+                                Role::Button,
+                                "Keep it with the program",
+                            ),
+                        );
+                        if keep.clicked() {
+                            request = Some(LibraryRequest::Plan(None));
+                        }
+                        ui.add_space(cl::space::S2);
+                    }
+                    ui.label(
+                        RichText::new("Or move it to a drive or folder")
+                            .small()
+                            .color(cl::ink::MUTED),
+                    );
+                    let field = cl::tip(
+                        ui.add(
+                            egui::TextEdit::singleline(folder)
+                                .hint_text("Paste the full path of an empty or new folder")
+                                .desired_width(f32::INFINITY),
+                        ),
+                        "The folder your library moves into. It must be empty, or not exist yet",
+                    );
+                    ui.pilot_track(
+                        &field,
+                        NodeMetadata::new(
+                            node("folder"),
+                            Role::TextInput,
+                            "Folder for your library",
+                        )
+                        .value(folder.clone()),
+                    );
+                    ui.add_space(cl::space::S1);
+                    let check = ui
+                        .add_enabled_ui(!checking && !folder.trim().is_empty(), |ui| {
+                            launcher_chip(
+                                ui,
+                                cl::icon::MARK,
+                                if checking { "Checking…" } else { "Check" },
+                                tone,
+                                "See what moving your library there would copy, before anything moves",
+                            )
+                        })
+                        .inner;
+                    ui.pilot_track(
+                        &check,
+                        NodeMetadata::new(node("check"), Role::Button, "Check"),
+                    );
+                    if check.clicked() {
+                        request = Some(LibraryRequest::Plan(Some(folder.trim().to_owned())));
+                    }
+                    if let Some(Err(error)) = plan.as_ref() {
+                        ui.add_space(cl::space::S1);
+                        let refused = ui.label(RichText::new(error).small().color(Tone::Amber.color()));
+                        ui.pilot_track(&refused, NodeMetadata::new(node("refused"), Role::Alert, error));
+                    }
+                })
+                .inner
+        });
+        if request.is_some() {
+            self.library_request = request;
+            self.library_checking = true;
+        }
+        if !just_toggled && response.response.clicked_elsewhere() {
+            self.library_open = false;
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.library_open = false;
         }
     }
 }
@@ -632,6 +835,42 @@ pub enum LibraryNotice {
     Moved { label: String, place: String },
 }
 
+/// The open library, for the status bar's Library cell (ST3; ruled
+/// 2026-10-31, "A Library cell in the status bar"). Set by the app each
+/// frame; the shell only paints it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LibraryHome {
+    pub label: String,
+    /// "with the program", or "on DevPULSE".
+    pub place: String,
+    /// The whole folder, shown on the card.
+    pub path: String,
+    /// It lives on a drive or folder of its own, so the card offers "Keep it
+    /// with the program".
+    pub linked: bool,
+    /// A drill or test library: it is never moved.
+    pub drill: bool,
+}
+
+/// What the Library card asks the app (ST3). The shell never moves anything.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LibraryRequest {
+    /// Work out a move: with the program (`None`), or to the folder pasted.
+    Plan(Option<String>),
+    /// Record the planned move and restart (ruled 2026-10-31, "Restart,
+    /// copy, then open").
+    Move(std::path::PathBuf),
+}
+
+/// A move the app worked out, ready to show on the card.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LibraryPlanView {
+    pub from: String,
+    pub to: std::path::PathBuf,
+    /// "1,234 files · 3.2 GB".
+    pub size: String,
+}
+
 pub struct Shell {
     hubs: Vec<Box<dyn Hub>>,
     route: Route,
@@ -675,6 +914,17 @@ pub struct Shell {
     /// The banner's height last frame, so its panel keeps the surfaces
     /// below it.
     library_height: f32,
+    /// The open library for the Library cell (ST3), set by the app each frame.
+    library_home: Option<LibraryHome>,
+    library_open: bool,
+    /// The folder pasted on the Library card.
+    library_folder: String,
+    /// The app's answer to the card's last Plan request.
+    library_plan: Option<Result<LibraryPlanView, String>>,
+    /// What the card asked for; the app takes it.
+    library_request: Option<LibraryRequest>,
+    /// The app is working on what the card asked for.
+    library_checking: bool,
     /// The inspector overlay (PANEL zone): OPTIONAL — closed by default so
     /// the content well keeps the full width; open, it floats OVER the
     /// well's right edge (docs/shell.md, "rightside overlay the content").
@@ -764,6 +1014,12 @@ impl Shell {
             library_notice: None,
             restart: false,
             library_height: 0.0,
+            library_home: None,
+            library_open: false,
+            library_folder: String::new(),
+            library_plan: None,
+            library_request: None,
+            library_checking: false,
             inspector_open: false,
             build: "",
             tooltip_mood: dpl_backdrop::random_mood_index(),
@@ -1045,11 +1301,19 @@ impl Shell {
                     self.jobs_open = open;
                     just_toggled = true;
                 }
+                status::StatusAction::ToggleLibrary => {
+                    let open = !self.library_open;
+                    self.close_status_menus();
+                    self.library_open = open;
+                    self.library_plan = None;
+                    just_toggled = true;
+                }
             }
         }
         self.providers_popup(ui, status_rect, just_toggled);
         self.presets_popup(ui, status_rect, just_toggled);
         self.jobs_popup(ui, status_rect, just_toggled);
+        self.library_popup(ui, status_rect, just_toggled);
         self.provider_summary(ui.ctx());
         let (rail, clicked) = self.rail(ui, &fl);
         if let Some(route) = clicked {
@@ -1125,6 +1389,22 @@ impl Shell {
     /// True once, after Restart now is tapped on the library banner.
     pub fn take_restart(&mut self) -> bool {
         std::mem::take(&mut self.restart)
+    }
+
+    /// Where the library lives, for the Library cell (ST3); None hides it.
+    pub fn set_library_home(&mut self, home: Option<LibraryHome>) {
+        self.library_home = home;
+    }
+
+    /// What the Library card asked for since the last frame.
+    pub fn take_library_request(&mut self) -> Option<LibraryRequest> {
+        self.library_request.take()
+    }
+
+    /// The app's answer to a Plan request, shown on the card.
+    pub fn set_library_plan(&mut self, plan: Result<LibraryPlanView, String>) {
+        self.library_plan = Some(plan);
+        self.library_checking = false;
     }
 
     /// The library banner under the top bar: plain words on a raised strip
@@ -1301,6 +1581,7 @@ impl Shell {
                     jobs_unacked,
                     providers: provider_chip(&self.fabric),
                     bleed: self.bleed,
+                    library: self.library_home.as_ref(),
                 };
                 actions = status::grid(ui, &cx, &self.window_accessories);
             });
@@ -2212,6 +2493,70 @@ mod tests {
             cell(&harness).as_deref(),
             Some("1 job done"),
             "the cell counts what is left"
+        );
+    }
+
+    #[test]
+    fn the_library_cell_opens_its_card_and_the_card_only_asks() {
+        use egui_kittest::kittest::Queryable;
+        use std::path::PathBuf;
+        let (mut sh, _rx) = shell();
+        sh.set_library_home(Some(LibraryHome {
+            label: "My library".into(),
+            place: "with the program".into(),
+            path: r"C:\DevPULSE\library".into(),
+            linked: false,
+            drill: false,
+        }));
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .build_ui_state(|ui, sh: &mut Shell| sh.ui(ui), sh);
+        harness.run_steps(3);
+        harness.get_by_label("Open your library card").click();
+        harness.run_steps(3);
+        assert!(
+            harness.state().library_open,
+            "tapping the cell opens the card"
+        );
+        assert!(
+            harness.query_by_label("Keep it with the program").is_none(),
+            "a library already with the program isn't offered that"
+        );
+        harness.state_mut().library_folder = r"E:\DevPULSE".into();
+        harness.run_steps(2);
+        harness.get_by_label("Check").click();
+        harness.run_steps(2);
+        assert_eq!(
+            harness.state_mut().take_library_request(),
+            Some(LibraryRequest::Plan(Some(r"E:\DevPULSE".into()))),
+            "Check only asks the app"
+        );
+        assert!(
+            harness.state().library_checking,
+            "and says so while the app works it out"
+        );
+        harness.state_mut().set_library_plan(Ok(LibraryPlanView {
+            from: r"C:\DevPULSE\library".into(),
+            to: PathBuf::from(r"E:\DevPULSE"),
+            size: "12 files · 3.4 MB".into(),
+        }));
+        harness.run_steps(2);
+        assert!(harness.query_by_label("12 files · 3.4 MB").is_some());
+        harness.get_by_label("Move it").click();
+        harness.run_steps(2);
+        assert_eq!(
+            harness.state_mut().take_library_request(),
+            Some(LibraryRequest::Move(PathBuf::from(r"E:\DevPULSE")))
+        );
+        harness
+            .state_mut()
+            .set_library_plan(Err(r"E:\DevPULSE already holds files.".into()));
+        harness.run_steps(2);
+        assert!(
+            harness
+                .query_by_label(r"E:\DevPULSE already holds files.")
+                .is_some(),
+            "a refusal is shown on the card, in the app's words"
         );
     }
 

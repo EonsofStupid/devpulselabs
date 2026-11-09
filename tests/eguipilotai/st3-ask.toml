@@ -1,0 +1,134 @@
+# ST3: asking to move the library, on the real exe. Profile `st3-portable`
+# runs a copy of the devtools exe in a scratch program folder
+# (`target/st3-proof/portable/`) whose library is with the program. The cell
+# names it, a relative path is refused on the card, a full path shows the
+# plan, and Move it closes the app, which opens again and moves. The last
+# step ends this session, so the move's result is checked on disk: the
+# commands are in docs/plans/portable-storage.md §8 (ST3).
+id = "st3-ask"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "My library · with the program"
+
+[steps.expectation.target]
+id = "root/shell.status.library"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "online"
+
+[steps.expectation.target]
+role = "button"
+name = "near"
+
+[[steps]]
+kind = "capture"
+name = "before"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.status.library"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.library/folder"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "elsewhere"
+
+[steps.action.target]
+id = "root/shell.library/folder"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.library/check"
+
+# Check works on its own thread, so its answer takes a moment.
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.library/refused"
+
+[[steps]]
+kind = "capture"
+name = "refused"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = 'D:\projects\devpulselabs\target\st3-proof\elsewhere\deeper\DevPULSE'
+
+[steps.action.target]
+id = "root/shell.library/folder"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.library/check"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/shell.library/move"
+
+[[steps]]
+kind = "capture"
+name = "plan"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/shell.library/move"

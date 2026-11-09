@@ -32,6 +32,18 @@ timeout_ms = 90000
 [profiles.st2-portable.environment]
 EGUIPILOTAI_ADAPTER_POLICY = "hardware-then-software"
 
+# ST3: like `st2-portable`, a scratch copy with its own `roots.toml`
+# (`target/st3-proof/portable/`), because a move is never allowed on a seam.
+[profiles.st3-portable]
+executable = "target/st3-proof/portable/devpulselabs.exe"
+platforms = ["windows"]
+arguments = ["--mood", "0", "--no-seam"]
+adapter_policy = "hardware-then-software"
+timeout_ms = 120000
+
+[profiles.st3-portable.environment]
+EGUIPILOTAI_ADAPTER_POLICY = "hardware-then-software"
+
 # ST5a′: the devtools debug exe, given time for a drive to be pulled and
 # plugged back in while it runs (tests/eguipilotai/st5-live.toml).
 [profiles.st5-live]
@@ -86,6 +98,13 @@ arguments = ["--route", "workbench/author"]
 
 [fixtures.st2-author-1100]
 arguments = ["--route", "workbench/author", "--window", "1100x700"]
+
+# ST3: the Editor, whose Locations show a location surviving the move.
+[fixtures.st3-editor]
+arguments = ["--route", "wiredfront/editor"]
+
+[fixtures.st3-editor-1100]
+arguments = ["--route", "wiredfront/editor", "--window", "1100x700"]
 
 # ST5a′: Composer's Locations on the ST5a proof's scratch library, whose one
 # location is a temporary `subst` drive (tests/eguipilotai/st5-live.toml).

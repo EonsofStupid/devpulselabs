@@ -33,6 +33,9 @@ pub enum StatusAction {
     TogglePresets,
     /// Toggle the job board: every row the fabric holds, finished ones clearable.
     ToggleJobs,
+    /// Toggle the Library card: where the library lives, and Move my
+    /// library… (ST3).
+    ToggleLibrary,
 }
 
 /// Data-only description of an app-owned window accessory.
@@ -71,6 +74,8 @@ pub struct StatusCtx<'a> {
     /// and how long its dwell runs. Rolled once by the shell, never here — a
     /// cell paints, it does not decide.
     pub bleed: crate::providers::BleedRoll,
+    /// Where the library lives (ST3). None until one is open.
+    pub library: Option<&'a crate::LibraryHome>,
 }
 
 /// What the platform can do, ready to paint. Built by the shell from the
@@ -101,6 +106,11 @@ pub static CELLS: &[StatusCell] = &[
         id: "snip",
         lane: Lane::Left,
         render: snip,
+    },
+    StatusCell {
+        id: "library",
+        lane: Lane::Left,
+        render: library,
     },
     StatusCell {
         id: "viewport",
@@ -259,6 +269,33 @@ fn snip(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
     .clicked()
     .then_some(StatusAction::Snip)
 }
+
+/// Where the library lives (ST3; ruled 2026-10-31, "A Library cell in the
+/// status bar"): its name and place, and the way into Move my library….
+/// Absent until a library is open.
+fn library(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
+    let home = cx.library?;
+    let text = format!("{} · {}", home.label, home.place);
+    let response = cl::tip(
+        ui.add(
+            egui::Label::new(RichText::new(&text).small().color(cl::ink::MUTED))
+                .sense(egui::Sense::click()),
+        ),
+        if home.drill {
+            "This run uses a test library. Tap to see its folder"
+        } else {
+            "Where your library lives. Tap to see its folder, or move it to a drive or folder"
+        },
+    );
+    ui.pilot_track(
+        &response,
+        NodeMetadata::new(LIBRARY_PILOT_ID, Role::Button, "Open your library card").value(text),
+    );
+    response.clicked().then_some(StatusAction::ToggleLibrary)
+}
+
+/// The Library cell's pilot identity (ST3).
+pub const LIBRARY_PILOT_ID: PilotId = PilotId::new("shell.status.library");
 
 fn viewport(ui: &mut Ui, cx: &StatusCtx) -> Option<StatusAction> {
     ui.label(

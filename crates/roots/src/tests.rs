@@ -1229,3 +1229,320 @@ fn the_old_lists_move_into_locations_once() {
     );
     assert!(store.containing(&base.join("elsewhere.mp4")).is_none());
 }
+
+/// A library with the program holding a little of everything: a card, the
+/// index, a cached poster, a temp file (never moved) and a location beside
+/// the program, recorded relative to the library as `Store::stored` does.
+fn switchable(base: &Path) -> (PathBuf, Layout, PathBuf) {
+    let exe = program(base, "program");
+    let layout = imported(&exe);
+    fs::create_dir_all(layout.content.join("library/slides")).unwrap();
+    fs::write(layout.content.join("library/slides/one.json"), b"{\"v\":3}").unwrap();
+    fs::write(layout.userdata.join("index.db"), vec![9u8; 150_000]).unwrap();
+    fs::create_dir_all(layout.cache.join("locations/loc-near")).unwrap();
+    fs::write(layout.cache.join("locations/loc-near/a.jpg"), b"jpg").unwrap();
+    fs::write(layout.temp.join("half-render.tmp"), b"temp").unwrap();
+    let near = program(base, "near");
+    // `program/library` → `near`, as `Store::stored` records a same-drive folder.
+    let record = serde_json::json!({
+        "v": 1,
+        "locations": [{ "id": "loc-near", "label": "near", "path": "../../near", "sample": [] }]
+    });
+    fs::write(
+        layout.userdata.join("locations.json"),
+        serde_json::to_string_pretty(&record).unwrap(),
+    )
+    .unwrap();
+    (exe, layout, near)
+}
+
+/// Where the record in `userdata` says the one location is, in full.
+fn location_in(library: &Path, userdata: &Path) -> PathBuf {
+    let raw = fs::read_to_string(userdata.join("locations.json")).unwrap();
+    let record: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let path = PathBuf::from(record["locations"][0]["path"].as_str().unwrap());
+    disk::absolute(&path, library).unwrap()
+}
+
+/// A tree's content without `common/temp` and the marker files.
+fn library_snapshot(library: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    snapshot(library)
+        .into_iter()
+        .filter(|(rel, _)| {
+            !rel.starts_with("common/temp")
+                && rel != Path::new(MARKER_FILE)
+                && rel != Path::new(RETIRED_MARKER)
+        })
+        .collect()
+}
+
+#[test]
+fn a_library_switch_plan_counts_everything_but_temp_and_writes_nothing() {
+    let base = scratch();
+    let (exe, layout, _) = switchable(&base);
+    let before = snapshot(&layout.library);
+    let config = fs::read(exe.join(CONFIG_FILE)).unwrap();
+    let to = base.join("drive/DevPULSE");
+    let plan = switch::plan(&exe, &to).unwrap();
+    // What the copy copies: the marker is published last, not copied.
+    let kept: Vec<_> = before
+        .iter()
+        .filter(|(rel, _)| !rel.starts_with("common/temp") && rel != Path::new(MARKER_FILE))
+        .collect();
+    assert_eq!(plan.files, kept.len() as u64);
+    assert_eq!(
+        plan.bytes,
+        kept.iter()
+            .map(|(_, bytes)| bytes.len() as u64)
+            .sum::<u64>()
+    );
+    assert_eq!(
+        (plan.from, plan.to.clone(), plan.mode, plan.label.as_str()),
+        (exe.join("library"), to.clone(), Mode::Linked, "My library")
+    );
+    assert!(!to.exists());
+    assert_eq!(snapshot(&layout.library), before);
+    assert_eq!(fs::read(exe.join(CONFIG_FILE)).unwrap(), config);
+}
+
+#[test]
+fn the_library_moves_exactly_keeps_its_id_and_retires_the_old_copy() {
+    let base = scratch();
+    let (exe, layout, near) = switchable(&base);
+    let before = library_snapshot(&layout.library);
+    let id = read_marker(&layout.library).unwrap().id;
+    let to = base.join("drive/deeper/DevPULSE");
+    let progress = MoveProgress::default();
+    let moved = switch::switch(&exe, &to, &progress).unwrap();
+
+    // The copy is exact apart from the rebased locations, and keeps its id.
+    let config = disk::read_config(&exe).unwrap();
+    assert_eq!(
+        (config.mode, config.id.clone(), config.last_path),
+        (Mode::Linked, id.clone(), Some(to.clone()))
+    );
+    assert_eq!(read_marker(&to).unwrap().id, id);
+    let without_locations = |tree: Vec<(PathBuf, Vec<u8>)>| -> Vec<_> {
+        tree.into_iter()
+            .filter(|(rel, _)| !rel.ends_with("locations.json"))
+            .collect()
+    };
+    assert_eq!(
+        without_locations(library_snapshot(&to)),
+        without_locations(before)
+    );
+    assert_eq!(fs::read_dir(to.join("common/temp")).unwrap().count(), 0);
+    assert_eq!(location_in(&to, &moved.layout.userdata), near);
+    assert_eq!(
+        progress.checked_files.load(Ordering::Relaxed),
+        progress.copied_files.load(Ordering::Relaxed)
+    );
+
+    // The old copy is labelled, its marker retired, nothing deleted.
+    let old = exe.join("library.moved-to-DevPULSE");
+    assert_eq!((moved.old.clone(), moved.note.clone()), (old.clone(), None));
+    assert!(!exe.join("library").exists());
+    assert!(!old.join(MARKER_FILE).exists());
+    assert_eq!(read_marker(&to).unwrap(), {
+        let raw = fs::read_to_string(old.join(RETIRED_MARKER)).unwrap();
+        serde_json::from_str::<Marker>(&raw).unwrap()
+    });
+    assert!(old.join("common/temp/half-render.tmp").is_file());
+    assert_eq!(
+        Roots::open(&exe, None).layout().unwrap().library,
+        to,
+        "the next launch opens the moved library"
+    );
+
+    // And back with the program.
+    let back = switch::switch(&exe, &exe.join("library"), &MoveProgress::default()).unwrap();
+    let config = disk::read_config(&exe).unwrap();
+    assert_eq!((config.mode, config.last_path), (Mode::Imported, None));
+    assert_eq!(read_marker(&exe.join("library")).unwrap().id, id);
+    assert_eq!(
+        location_in(&exe.join("library"), &back.layout.userdata),
+        near
+    );
+    assert_eq!(
+        back.old,
+        base.join("drive/deeper/DevPULSE.moved-to-program")
+    );
+}
+
+#[test]
+fn a_retired_copy_is_never_found_again() {
+    let base = scratch();
+    let (exe, _, _) = switchable(&base);
+    let moved =
+        switch::switch(&exe, &base.join("drive/DevPULSE"), &MoveProgress::default()).unwrap();
+    assert!(
+        locate(&exe, &moved.old).is_err(),
+        "Locate… finds no library"
+    );
+    let other = program(&base, "other");
+    assert!(
+        setup_at(&other, &moved.old, Mode::Linked, "Again").is_err(),
+        "setup never adopts it"
+    );
+    assert!(!other.join(CONFIG_FILE).exists());
+}
+
+#[test]
+fn a_switch_refuses_a_busy_nested_or_missing_library() {
+    let base = scratch();
+    let (exe, layout, _) = switchable(&base);
+    let busy = program(&base, "busy");
+    fs::write(busy.join("notes.txt"), b"mine").unwrap();
+    let refused = |to: &Path| switch::plan(&exe, to).unwrap_err();
+    assert!(refused(&busy).contains("already holds files"));
+    assert!(refused(&layout.content.join("deep")).contains("inside itself"));
+    assert!(refused(&exe).contains("holds your library"));
+    assert!(switch::plan(&exe, Path::new("relative")).is_err());
+    assert_eq!(fs::read(busy.join("notes.txt")).unwrap(), b"mine");
+
+    let away = program(&base, "away");
+    let gone = imported(&program(&base, "unplugged")).library;
+    linked_to(&away, &gone, &base.join("nowhere/library"));
+    assert!(switch::plan(&away, &base.join("drive/x"))
+        .unwrap_err()
+        .contains("isn't connected"));
+}
+
+/// A file another program holds open without sharing fails the copy; the
+/// switch then removes what it made and the library and config are as
+/// they were.
+#[cfg(windows)]
+#[test]
+fn a_failed_switch_changes_nothing() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let base = scratch();
+    let (exe, layout, _) = switchable(&base);
+    let before = snapshot(&layout.library);
+    let config = fs::read(exe.join(CONFIG_FILE)).unwrap();
+    let to = base.join("drive/DevPULSE");
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(layout.userdata.join("index.db"))
+        .unwrap();
+    let error = switch::switch(&exe, &to, &MoveProgress::default()).unwrap_err();
+    drop(held);
+    assert!(error.contains("Nothing was changed"), "{error}");
+    assert!(!to.exists());
+    assert_eq!(fs::read(exe.join(CONFIG_FILE)).unwrap(), config);
+    assert_eq!(snapshot(&layout.library), before);
+}
+
+#[test]
+fn a_stopped_move_removes_what_it_made_and_changes_nothing() {
+    let base = scratch();
+    let (exe, layout, _) = switchable(&base);
+    let before = snapshot(&layout.library);
+    let config = fs::read(exe.join(CONFIG_FILE)).unwrap();
+    let to = base.join("drive/DevPULSE");
+    let progress = MoveProgress::default();
+    progress.stop.store(true, Ordering::Relaxed);
+    let error = switch::switch(&exe, &to, &progress).unwrap_err();
+    assert!(error.contains("You stopped the move"), "{error}");
+    assert!(error.contains("Nothing was changed"), "{error}");
+    assert!(!to.exists());
+    assert_eq!(fs::read(exe.join(CONFIG_FILE)).unwrap(), config);
+    assert_eq!(snapshot(&layout.library), before);
+}
+
+#[test]
+fn the_progress_knows_its_totals_and_copying_reaches_them() {
+    let base = scratch();
+    let (exe, _, _) = switchable(&base);
+    let progress = MoveProgress::default();
+    let card = "accounts/me/content/library/slides/one.json";
+    let when = fs::metadata(exe.join("library").join(card))
+        .unwrap()
+        .modified()
+        .unwrap();
+    let to = base.join("drive/DevPULSE");
+    switch::switch(&exe, &to, &progress).unwrap();
+    let total = progress.total_files.load(Ordering::Relaxed);
+    assert!(total > 0);
+    assert_eq!(progress.copied_files.load(Ordering::Relaxed), total);
+    assert_eq!(progress.checked_files.load(Ordering::Relaxed), total);
+    let bytes = progress.total_bytes.load(Ordering::Relaxed);
+    assert_eq!(progress.copied_bytes.load(Ordering::Relaxed), bytes);
+    assert_eq!(progress.checked_bytes.load(Ordering::Relaxed), bytes);
+    assert_eq!(
+        fs::metadata(to.join(card)).unwrap().modified().unwrap(),
+        when,
+        "a copy keeps when the file last changed"
+    );
+}
+
+/// A location on the library's old drive is recorded in full once the library
+/// is on another drive, and relative again when it comes back. Only the
+/// record is read and written, so the drives needn't exist.
+#[test]
+fn a_location_is_recorded_in_full_when_the_library_changes_drive() {
+    #[cfg(windows)]
+    let (old, new, near) = (r"D:\work\DevPULSE", r"E:\DevPULSE", r"D:\work\near");
+    #[cfg(not(windows))]
+    let (old, new, near) = (
+        "/media/me/one/work/DevPULSE",
+        "/media/me/two/DevPULSE",
+        "/media/me/one/work/near",
+    );
+    let (old, new, near) = (Path::new(old), Path::new(new), Path::new(near));
+    let userdata = scratch();
+    let stored = |path: &Path| {
+        let record = serde_json::json!({
+            "v": 1,
+            "locations": [{ "id": "loc-near", "label": "near", "path": path, "sample": [] }]
+        });
+        fs::write(
+            userdata.join("locations.json"),
+            serde_json::to_string_pretty(&record).unwrap(),
+        )
+        .unwrap();
+    };
+    let recorded = || {
+        let raw = fs::read_to_string(userdata.join("locations.json")).unwrap();
+        let record: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        PathBuf::from(record["locations"][0]["path"].as_str().unwrap())
+    };
+    stored(Path::new("../near"));
+    locations::rebase(&userdata, old, new).unwrap();
+    assert_eq!(recorded(), near, "another drive: the whole path");
+    locations::rebase(&userdata, new, old).unwrap();
+    assert_eq!(recorded(), Path::new("../near"), "back: relative again");
+}
+
+#[test]
+fn a_requested_move_waits_for_the_next_launch_and_runs_once() {
+    let base = scratch();
+    let (exe, layout, _) = switchable(&base);
+    let busy = program(&base, "busy");
+    fs::write(busy.join("notes.txt"), b"mine").unwrap();
+    assert!(switch::request(&exe, &busy).is_err());
+    assert!(
+        !exe.join(MOVE_FILE).exists(),
+        "a refused move is never recorded"
+    );
+
+    let to = base.join("drive/DevPULSE");
+    switch::request(&exe, &to).unwrap();
+    assert_eq!(switch::pending(&exe).unwrap(), Some(to.clone()));
+    assert!(!to.exists(), "asking moves nothing");
+    assert!(layout.library.join(MARKER_FILE).is_file());
+
+    switch::run_pending(&exe, &MoveProgress::default()).unwrap();
+    assert_eq!(switch::pending(&exe).unwrap(), None);
+    assert_eq!(disk::read_config(&exe).unwrap().last_path, Some(to.clone()));
+
+    // A move that can't run is forgotten, so it never repeats every launch.
+    switch::request(&exe, &base.join("drive/again")).unwrap();
+    fs::create_dir_all(base.join("drive/again")).unwrap();
+    fs::write(base.join("drive/again/mine.txt"), b"mine").unwrap();
+    assert!(switch::run_pending(&exe, &MoveProgress::default())
+        .unwrap_err()
+        .contains("already holds files"));
+    assert_eq!(switch::pending(&exe).unwrap(), None);
+    assert_eq!(disk::read_config(&exe).unwrap().last_path, Some(to));
+}

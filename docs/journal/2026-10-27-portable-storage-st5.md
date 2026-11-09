@@ -173,3 +173,14 @@ quota has been hit".
 **Landmine:** a push whose event GitHub drops gets no run. Check
 `gh run list --branch <b>` for the new head sha before waiting on
 `gh pr checks`.
+
+## ST5b — landed
+
+#309 merged as `711fc72` on hosted double-green (head `0dc211d`, run
+41139445675): green-linux in 47m32s, and green-windows in 1h4m29s with the
+upload skipped. These were the first hosted runs, from cold caches.
+
+The release exe was rebuilt from it: 2026-10-31 22:24:04 local, stamp
+`711fc72 · 2026-11-01 02:21z`. The Lottie helper was already up to date.
+`subst` lists nothing. ST5 is done; next is ST3
+(`2026-10-31-portable-storage-st3.md`).

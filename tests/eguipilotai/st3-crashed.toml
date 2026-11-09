@@ -1,0 +1,45 @@
+# ST3: the launch after a move that died mid-copy, on the real exe. The
+# destination holds a partial copy with no marker, so it is refused in plain
+# words, and the library opens where it was.
+id = "st3-crashed"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 3000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "root/library.moving/outcome"
+
+[[steps]]
+kind = "capture"
+name = "refused-busy"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "root/library.moving/open"
+
+[[steps]]
+kind = "wait"
+milliseconds = 8000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "My library · with the program"
+
+[steps.expectation.target]
+id = "root/shell.status.library"

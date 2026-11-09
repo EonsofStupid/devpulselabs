@@ -44,9 +44,16 @@ then "Approve" for ST1b (§4.7). The order is now ST1 (done, #297) →
 **ST5a′ asked 2026-10-28** (§4f): locations stay aware while the app runs
 and across restarts, on Linux (ARM too), Windows and macOS. Landed (#304).
 
-**ST5b ruled 2026-10-29** (§4f B1–B5):
+**ST5b ruled 2026-10-29** (§4f B1–B5). Landed (#309):
 - Q-ST5b-1, the pinned packs' files: "Put everything on the shelf";
 - Q-ST5b-2, import by reference: "The whole folder".
+
+**ST3 ruled 2026-10-31** (§4g):
+- Q-ST3-1, where "Move my library…" lives: "A Library cell in the status
+  bar";
+- Q-ST3-2, when the copy runs: "Restart, copy, then open".
+
+The question named the old copy as "kept, renamed and never deleted".
 
 **§5b signed off, all four:** `roots.toml` beside the exe; the marker check
 on each drive while disconnected; `library.json` written into a linked
@@ -929,6 +936,155 @@ The steps:
     - `st5-live` passed again;
     - shots at 1440×900 and 1100×700.
 
+### 4g. ST3 execution queue — grounded 2026-10-30
+
+Read in THE checkout at `0dc211d` (ST5b, #309), by a census of `dpl-roots`
+(model, setup, handle, discovery, migrate, guard, locations), the startup
+pages, the shell's status bar and banner, and everything that holds the
+library open while the app runs.
+
+What the reading found:
+- **There is no place in the running app to see or move the library.**
+  - No settings or storage page exists. "Settings" is chat's own sidebar
+    (`chat/window/src/lib.rs:2020`).
+  - The library only appears on the startup pages
+    (`app/src/storage_startup.rs`) and in the shell's banner when something
+    is wrong (`shell/src/lib.rs:1134-1204`).
+  - The status bar is a registry: one `CELLS` entry
+    (`shell/src/status.rs:94`) plus a `StatusAction` and the popup pattern
+    (`shell/src/lib.rs:161-360`). ST2b dropped a Library cell only because
+    it would have repeated the banner.
+- **ST1b's move can't copy an existing library as it is.**
+  - `plan_move` maps only the old top-level `content`, `assets` and
+    `.userdata` (`migrate.rs:58`).
+  - `copy_and_publish` calls `publish_identity`, which mints a new id and
+    refuses an `account.json` that is already there (`setup.rs:123`).
+  - Reusable as they are: `walk` (refuses links), `same_bytes`, `landing`,
+    `destination_free`, `inside`, `undo`, `MoveProgress`, the "changed while
+    it was copied" count, `config_available`, `replace_config` (`.new`, then
+    a rename) and `handle::validate_layout`.
+- **An old copy with the same id can be picked up again.**
+  - A linked library whose last path fails probes the same path on other
+    drive letters. A match there connects and rewrites `last_path` with no
+    prompt (`handle.rs:143-226`).
+  - Locate… on an old copy returns `Same`, and `link_to` switches to it
+    without asking (`lib.rs:468-489`; `storage_startup.rs:775-780`).
+  - "My library is on a drive or folder…" adopts any folder with a marker
+    (`setup.rs:82-83`).
+  - The guard checks only the marker id (`guard.rs:167`).
+- **Locations kept relative to the library break when it moves.** A
+  location on the library's own drive is stored relative to it, with `..`
+  (`locations.rs:145-147, 551-587`). At another depth or on another drive it
+  resolves somewhere else. When the `..` climbs past the root, `full()`
+  falls back to the raw relative path (`:139-141`).
+- **Nothing else in the library stores an absolute path that a move would
+  break.**
+  - The index and Composer's state are content-relative.
+  - Chat's project bindings are absolute but live outside the library
+    (`app/src/chat/project.rs:58-71`).
+- **Much holds the library open while the app runs:**
+  - the estate's fjall lock (`main.rs:1172`) and the seam thread
+    (`main.rs:1428`);
+  - the ledger tap (`main.rs:1138`), which flushes on exit;
+  - the location watch (`lib.rs:408`) and Composer's indexer;
+  - per-operation index connections.
+  
+  `initialize` says it is "not for switching open stores mid-session"
+  (`lib.rs:164`), and Windows can't rename a folder while files in it are
+  open (§5b).
+- **Restart now already exists** (ST2b): the app sets `RESTART`, closes, and
+  relaunches with the same arguments (`main.rs:707-717, 1609-1612`).
+- **What is regenerable:** `common/temp`. `common/cache` holds the linked
+  posters (`common/cache/locations/<id>/`), which can't be rebuilt while a
+  location is offline, so it is copied.
+
+**The design** (ruled 2026-10-31: Q-ST3-1 "A Library cell in the status
+bar", Q-ST3-2 "Restart, copy, then open"):
+- **One switch, three directions:**
+  - with the program → a drive or folder;
+  - a drive or folder → with the program;
+  - one drive or folder → another.
+  
+  The library keeps its id. It is the same library: the same index,
+  comps, chats and locations.
+- **Plan first.** "Move my library…" shows From, To, files and size before
+  "Move it", like LS3b2's sheet. The destination must be empty or new, not
+  inside the library, and the library must not be inside it.
+- **Copy, check, publish last:**
+  - every file is copied except `common/temp`, then checked byte for byte;
+  - `library.json` is written last, so a half copy never looks like a
+    library;
+  - then `roots.toml` is replaced (`.new`, then a rename).
+  - On any failure, what the copy made is removed and the old library opens
+    as before, with the reason in plain words.
+- **Locations are re-expressed for the new place.** Each one is resolved
+  against the old library, then stored relative to the new one when it is on
+  the same drive, otherwise as a full path.
+- **The old copy is retired, never deleted** (ADR-014 law 4).
+  - Its `library.json` is renamed `library.moved.json`, so no search,
+    Locate… or setup can pick it up again.
+  - Then the folder is labelled, for example `library.moved-to-<label>` or
+    `DevPULSE.moved-to-program`.
+  - If the folder can't be renamed, the app says where the old copy is and
+    that it is no longer used.
+- **Under a seam** (`--content-root` / `CONTENT_ROOT`), moving is off, with
+  a tip saying why. A seam is never written to `roots.toml`.
+
+**ST3 — your library moves where you choose** (one PR)
+
+1. **Engine (`dpl-roots`):**
+   - `plan_switch(program, to)`: what will be copied, counted, writing
+     nothing.
+   - `switch(program, to, progress)`: copy and check, rebase the locations,
+     publish the marker last, replace the config, retire the old copy, and
+     undo everything on a failure.
+   - The shared copy helpers move out of `migrate.rs` into one place both
+     moves use. They are moved, not re-exported.
+2. **Locations:** a `rebase(old_library, new_library)` over
+   `locations.json` in the copy, before the marker is published.
+3. **The Library cell (Q-ST3-1):**
+   - A `CELLS` entry in `shell/src/status.rs` shows the library's label and
+     where it lives: "with the program", or "on 'DevPULSE drive'".
+   - Tapping it opens a card with the label, the full path, and **Move my
+     library…**. The card offers "Keep it with the program" when the library
+     is elsewhere, and "Move it to a drive or folder…".
+   - The plan card shows From, To, files and size, then **Move it** or
+     **Not now**.
+   - Every control has a tip, and the pilot ids are `shell.library.*`.
+   - Under a seam the button is off, and its tip says why.
+4. **Restart, copy, then open (Q-ST3-2):**
+   - **Move it** writes `move.toml` beside `roots.toml` (`.new`, then a
+     rename), naming the destination, then restarts (ST2b's Restart now).
+   - At launch, a pending `move.toml` is read before anything opens the
+     library. It routes to a "Moving your library" startup page, which
+     reuses the Bring-in page's progress.
+   - That page plans again, copies, checks, switches and retires the old
+     copy, then opens the moved library.
+   - **On a failure:**
+     - what the copy made is removed;
+     - `move.toml` is deleted;
+     - the old library opens as before, with the reason in plain words.
+   - **After a crash mid-copy**, the destination has no marker, because
+     the marker is published last. The next launch refuses it as busy, in
+     plain words, and opens the old library.
+5. **Proof:**
+   - **Unit:**
+     - the plan counts everything except `common/temp` and writes nothing;
+     - the switch copies exactly, publishes last, replaces the config and
+       retires the old copy;
+     - a failure leaves the config and the old library as they were;
+     - a busy or nested destination is refused;
+     - locations still resolve after a move to another depth and another
+       "drive";
+     - a retired copy is never found by the drive search, Locate… or setup.
+   - **Real exe** (a scratch exe copy, `--no-seam`, like `st2-portable`):
+     - a library with the program, with a comp and a location;
+     - Move my library… to a scratch folder: after the move, the same comp
+       and the location still online;
+     - the old folder renamed, with its marker retired;
+     - then moved back with the program.
+   - **Shots** at 1440×900 and 1100×700.
+
 | Where | Change | Pass |
 |---|---|---|
 | **new `crates/roots` (`dpl-roots`)** | ENGINE layer, egui-free: `roots.toml`, the marker, the layout, the `Roots` handle (connected/disconnected), the drive check; ceiling serde, serde_json, toml | ST1–ST2 |
@@ -940,6 +1096,7 @@ The steps:
 | `dpl-estate` | `reopen` in place, so the `Arc` holders keep working | ST2b |
 | `dpl-shell`, `dpl-fabric` | the library banner and status cell; `ShellEvent::Library` | ST2b |
 | the census's one-off writers (§4e step 6) | ask `dpl_roots::writable` first | ST2b |
+| `dpl-roots` (`migrate.rs`, a new switch module, `locations.rs`), `dpl-shell` (the Library cell and card), `crates/app` (`storage_startup.rs`'s Moving page, `move.toml` at launch) | move the whole library where the operator chooses | ST3 |
 | chat, analytics, imagine | their files move to `.aidata` | ST4 |
 | `crates/xtask` | `stage-roots` (THE checkout's `roots.toml`), `move-library [--dry-run]`; the structure audit's `EGUI_FREE` and `CEILINGS` rows | ST1, ST4 |
 | docs | `architecture.md` (the new crate, same commit as the audit), ADR-014 amendment (the layout), requirements R287, status | each pass |
@@ -957,6 +1114,8 @@ The steps:
 | Rewrite `roots.toml` (an exclusive `.new`, then a rename) when the library is found at a new path, Located, or replaced by Use a library on this machine | §4.3's "updates the last path"; the old file is never left half-written | Covered by row 1 (ST2a) |
 | For ST2b's proof only: a temporary `subst` drive letter over a scratch folder, removed after each run | the only way to unplug and replug a drive letter under a running app without hardware or admin (Windows can't rename a folder while files in it are open) | **Ruled** 2026-10-27 (Q-ST2-3) |
 | ST5a′: look at each location's folder every 2 s while a library is open; on Linux read the kernel's mount table (`/proc/self/mounts`), on macOS list `/Volumes` | to notice a drive pulled or plugged while running, on every OS | **Asked** 2026-10-28; read-only |
+| ST3: write `move.toml` beside the exe for the length of one restart | the move runs before anything opens the library (Q-ST3-2) | Covered by row 1 (ST3) |
+| ST3: copy the library into the folder or drive the operator picks; rename the old copy's `library.json` to `library.moved.json` and its folder to `…moved-to-…` | the move itself; the old copy can never be picked up again and is never deleted (ADR-014 law 4) | **Ruled** 2026-10-31 (Q-ST3-1's text: "kept, renamed and never deleted") |
 | ST5a′ proof: rustup's std for `aarch64-unknown-linux-gnu` and `aarch64-apple-darwin` on this machine | to compile and lint `dpl-roots` for ARM Linux and macOS without that hardware | **Asked** 2026-10-28; dev machine only, removable with `rustup target remove` |
 
 ## 6. Proof

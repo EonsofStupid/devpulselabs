@@ -5,7 +5,7 @@
 //! wherever the folder is now: slides keep working when the drive comes back
 //! on another letter, and an export can copy the file in under the same name.
 
-use crate::{disk, guard, migrate};
+use crate::{copy, disk, guard};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
@@ -182,10 +182,10 @@ impl Store<'_> {
         label: &str,
         sample: Vec<(String, u64)>,
     ) -> Result<Location, String> {
-        if migrate::inside(folder, self.library) {
+        if copy::inside(folder, self.library) {
             return Err("That folder is already inside your library.".into());
         }
-        if migrate::inside(self.library, folder) {
+        if copy::inside(self.library, folder) {
             return Err("Your library is inside that folder; choose a folder beside it.".into());
         }
         let label = match label.trim() {
@@ -544,6 +544,31 @@ fn matches(folder: &Path, sample: &[(String, u64)]) -> bool {
         })
         .count();
     present * 2 >= sample.len()
+}
+
+/// Re-record every location in a moved library's copy (ST3): each one is
+/// resolved against where the library was, then recorded against where it
+/// is now, the way `Store::stored` records a new one. Written in the copy
+/// before its marker is published; nothing inside a location is touched.
+pub(crate) fn rebase(userdata: &Path, from: &Path, to: &Path) -> Result<(), String> {
+    let file = userdata.join(FILE);
+    let raw = match std::fs::read_to_string(&file) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(format!("{}: {e}", file.display())),
+        Ok(raw) => raw,
+    };
+    let mut record: Record =
+        serde_json::from_str(&raw).map_err(|e| format!("{}: {e}", file.display()))?;
+    crate::model::version(record.v, FILE)?;
+    for location in &mut record.locations {
+        let full = disk::absolute(&location.path, from).unwrap_or_else(|_| location.path.clone());
+        location.path = relative(&full, to).unwrap_or(full);
+    }
+    let staged = userdata.join(format!("{FILE}.tmp"));
+    let mut json = serde_json::to_string_pretty(&record).map_err(|e| e.to_string())?;
+    json.push('\n');
+    std::fs::write(&staged, json).map_err(|e| format!("{}: {e}", staged.display()))?;
+    std::fs::rename(&staged, &file).map_err(|e| format!("{}: {e}", file.display()))
 }
 
 /// `path` relative to `base` when both are on the same drive (or, outside

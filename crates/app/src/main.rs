@@ -97,9 +97,34 @@ fn main() -> eframe::Result {
     dpl_comp::set_write_guard(dpl_roots::writable);
     dpl_ledger::set_write_guard(dpl_roots::writable);
     let library = storage_startup::ready();
-    match &library {
-        Ok(()) => open_library(),
-        Err(error) => tracing::warn!(%error, "library startup needs attention"),
+    // ST3 (ruled 2026-10-31, "Restart, copy, then open"): a move asked for
+    // last session runs now, before anything opens the library. A library
+    // that isn't here can't move, so its move is forgotten, said plainly.
+    let mut move_cancelled = None;
+    let moving = match (&library, dpl_roots::pending_move()) {
+        (Ok(()), Ok(Some(to))) => Some(to),
+        (_, Ok(None)) => None,
+        (Err(_), Ok(Some(to))) => {
+            tracing::warn!(to = %to.display(), "your library isn't connected, so the move you asked for was cancelled");
+            let _ = dpl_roots::cancel_move();
+            move_cancelled = Some(format!(
+                "Your library wasn't moved to {}: it wasn't connected when DevPULSE opened. Nothing was changed.",
+                to.display()
+            ));
+            None
+        }
+        (_, Err(error)) => {
+            tracing::warn!(%error, "the move you asked for couldn't be read, so it was cancelled");
+            let _ = dpl_roots::cancel_move();
+            None
+        }
+    };
+    match (&library, &moving) {
+        (Ok(()), None) => open_library(),
+        (Ok(()), Some(to)) => {
+            tracing::info!(to = %to.display(), "moving the library before it opens");
+        }
+        (Err(error), _) => tracing::warn!(%error, "library startup needs attention"),
     }
     // Same honesty law, applied to AI accounting: name which providers
     // report usage and which do not, so an empty cost column is explained
@@ -686,13 +711,15 @@ fn main() -> eframe::Result {
                 ai_backfill: ai_backfill_on,
             };
             let mut root = Root {
-                stage: match library {
-                    Ok(()) => Stage::Opening,
-                    Err(error) => Stage::Library(Box::new(storage_startup::Startup::new(
-                        error,
-                        bring_in,
-                        &cc.egui_ctx,
-                    ))),
+                stage: match (library, moving) {
+                    (Ok(()), Some(to)) => {
+                        Stage::Library(Box::new(storage_startup::Startup::moving(to, &cc.egui_ctx)))
+                    }
+                    (Ok(()), None) => Stage::Opening,
+                    (Err(error), _) => Stage::Library(Box::new(
+                        storage_startup::Startup::new(error, bring_in, &cc.egui_ctx)
+                            .say(move_cancelled),
+                    )),
                 },
                 boot: Some(boot),
                 #[cfg(feature = "eguipilotai-devtools")]
@@ -999,6 +1026,12 @@ struct App {
     library_opened: u64,
     /// Looks for the library while it is unplugged.
     library_watch: Option<dpl_roots::Watch>,
+    /// The Library card's request, on its own thread: walking a big library
+    /// on a slow drive must never freeze the window. True when it is a Move.
+    library_job: Option<(
+        bool,
+        std::sync::mpsc::Receiver<Result<dpl_roots::SwitchPlan, String>>,
+    )>,
     /// Looks at every location every two seconds while the library is open
     /// (ST5a′), and repaints when one went, came back or moved.
     location_watch: Option<dpl_roots::Watch>,
@@ -1511,6 +1544,7 @@ impl App {
             library_at: dpl_roots::library(),
             library_opened: dpl_roots::generation(),
             library_watch: None,
+            library_job: None,
             location_watch: None,
             locations_seen: 0,
             chrome_choices,
@@ -1563,6 +1597,91 @@ impl App {
             fabric.publish_capture(dpl_fabric::CaptureEvent::InboxChanged);
             ctx.request_repaint();
         });
+    }
+
+    /// The Library cell and card (ST3): where the library lives, every
+    /// frame, and the card's requests. Move it records the move and restarts,
+    /// so the copy runs before anything opens the library (ruled 2026-10-31).
+    fn library_card(&mut self, ctx: &egui::Context) {
+        self.shell
+            .set_library_home(dpl_roots::home().map(|home| dpl_shell::LibraryHome {
+                place: if home.drill {
+                    "for this run".into()
+                } else if home.linked {
+                    format!(
+                        "on {}",
+                        home.path.file_name().map_or_else(
+                            || home.path.display().to_string(),
+                            |name| { name.to_string_lossy().into_owned() }
+                        )
+                    )
+                } else {
+                    "with the program".into()
+                },
+                path: home.path.display().to_string(),
+                label: home.label,
+                linked: home.linked,
+                drill: home.drill,
+            }));
+        if let Some(request) = self.shell.take_library_request() {
+            let is_move = matches!(request, dpl_shell::LibraryRequest::Move(_));
+            let (send, done) = std::sync::mpsc::channel();
+            let repaint = ctx.clone();
+            std::thread::spawn(move || {
+                let result = match request {
+                    dpl_shell::LibraryRequest::Move(to) => dpl_roots::request_move(&to),
+                    dpl_shell::LibraryRequest::Plan(None) => {
+                        dpl_roots::program_library().and_then(|to| dpl_roots::plan_switch(&to))
+                    }
+                    dpl_shell::LibraryRequest::Plan(Some(folder)) => {
+                        let to = std::path::Path::new(&folder);
+                        if to.is_absolute() {
+                            dpl_roots::plan_switch(to)
+                        } else {
+                            Err(
+                                "Paste the full path of the folder, starting with the drive."
+                                    .into(),
+                            )
+                        }
+                    }
+                };
+                let _ = send.send(result);
+                repaint.request_repaint();
+            });
+            self.library_job = Some((is_move, done));
+        }
+        let Some((is_move, done)) = &self.library_job else {
+            return;
+        };
+        let is_move = *is_move;
+        let result = match done.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                return;
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err("That stopped before it finished. Nothing was changed.".into())
+            }
+        };
+        self.library_job = None;
+        match result {
+            Ok(plan) if is_move => {
+                tracing::info!(from = %plan.from.display(), to = %plan.to.display(), "library move asked for; restarting to run it");
+                RESTART.store(true, std::sync::atomic::Ordering::Release);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Ok(plan) => self.shell.set_library_plan(Ok(dpl_shell::LibraryPlanView {
+                from: plan.from.display().to_string(),
+                to: plan.to,
+                size: format!(
+                    "{} · {}",
+                    storage_startup::files(plan.files),
+                    storage_startup::size(plan.bytes)
+                ),
+            })),
+            Err(error) => self.shell.set_library_plan(Err(error)),
+        }
     }
 
     /// A library unplugged mid-session (ST2b). Saves already refuse; here
@@ -2036,6 +2155,7 @@ impl eframe::App for App {
         self.chat.root_close_requested(ui.ctx());
         fit_window(ui.ctx());
         self.watch_library(ui.ctx());
+        self.library_card(ui.ctx());
         self.index_locations(ui.ctx());
         self.shell.ui(ui);
 
