@@ -15,13 +15,18 @@ operator's words) → [`README.md`](README.md) (the map of every doc).
 
 **Updated:** 2026-11-09. **Baseline `v0.1.0` (R295, R296):** the tag marks the
 merge of everything through RA1a (#313), ST3, and all ten open dependency
-updates, which clear the nine open security alerts. Not in it: chat resume
-(#308), which conflicts with main and is red on Windows. **The operator put
-recording for AI first (R294, `docs/plans/recording-for-ai.md`, in draft for
-approval).**
+updates, which clear the nine open security alerts. Tag `v0.1.1` adds chat
+resume's code (PC1b), with native resume and standalone launch still disabled
+until they are qualified, and the next batch of dependency updates. **The operator put recording for AI first (R294,
+`docs/plans/recording-for-ai.md`, in draft for approval).**
 
 **Pre-release CI (R295).** The pre-push hook runs formatting and clippy only,
 and nightly builds run on request. Both hosted checks still gate every PR.
+
+**egui 0.37 is held back.** It lays text rows out 1-2 px taller, which shifts
+cards and truncates labels, so the app stays on egui 0.36. The working migration
+is saved on this machine as the tag `parked/egui-0.37-migration`, to land as its
+own milestone with a design pass.
 
 **Measured 2026-11-04:** a local vision model trained on the app's own labelled
 frames went from 37.9% to 90.8% on controls it never saw. PyTorch trained 12×
@@ -49,17 +54,22 @@ private repos, so it no longer applies now the repo is public.
 ## Now
 
 **Project chat implementation (R292).** The operator authorized the reviewed
-design with **resume**. PC1a is implemented on isolated `feat/chat-project-storage`
-from `e60c140`, now integrating `855f674`: project-owned archives, recoverable
-drafts, native project selection and bounded machine discovery.
-Before integration, full `cargo green` passed (1,265 tests,
+design with **resume**, then PC1b execution with **execute** on 2026-10-29.
+PC1a delivered project-owned archives, recoverable drafts, native project
+selection and bounded machine discovery in #305. Integrated `cargo green`
+passed (1,268 tests,
 six existing ignored); feature checks passed 53 window and 11 host tests.
 Native A/B/A switching, restart, separate drafts and offline transcript reading
 passed at 1440×900 and 1100×700, including with the main window hidden.
 Evidence: [`proof/chat-project-storage/README.md`](proof/chat-project-storage/README.md).
-PR #305 is merged. PC1b is in draft PR #308 for provider-native resume,
-stable conversation links and standalone launch. Its native/standalone adapters
-remain unqualified and disabled pending the outstanding real-provider evidence.
+PR #305 is merged. PC1b has landed its code: exact response contracts,
+candidate profile links/leases, gated native-history loading, the named
+terminal entry and active/archived native listing. Synthetic Windows storage
+probes passed fresh-profile resume at a changed path, but injected items
+returned no conversational turns. Native resume and standalone launch stay
+disabled: full process-tree completion and Unix terminal ownership are
+unfinished, and real signed-in turn history and Linux qualification remain
+required. See [`research/chat-project-native-qualification.md`](research/chat-project-native-qualification.md).
 No operator provider homes or credentials are changed by development. The
 scope includes supported standalone AI apps and automatic workspace organization;
 neither scope nor this implementation authorization needs another confirmation.

@@ -62,11 +62,12 @@ impl fmt::Display for CodexVersion {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct CodexRuntimeProfile {
     executable: PathBuf,
     version: CodexVersion,
     working_directory: PathBuf,
+    candidate: Option<std::sync::Arc<dpl_chat_projects::CandidateLease>>,
 }
 
 impl CodexRuntimeProfile {
@@ -81,7 +82,64 @@ impl CodexRuntimeProfile {
             executable,
             version,
             working_directory,
+            candidate: None,
         })
+    }
+
+    /// An explicit disposable/setup candidate, never an automatic migration.
+    /// The lease stays alive with every clone and every owned provider child.
+    pub fn discover_candidate(
+        candidate: std::sync::Arc<dpl_chat_projects::CandidateLease>,
+    ) -> Result<Self, CodexDiscoveryError> {
+        candidate
+            .verify()
+            .map_err(CodexDiscoveryError::ProjectProfile)?;
+        let working_directory = canonical_directory(candidate.workspace())?;
+        let executable = discover_executable()?;
+        let mut profile = Self {
+            executable,
+            version: MINIMUM_VERSION,
+            working_directory,
+            candidate: Some(candidate),
+        };
+        let mut command = profile
+            .command()
+            .map_err(|error| CodexDiscoveryError::ProjectProfile(error.to_string()))?;
+        profile.version = probe_command_version(&mut command)?;
+        if !profile.version.is_activation_supported() {
+            return Err(CodexDiscoveryError::VersionUnsupported(profile.version));
+        }
+        Ok(profile)
+    }
+
+    /// A valid link candidate does not prove complete native history portability.
+    /// PC1b's live Windows/Linux and standalone drills have not passed yet.
+    pub const fn native_sessions_qualified(&self) -> bool {
+        false
+    }
+
+    pub(crate) fn has_project_profile(&self) -> bool {
+        self.candidate.is_some()
+    }
+
+    pub(crate) fn verify_project_profile(&self) -> io::Result<()> {
+        self.candidate
+            .as_ref()
+            .ok_or_else(|| io::Error::other("a bound project profile is required"))?
+            .verify()
+            .map_err(io::Error::other)
+    }
+
+    pub(crate) fn command(&self) -> io::Result<Command> {
+        let mut command = profiled_command(self.executable(), self.working_directory());
+        if let Some(candidate) = &self.candidate {
+            candidate.verify().map_err(io::Error::other)?;
+            command.env("CODEX_HOME", candidate.home());
+            // The provider owns this profile's auth; no ambient keychain identity
+            // may silently substitute for an explicit project-profile sign-in.
+            command.args(["-c", "cli_auth_credentials_store=\"file\""]);
+        }
+        Ok(command)
     }
 
     pub fn executable(&self) -> &Path {
@@ -104,6 +162,7 @@ pub enum CodexDiscoveryError {
     WorkingDirectory(String),
     VersionProbe(String),
     VersionUnsupported(CodexVersion),
+    ProjectProfile(String),
 }
 
 impl fmt::Display for CodexDiscoveryError {
@@ -116,6 +175,7 @@ impl fmt::Display for CodexDiscoveryError {
             Self::WorkingDirectory(reason) => {
                 write!(f, "the Codex working directory is invalid: {reason}")
             }
+            Self::ProjectProfile(reason) => write!(f, "the Codex project profile is unavailable: {reason}"),
             Self::VersionProbe(reason) => {
                 write!(f, "the Codex version could not be verified: {reason}")
             }
@@ -187,14 +247,18 @@ impl CodexLoginLauncher for SystemCodexLoginLauncher {
         &self,
         profile: &CodexRuntimeProfile,
     ) -> io::Result<Box<dyn CodexLoginProcess>> {
-        let child = login_command(profile).spawn()?;
-        Ok(Box::new(OwnedChild { child: Some(child) }))
+        let child = login_command(profile)?.spawn()?;
+        Ok(Box::new(OwnedChild {
+            child: Some(child),
+            _profile: profile.clone(),
+        }))
     }
 }
 
 #[derive(Debug)]
 struct OwnedChild {
     child: Option<Child>,
+    _profile: CodexRuntimeProfile,
 }
 
 impl CodexLoginProcess for OwnedChild {
@@ -277,6 +341,7 @@ impl CodexStatusRequest for PendingStatus {
 #[derive(Debug)]
 pub struct CodexActivationCoordinator {
     discovery_root: Option<PathBuf>,
+    discovery_candidate: Option<std::sync::Arc<dpl_chat_projects::CandidateLease>>,
     profile: Result<CodexRuntimeProfile, CodexDiscoveryError>,
     state: ActivationState,
     launcher: Box<dyn CodexLoginLauncher>,
@@ -294,6 +359,7 @@ impl CodexActivationCoordinator {
         let state = activation_from_discovery(&profile);
         Self {
             discovery_root: Some(discovery_root),
+            discovery_candidate: None,
             profile,
             state,
             launcher: Box::<SystemCodexLoginLauncher>::default(),
@@ -313,6 +379,7 @@ impl CodexActivationCoordinator {
     ) -> Self {
         Self {
             discovery_root: None,
+            discovery_candidate: None,
             profile,
             state,
             launcher,
@@ -326,6 +393,22 @@ impl CodexActivationCoordinator {
 
     pub fn activation(&self) -> &ActivationState {
         &self.state
+    }
+
+    /// Status, login and runtime discovery share the same explicit leased home.
+    pub fn discover_candidate(
+        candidate: std::sync::Arc<dpl_chat_projects::CandidateLease>,
+    ) -> Self {
+        let profile = CodexRuntimeProfile::discover_candidate(std::sync::Arc::clone(&candidate));
+        let state = activation_from_discovery(&profile);
+        let mut coordinator = Self::from_parts(
+            profile,
+            state,
+            Box::<SystemCodexLoginLauncher>::default(),
+            Box::<SystemCodexStatusProbe>::default(),
+        );
+        coordinator.discovery_candidate = Some(candidate);
+        coordinator
     }
 
     pub fn activation_capability_qualified(&self) -> bool {
@@ -354,12 +437,15 @@ impl CodexActivationCoordinator {
         if self.child.is_some() || self.verification.is_some() {
             return Err(CodexActivationError::AlreadyRunning);
         }
-        let Some(discovery_root) = self.discovery_root.clone() else {
+        let profile = if let Some(candidate) = &self.discovery_candidate {
+            CodexRuntimeProfile::discover_candidate(std::sync::Arc::clone(candidate))
+        } else if let Some(discovery_root) = &self.discovery_root {
+            CodexRuntimeProfile::discover(discovery_root)
+        } else {
             return Err(CodexActivationError::Unavailable(
                 "the Codex coordinator has no discovery root".to_owned(),
             ));
         };
-        let profile = CodexRuntimeProfile::discover(discovery_root);
         let state = activation_from_discovery(&profile);
         let changed = state != self.state;
         self.profile = profile;
@@ -543,14 +629,17 @@ pub(crate) fn probe_version(
     working_directory: &Path,
 ) -> Result<CodexVersion, CodexDiscoveryError> {
     let mut command = profiled_command(executable, working_directory);
+    probe_command_version(&mut command)
+}
+
+fn probe_command_version(command: &mut Command) -> Result<CodexVersion, CodexDiscoveryError> {
     command
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let output =
-        dpl_proc::bounded_output(&mut command, std::time::Duration::from_secs(5), 16 * 1024)
-            .map_err(|error| CodexDiscoveryError::VersionProbe(public_io_reason(&error)))?;
+    let output = dpl_proc::bounded_output(command, std::time::Duration::from_secs(5), 16 * 1024)
+        .map_err(|error| CodexDiscoveryError::VersionProbe(public_io_reason(&error)))?;
     if !output.status.success() {
         return Err(CodexDiscoveryError::VersionProbe(format!(
             "the version command exited with status {}",
@@ -563,7 +652,7 @@ pub(crate) fn probe_version(
 }
 
 fn probe_login_status(profile: &CodexRuntimeProfile) -> Result<CodexLoginStatus, io::Error> {
-    let mut command = profiled_command(profile.executable(), profile.working_directory());
+    let mut command = profile.command()?;
     command
         .args(["login", "status"])
         .stdin(Stdio::null())
@@ -611,14 +700,14 @@ fn bounded_output(output: &Output) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-fn login_command(profile: &CodexRuntimeProfile) -> Command {
-    let mut command = profiled_command(profile.executable(), profile.working_directory());
+fn login_command(profile: &CodexRuntimeProfile) -> io::Result<Command> {
+    let mut command = profile.command()?;
     command
         .arg("login")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    command
+    Ok(command)
 }
 
 /// The ONE way this crate builds a `codex` child: quiet-spawned, rooted in the
@@ -709,6 +798,7 @@ mod tests {
             executable,
             version: MINIMUM_VERSION,
             working_directory: directory,
+            candidate: None,
         }
     }
 
@@ -973,13 +1063,126 @@ mod tests {
     #[test]
     fn fixed_login_command_uses_only_the_literal_login_argument() {
         let profile = fixture_profile();
-        let command = login_command(&profile);
+        let command = login_command(&profile).expect("login command");
         assert_eq!(command.get_program(), profile.executable());
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
             vec![OsStr::new("login")]
         );
         assert_eq!(command.get_current_dir(), Some(profile.working_directory()));
+        assert!(!profile.native_sessions_qualified());
+        let result = crate::runtime::CodexAppServerRuntime::start_project(&profile);
+        assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        assert!(crate::standalone::bound_command(
+            &profile,
+            dpl_chat_core::PermissionMode::AskFirst
+        )
+        .is_err());
+        assert_eq!(
+            crate::standalone::CodexStandalone::start(
+                &profile,
+                dpl_chat_core::PermissionMode::AskFirst
+            )
+            .unwrap_err()
+            .kind(),
+            io::ErrorKind::Unsupported
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn candidate_commands_share_explicit_home_and_revalidate_before_launch() {
+        use dpl_chat_projects::{CodexProfileCandidate, Project, Registry};
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base = temp_dir(&format!("bound-{unique}"));
+        let workspace = base.join("workspace");
+        fs::create_dir(&workspace).unwrap();
+        let project = Project::create_new(&workspace, "Fixture").unwrap();
+        let registry = Registry::open(&base.join("machine")).unwrap();
+        let candidate = CodexProfileCandidate::create_new(&registry, &project).unwrap();
+        let lease = Arc::new(candidate.lease().unwrap());
+        let mut profile = fixture_profile();
+        profile.working_directory = workspace;
+        profile.candidate = Some(Arc::clone(&lease));
+        for command in [profile.command().unwrap(), login_command(&profile).unwrap()] {
+            let explicit_home = command
+                .get_envs()
+                .find(|(key, _)| *key == OsStr::new("CODEX_HOME"));
+            assert_eq!(
+                explicit_home.and_then(|(_, value)| value),
+                Some(lease.home().as_os_str())
+            );
+            let args: Vec<_> = command.get_args().collect();
+            assert!(args.contains(&OsStr::new("cli_auth_credentials_store=\"file\"")));
+        }
+        assert!(!profile.native_sessions_qualified());
+        let start = crate::runtime::CodexAppServerRuntime::start(&profile);
+        assert!(matches!(start, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+        for (mode, sandbox, approval) in [
+            (
+                dpl_chat_core::PermissionMode::AskFirst,
+                "read-only",
+                "on-request",
+            ),
+            (
+                dpl_chat_core::PermissionMode::Workspace,
+                "workspace-write",
+                "on-request",
+            ),
+            (
+                dpl_chat_core::PermissionMode::ReadOnly,
+                "read-only",
+                "never",
+            ),
+        ] {
+            let command = crate::standalone::bound_command(&profile, mode).unwrap();
+            assert_eq!(command.get_program(), profile.executable());
+            assert_eq!(command.get_current_dir(), Some(profile.working_directory()));
+            let args: Vec<_> = command
+                .get_args()
+                .map(|arg| arg.to_str().unwrap())
+                .collect();
+            assert_eq!(
+                args,
+                [
+                    "-c",
+                    "cli_auth_credentials_store=\"file\"",
+                    "--no-daemon",
+                    "--no-alt-screen",
+                    "--sandbox",
+                    sandbox,
+                    "--ask-for-approval",
+                    approval,
+                    "-c",
+                    "sandbox_workspace_write.network_access=false",
+                    "--cd",
+                    profile.working_directory().to_str().unwrap(),
+                ]
+            );
+            assert_eq!(
+                command
+                    .get_envs()
+                    .find(|(key, _)| *key == OsStr::new("CODEX_HOME"))
+                    .and_then(|(_, value)| value),
+                Some(lease.home().as_os_str())
+            );
+        }
+        // Preserve the original marker and prove a replacement cannot authorize
+        // another child; this is deliberately disposable fixture data.
+        let marker = project.archive_dir().join("project.json");
+        let original = fs::read(&marker).unwrap();
+        fs::write(base.join("retained-project-marker.json"), original).unwrap();
+        fs::write(marker, b"{}").unwrap();
+        assert!(profile.command().is_err());
+        assert!(login_command(&profile).is_err());
+        assert!(crate::standalone::bound_command(
+            &profile,
+            dpl_chat_core::PermissionMode::AskFirst
+        )
+        .is_err());
     }
 
     #[test]

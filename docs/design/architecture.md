@@ -38,6 +38,22 @@ side rails         dpl-fabric (signals) · dpl-seam (agent HTTP) ·
 document/domain layer; providers and accounts are engines; window/windows/
 renderers are surfaces.
 
+`dpl-chat-codex → dpl-chat-projects` carries an explicitly leased candidate
+profile into every owned provider child. The project owner validates paths,
+links and identities; Codex owns process/protocol policy. A valid candidate
+does not enable native resume or standalone support without qualification.
+
+The named Codex standalone entry additionally uses pinned `process-wrap`
+inside its private lifetime module; it does not widen the dependency-free
+`dpl-proc` leaf. Windows launch assigns the child to a job before execution.
+Explicit/drop cleanup signals that job and boundedly reaps its direct child.
+The wrapper cannot prove job emptiness; cleanup returns an explicit error and
+the caller retains its profile lease for its process lifetime. The std backend
+also lacks kill-on-job-close. Complete tree exit and parent-crash containment
+remain unqualified. Unix interactive launch is
+refused until foreground terminal ownership and lifetime containment are
+implemented. Neither backend is advertised as qualified portable support.
+
 `dpl-chat-window → dpl-workflows` is an ordinary surface→document edge
 (the `dpl-editor → dpl-doc` direction): the chat surface renders the
 brainstorm board document and emits its typed ops; the host owns all IO.
@@ -52,7 +68,7 @@ brainstorm board document and emits its typed ops; the host owns all IO.
 | dpl-doc | serde, serde_json, dpl-coldlight | slide truth + the ONE styling edge (below) |
 | dpl-tools-deps | serde, serde_json, sha2 | the depot resolver trusts nothing else |
 | dpl-roots | serde, serde_json, toml | portable library configuration, identity and layout; no capture, egui, volume FFI or process dependencies |
-| dpl-chat-projects | serde, serde_json | project identities, bindings and durable chat archive; no egui, provider process, credentials or ambient workspace discovery |
+| dpl-chat-projects | serde, serde_json | project identities, archives and owned candidate profile links/leases; no egui, provider process, credential inspection or ambient workspace discovery |
 | dpl-landing | serde, serde_json | the landing policy is shared pure data |
 | dpl-estate | fjall, moka, serde, serde_json | Ring-0 persistence, no app types |
 | dpl-intent | ∅ | the operator-intent proof must never learn to serialize, clone, or arrive over a wire (signal-ledger plan §9.3) |

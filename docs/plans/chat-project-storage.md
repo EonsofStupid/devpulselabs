@@ -1,8 +1,9 @@
 # Project chat — machine awareness, automatic storage and standalone clients
 
 **Status:** implementation authorized by the operator's **resume** in direct
-response to review of this concrete design. PC1a is implemented and locally verified
-(2026-10-28; full gate and native proof); push and double-green delivery follow. PC1b remains
+response to review of this concrete design. PC1a delivered in #305 (`bfc8e33`),
+with full gate, native proof, double-green CI and isolated release rebuild.
+PC1b execution was authorized on 2026-10-29; its implementation is in progress and remains
 subject to its real-provider qualification gates. R292 includes supported
 standalone apps. Base `e60c140` (ST5a, #303); isolated branch
 `feat/chat-project-storage`. This pass does not reorder R290's storage-first
@@ -273,6 +274,10 @@ the provider throughout. Restore the previous active binding on transaction
 failure; never move/delete old histories to fit the new layout.
 
 ## 8. Qualification evidence and sources
+
+PC1b execution detail: [`chat-project-native-execution.md`](chat-project-native-execution.md).
+Exact artifact and current real-probe findings:
+[`../research/chat-project-native-qualification.md`](../research/chat-project-native-qualification.md).
 
 Delivery integration (2026-10-28): PR #305 is pushed at `0b0468a`. Main advanced
 to `855f674` (#304, ST5a′) during the pass. Integrate that change without altering

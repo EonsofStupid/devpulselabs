@@ -30,6 +30,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+mod native_history;
+use native_history::NativeHistory;
+
 /// The subcommand that speaks the protocol. `app-server` is marked
 /// `[experimental]` by the vendor — recorded rather than hidden, because a
 /// provider that stops answering must fail with a reason, not a shrug.
@@ -40,7 +43,15 @@ pub const PINNED_CLI_VERSION: &str = "0.163.0";
 
 /// Every method this adapter calls. Pinned so a Codex upgrade that removes
 /// one fails a TEST with the method's name, rather than a turn that hangs.
-pub const METHODS_USED: &[&str] = &["initialize", "thread/start", "turn/start", "turn/interrupt"];
+pub const METHODS_USED: &[&str] = &[
+    "initialize",
+    "thread/start",
+    "turn/start",
+    "turn/interrupt",
+    "thread/list",
+    "thread/resume",
+    "thread/turns/list",
+];
 
 /// Every notification this adapter maps. Anything else is kept as
 /// `RuntimeUpdate::Other` — an unknown frame is evidence, never a drop.
@@ -77,6 +88,12 @@ pub const SERVER_REQUESTS_HANDLED: &[&str] = &[
 pub enum Outbound {
     /// A request expecting a response.
     Request { method: &'static str, params: Value },
+    /// Correlation generation belongs to the adapter, never the wire.
+    NativeRequest {
+        generation: u64,
+        method: &'static str,
+        params: Value,
+    },
     /// The answer to a server request, echoing the server's own id.
     Respond { id: Value, result: Value },
     /// A server request this client declines, by name.
@@ -152,8 +169,9 @@ pub fn permission_params(mode: PermissionMode) -> (Value, Value) {
 
 /// What this adapter honestly supports today.
 ///
-/// `list_sessions`/`load_session` are FALSE because the mappings are not
-/// written. `qualified_capabilities` derives the chat capability set from
+/// `list_sessions`/`load_session` remain FALSE for an ordinary profile. Only
+/// `start_project` admits them after native storage qualification.
+/// `qualified_capabilities` derives the chat capability set from
 /// this, so a surface never offers what the adapter cannot do — the seam's
 /// central guarantee, exercised here for the first time.
 pub const fn advertised_capabilities() -> RuntimeCapabilities {
@@ -547,6 +565,9 @@ struct Ledger {
     next_approval: u64,
     /// The turn in flight and when it last showed life.
     turn: Option<(String, Instant)>,
+    native: Option<NativeHistory>,
+    native_requests: HashMap<u64, u64>,
+    native_generation: u64,
 }
 
 impl Ledger {
@@ -575,6 +596,21 @@ pub struct CodexAppServerRuntime {
     /// The child this runtime spawned, kept so `Drop` can reap it. `None` for
     /// a [`CodexAppServerRuntime::from_parts`] runtime, which owns no process.
     child: Mutex<Option<Child>>,
+    // The profile owns its binding lease. Retain it through child reap.
+    _profile: Option<CodexRuntimeProfile>,
+}
+
+/// A partially assembled transport still owns its child. Any failed pipe or
+/// worker setup must reap it before the borrowed profile lease can disappear.
+struct ReapOnError(Option<Child>);
+
+impl Drop for ReapOnError {
+    fn drop(&mut self) {
+        if let Some(child) = &mut self.0 {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
 }
 
 impl CodexAppServerRuntime {
@@ -594,6 +630,7 @@ impl CodexAppServerRuntime {
             ledger: Arc::new(Mutex::new(Ledger::default())),
             mode: Mutex::new(PermissionMode::default()),
             child: Mutex::new(None),
+            _profile: None,
         }
     }
 
@@ -617,14 +654,37 @@ impl CodexAppServerRuntime {
     /// the handshake makes `app-server` exit immediately, which cost six
     /// consecutive probe attempts before it was measured.
     pub fn start(profile: &CodexRuntimeProfile) -> io::Result<Self> {
-        let mut command =
-            crate::activation::profiled_command(profile.executable(), profile.working_directory());
+        if profile.has_project_profile() {
+            Self::start_project(profile)
+        } else {
+            Self::start_inner(profile, false)
+        }
+    }
+
+    /// Native resume is admitted only by the host's qualified project profile,
+    /// never merely because a workspace path or new-enough executable exists.
+    pub fn start_project(profile: &CodexRuntimeProfile) -> io::Result<Self> {
+        if !profile.native_sessions_qualified() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Codex native project storage is not qualified",
+            ));
+        }
+        Self::start_inner(profile, true)
+    }
+
+    fn start_inner(profile: &CodexRuntimeProfile, native_sessions: bool) -> io::Result<Self> {
+        let mut command = profile.command()?;
         command
             .args(APP_SERVER_ARGS)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command.spawn()?;
+        let mut child_guard = ReapOnError(Some(command.spawn()?));
+        let child = child_guard
+            .0
+            .as_mut()
+            .ok_or_else(|| io::Error::other("missing owned Codex child"))?;
 
         let missing = |what: &str| io::Error::other(format!("codex app-server exposed no {what}"));
         let mut stdin = child.stdin.take().ok_or_else(|| missing("stdin"))?;
@@ -633,7 +693,11 @@ impl CodexAppServerRuntime {
 
         let (command_tx, command_rx) = sync_channel::<Outbound>(COMMAND_CAPACITY);
         let (event_tx, event_rx) = sync_channel::<RuntimeEvent>(EVENT_CAPACITY);
-        let ledger = Arc::new(Mutex::new(Ledger::default()));
+        let ledger = Arc::new(Mutex::new(Ledger {
+            native: native_sessions
+                .then(|| NativeHistory::new(profile.working_directory().to_path_buf())),
+            ..Ledger::default()
+        }));
         let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
 
         // The child's own account of why it died, when it dies before saying
@@ -645,7 +709,13 @@ impl CodexAppServerRuntime {
             thread::Builder::new()
                 .name("devpulse-codex-stderr".to_owned())
                 .spawn(move || {
-                    for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                    let mut reader = BufReader::new(stderr);
+                    loop {
+                        let line = match bounded_line(&mut reader, 16 * 1024) {
+                            Ok(Some(line)) => line,
+                            Err(error) if error.kind() == io::ErrorKind::InvalidData => continue,
+                            _ => break,
+                        };
                         if !line.trim().is_empty() {
                             *tail.lock().unwrap_or_else(|p| p.into_inner()) = line;
                         }
@@ -675,6 +745,9 @@ impl CodexAppServerRuntime {
             .spawn(move || {
                 while alive.load(std::sync::atomic::Ordering::Relaxed) {
                     thread::sleep(Duration::from_secs(2));
+                    if let Some(failure) = expire_native(&mut lock(&watchdog_ledger), Instant::now()) {
+                        if watchdog_events.send(RuntimeEvent::Failure(failure)).is_err() { return; }
+                    }
                     let Some(thread_id) = overdue(&mut lock(&watchdog_ledger), Instant::now())
                     else {
                         continue;
@@ -695,9 +768,11 @@ impl CodexAppServerRuntime {
             })?;
 
         let writer_ledger = Arc::clone(&ledger);
+        let writer_profile = profile.clone();
         thread::Builder::new()
             .name("devpulse-codex-writer".to_owned())
             .spawn(move || {
+                let _profile_lease = writer_profile;
                 // The handshake, sent without waiting: `initialized` is
                 // mandatory and the server accepts it pipelined behind
                 // `initialize`. Proved against the live CLI — a real turn
@@ -720,6 +795,26 @@ impl CodexAppServerRuntime {
                 // A blocking recv: the writer sleeps until the host speaks, and
                 // holds stdin open the entire time.
                 while let Ok(outbound) = command_rx.recv() {
+                    let mut writer_guard = lock(&writer_ledger);
+                    let outbound = match outbound {
+                        Outbound::NativeRequest {
+                            generation,
+                            method,
+                            params,
+                        } => {
+                            if generation != writer_guard.native_generation
+                                || !writer_guard
+                                    .native
+                                    .as_ref()
+                                    .is_some_and(NativeHistory::busy)
+                            {
+                                continue;
+                            }
+                            writer_guard.native_requests.insert(next_id, generation);
+                            Outbound::Request { method, params }
+                        }
+                        other => other,
+                    };
                     let line = match outbound {
                         Outbound::Request { method, params } => {
                             let id = next_id;
@@ -728,12 +823,13 @@ impl CodexAppServerRuntime {
                                 .get("threadId")
                                 .and_then(Value::as_str)
                                 .map(str::to_owned);
-                            let mut ledger = lock(&writer_ledger);
                             if method == "turn/start" {
-                                ledger.turn = thread.clone().map(|thread| (thread, Instant::now()));
+                                writer_guard.turn =
+                                    thread.clone().map(|thread| (thread, Instant::now()));
                             }
-                            ledger.requests.insert(id, (method.to_owned(), thread));
-                            drop(ledger);
+                            writer_guard
+                                .requests
+                                .insert(id, (method.to_owned(), thread));
                             request_line(id, method, &params)
                         }
                         Outbound::Respond { id, result } => {
@@ -746,7 +842,9 @@ impl CodexAppServerRuntime {
                         })
                         .to_string(),
                         Outbound::Shutdown => break, // Fall through; release stdin.
+                        Outbound::NativeRequest { .. } => unreachable!(),
                     };
+                    drop(writer_guard);
                     if writeln!(stdin, "{line}")
                         .and_then(|()| stdin.flush())
                         .is_err()
@@ -765,7 +863,8 @@ impl CodexAppServerRuntime {
             capabilities: Mutex::new(None),
             ledger,
             mode: Mutex::new(PermissionMode::default()),
-            child: Mutex::new(Some(child)),
+            child: Mutex::new(child_guard.0.take()),
+            _profile: Some(profile.clone()),
         })
     }
 }
@@ -785,6 +884,75 @@ fn overdue(ledger: &mut Ledger, now: Instant) -> Option<String> {
         return None;
     }
     ledger.turn.take().map(|(thread, _)| thread)
+}
+
+fn abort_native(ledger: &mut Ledger) {
+    if let Some(native) = &mut ledger.native {
+        native.abort();
+    }
+    ledger
+        .requests
+        .retain(|_, (method, _)| !native_history::is_native(method));
+    ledger.native_requests.clear();
+    ledger.native_generation = ledger.native_generation.saturating_add(1);
+}
+
+fn expire_native(ledger: &mut Ledger, now: Instant) -> Option<RuntimeFailure> {
+    let native = ledger.native.as_ref()?;
+    if !native.expired(now) {
+        return None;
+    }
+    let session = native.session_id();
+    abort_native(ledger);
+    Some(RuntimeFailure {
+        kind: RuntimeFailureKind::Timeout,
+        reason: "Codex native session operation exceeded its deadline".into(),
+        provider_session_id: session,
+    })
+}
+
+/// Unlike `lines`, allocation never exceeds limit + 1, even without a newline.
+fn bounded_line(reader: &mut impl BufRead, limit: usize) -> io::Result<Option<String>> {
+    let mut bytes = Vec::new();
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            break;
+        }
+        let end = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|position| position + 1);
+        let take = end.unwrap_or(available.len()).min(limit + 1 - bytes.len());
+        bytes.extend_from_slice(&available[..take]);
+        reader.consume(take);
+        if bytes.len() > limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "protocol line exceeds bound",
+            ));
+        }
+        if end == Some(take) {
+            break;
+        }
+    }
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "protocol line is not UTF-8"))
+}
+
+fn native_outbound(outbound: Outbound, generation: u64) -> Outbound {
+    match outbound {
+        Outbound::Request { method, params } => Outbound::NativeRequest {
+            generation,
+            method,
+            params,
+        },
+        other => other,
+    }
 }
 
 /// One JSON-RPC request, serialised. `jsonrpc` is sent even though the server
@@ -807,9 +975,22 @@ impl Reader {
     ///
     /// Ends by emitting [`RuntimeEvent::Stopped`], so a child that dies is a
     /// state the host observes rather than a queue that quietly goes silent.
-    fn read(&self, stdout: impl BufRead) {
+    fn read(&self, mut stdout: impl BufRead) {
         let mut connected = false;
-        for line in stdout.lines().map_while(Result::ok) {
+        loop {
+            let line = match bounded_line(&mut stdout, native_history::MAX_FRAME_BYTES) {
+                Ok(Some(line)) => line,
+                Ok(None) => break,
+                Err(_) => {
+                    abort_native(&mut lock(&self.ledger));
+                    let _ = self.events.send(RuntimeEvent::Failure(RuntimeFailure::new(
+                        RuntimeFailureKind::Protocol,
+                        "Codex emitted an oversized or invalid protocol frame",
+                    )));
+                    let _ = self.commands.try_send(Outbound::Shutdown);
+                    break;
+                }
+            };
             let Some(frame) = classify(&line) else {
                 continue;
             };
@@ -849,6 +1030,17 @@ impl Reader {
     fn notification(&self, method: &str, params: &Value) -> Vec<RuntimeEvent> {
         let thread = params.get("threadId").and_then(Value::as_str);
         let mut ledger = lock(&self.ledger);
+        if let Some(native) = &ledger.native {
+            let started = params
+                .get("thread")
+                .and_then(|value| value.get("id"))
+                .and_then(Value::as_str);
+            if (method == "thread/started" && started.is_some_and(|id| native.resumed(id)))
+                || thread.is_some_and(|id| native.suppresses(id))
+            {
+                return Vec::new();
+            }
+        }
         ledger.touch(thread);
         let finished = method == "turn/completed"
             || (method == "error"
@@ -908,9 +1100,16 @@ impl Reader {
                     RuntimeFailureKind::Protocol,
                     format!("codex app-server rejected the handshake: {reason}"),
                 )),
-                None => RuntimeEvent::Connected {
-                    capabilities: advertised_capabilities(),
-                },
+                None => {
+                    let native = lock(&self.ledger).native.is_some();
+                    RuntimeEvent::Connected {
+                        capabilities: RuntimeCapabilities {
+                            list_sessions: native,
+                            load_session: native,
+                            ..advertised_capabilities()
+                        },
+                    }
+                }
             }],
             ACCOUNT_READ_ID => match error {
                 // The account could not be read; the process still works, so
@@ -922,13 +1121,61 @@ impl Reader {
                 None => vec![RuntimeEvent::Account(account_from(result))],
             },
             _ => {
-                let request = lock(&self.ledger).requests.remove(&id);
-                let Some(reason) = error else {
-                    // An acknowledgement; the work reports through
-                    // notifications.
+                let Some((method, thread)) = lock(&self.ledger).requests.remove(&id) else {
+                    // Late, timed out and unknown replies have no authority.
                     return Vec::new();
                 };
-                let (method, thread) = request.unwrap_or_else(|| ("a request".to_owned(), None));
+                if native_history::is_native(&method) {
+                    let mut ledger = lock(&self.ledger);
+                    if ledger.native_requests.remove(&id) != Some(ledger.native_generation) {
+                        return Vec::new();
+                    }
+                    let outcome = match error {
+                        Some(_) => Err(format!("Codex refused {method}")),
+                        None => match ledger.native.as_mut() {
+                            Some(native) => native.response(&method, result),
+                            None => return Vec::new(),
+                        },
+                    };
+                    match outcome {
+                        Ok((event, next)) => {
+                            if let Some(next) = next {
+                                if self
+                                    .commands
+                                    .try_send(native_outbound(next, ledger.native_generation))
+                                    .is_err()
+                                {
+                                    let session =
+                                        ledger.native.as_ref().and_then(NativeHistory::session_id);
+                                    abort_native(&mut ledger);
+                                    return vec![RuntimeEvent::Failure(RuntimeFailure {
+                                        kind: RuntimeFailureKind::Backpressure,
+                                        reason: "Codex history continuation could not be queued"
+                                            .into(),
+                                        provider_session_id: session,
+                                    })];
+                                }
+                            }
+                            return event.into_iter().collect();
+                        }
+                        Err(reason) => {
+                            let session = ledger
+                                .native
+                                .as_ref()
+                                .and_then(NativeHistory::session_id)
+                                .or(thread);
+                            abort_native(&mut ledger);
+                            return vec![RuntimeEvent::Failure(RuntimeFailure {
+                                kind: RuntimeFailureKind::Protocol,
+                                reason,
+                                provider_session_id: session,
+                            })];
+                        }
+                    }
+                }
+                let Some(reason) = error else {
+                    return Vec::new();
+                };
                 if method == "turn/start" {
                     lock(&self.ledger).turn = None;
                 }
@@ -962,6 +1209,45 @@ impl ProviderRuntime for CodexAppServerRuntime {
     }
 
     fn try_send(&self, command: RuntimeCommand) -> Result<(), RuntimeSendError> {
+        if matches!(
+            command,
+            RuntimeCommand::ListSessions { .. } | RuntimeCommand::LoadSession { .. }
+        ) {
+            let mut ledger = lock(&self.ledger);
+            if ledger.turn.is_some() || !ledger.approvals.is_empty() {
+                return Err(RuntimeSendError::Full);
+            }
+            let native = ledger.native.as_mut().ok_or(RuntimeSendError::Closed)?;
+            let outbound = match &command {
+                RuntimeCommand::ListSessions { cursor } => native.list(cursor.as_deref()),
+                RuntimeCommand::LoadSession {
+                    provider_session_id,
+                } => native.resume(provider_session_id, *lock(&self.mode)),
+                _ => unreachable!(),
+            }
+            .map_err(|_| RuntimeSendError::Full)?;
+            ledger.native_generation = ledger.native_generation.saturating_add(1);
+            return self
+                .commands
+                .try_send(native_outbound(outbound, ledger.native_generation))
+                .map_err(|error| {
+                    abort_native(&mut ledger);
+                    match error {
+                        TrySendError::Full(_) => RuntimeSendError::Full,
+                        TrySendError::Disconnected(_) => RuntimeSendError::Closed,
+                    }
+                });
+        }
+        if matches!(
+            command,
+            RuntimeCommand::NewSession | RuntimeCommand::Prompt { .. }
+        ) && lock(&self.ledger)
+            .native
+            .as_ref()
+            .is_some_and(NativeHistory::busy)
+        {
+            return Err(RuntimeSendError::Full);
+        }
         let outbound = match command {
             RuntimeCommand::SetPermissionMode { mode } => {
                 *lock(&self.mode) = mode;
@@ -1031,6 +1317,74 @@ mod tests {
     use super::*;
     use dpl_chat_core::Capability;
     use dpl_chat_runtime::seam::qualified_capabilities;
+
+    #[test]
+    fn native_timeout_invalidates_correlations_and_late_responses() {
+        let mut ledger = Ledger {
+            native: Some(NativeHistory::new("/project".into())),
+            native_generation: 1,
+            ..Ledger::default()
+        };
+        ledger
+            .native
+            .as_mut()
+            .unwrap()
+            .resume("thread", PermissionMode::ReadOnly)
+            .unwrap();
+        ledger
+            .requests
+            .insert(3, ("thread/resume".into(), Some("thread".into())));
+        ledger.native_requests.insert(3, 1);
+        let failure =
+            expire_native(&mut ledger, Instant::now() + native_history::DEADLINE).unwrap();
+        assert_eq!(failure.provider_session_id.as_deref(), Some("thread"));
+        assert!(ledger.requests.is_empty());
+        assert!(ledger.native_requests.is_empty());
+        assert_eq!(ledger.native_generation, 2);
+        let (events, _) = drain_with(
+            "{\"id\":1,\"result\":{}}\n{\"id\":3,\"result\":{}}\n",
+            Arc::new(Mutex::new(ledger)),
+        );
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            RuntimeEvent::SessionLoaded { .. } | RuntimeEvent::SessionReady { .. }
+        )));
+    }
+
+    #[test]
+    fn native_resume_notifications_cannot_create_a_second_session_or_live_tokens() {
+        let mut ledger = Ledger {
+            native: Some(NativeHistory::new("/project".into())),
+            ..Ledger::default()
+        };
+        ledger
+            .native
+            .as_mut()
+            .unwrap()
+            .resume("thread", PermissionMode::ReadOnly)
+            .unwrap();
+        let (events, _) = drain_with(
+            "{\"id\":1,\"result\":{}}\n{\"method\":\"thread/started\",\"params\":{\"thread\":{\"id\":\"thread\"}}}\n{\"method\":\"item/agentMessage/delta\",\"params\":{\"threadId\":\"thread\",\"delta\":\"historical\"}}\n",
+            Arc::new(Mutex::new(ledger)),
+        );
+        assert_eq!(events.len(), 2, "only connected and stopped");
+    }
+
+    #[test]
+    fn bounded_protocol_reader_refuses_huge_lines_before_json_allocation() {
+        let mut input = BufReader::new(&b"123456789\n"[..]);
+        assert!(bounded_line(&mut input, 8).is_err());
+        let mut input = BufReader::new(&b"1234567\nnext"[..]);
+        assert_eq!(
+            bounded_line(&mut input, 8).unwrap().as_deref(),
+            Some("1234567\n")
+        );
+        assert_eq!(
+            bounded_line(&mut input, 8).unwrap().as_deref(),
+            Some("next")
+        );
+        assert_eq!(bounded_line(&mut input, 8).unwrap(), None);
+    }
 
     #[test]
     fn a_prompt_becomes_a_turn_start_on_its_thread() {

@@ -10,6 +10,7 @@
 mod activation;
 pub mod adoption;
 pub mod runtime;
+pub mod standalone;
 
 pub use activation::{
     CodexActivationCoordinator, CodexActivationError, CodexDiscoveryError, CodexLoginExit,

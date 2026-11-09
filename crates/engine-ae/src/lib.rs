@@ -29,9 +29,10 @@ pub struct Caps {
 impl Caps {
     /// Read the real machine: total RAM via sysinfo, logical CPUs via std.
     pub fn probe() -> Self {
-        let mut sys = sysinfo::System::new();
-        sys.refresh_memory();
-        let ram_gb = sys.total_memory() as f32 / (1024.0 * 1024.0 * 1024.0);
+        let ram_gb = sysinfo::System::new().map_or(0.0, |mut sys| {
+            sys.refresh_memory();
+            sys.total_memory() as f32 / (1024.0 * 1024.0 * 1024.0)
+        });
         let logical_cpus = std::thread::available_parallelism()
             .map(|n| n.get() as u32)
             .unwrap_or(1);
@@ -360,7 +361,10 @@ pub fn welcome_screen_blocking(prefs: &Path) -> bool {
 /// Any AfterFX/aerender process currently running? (Editing prefs while AE
 /// runs is futile — AE rewrites them on quit.)
 pub fn ae_running() -> bool {
-    let mut sys = sysinfo::System::new();
+    // Unknown counts as running: this guards edits AE would rewrite on quit.
+    let Ok(mut sys) = sysinfo::System::new() else {
+        return true;
+    };
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     sys.processes().values().any(|p| {
         let n = p.name().to_string_lossy().to_ascii_lowercase();
@@ -434,7 +438,7 @@ mod tests {
     /// Pinned against this test binary — the one process guaranteed to exist.
     #[test]
     fn a_process_name_is_a_bare_file_name_not_a_path() {
-        let mut sys = sysinfo::System::new();
+        let mut sys = sysinfo::System::new().expect("the process list is readable");
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         let me = sysinfo::Pid::from_u32(std::process::id());
         let name = sys

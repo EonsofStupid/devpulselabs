@@ -6986,9 +6986,10 @@ impl PreviewCaps {
     /// `dpl_engine_ae::Caps::probe` pattern, replicated per the repo's
     /// small-utility philosophy — no engine-ae coupling for 12 lines).
     fn probe() -> Self {
-        let mut sys = sysinfo::System::new();
-        sys.refresh_memory();
-        let ram_gb = sys.total_memory() as f32 / (1024.0 * 1024.0 * 1024.0);
+        let ram_gb = sysinfo::System::new().map_or(0.0, |mut sys| {
+            sys.refresh_memory();
+            sys.total_memory() as f32 / (1024.0 * 1024.0 * 1024.0)
+        });
         let cpus = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);

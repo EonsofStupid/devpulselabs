@@ -1,22 +1,20 @@
 use super::{allowed_environment_keys, GrokRuntimeProfile};
 use crate::terminal::AcpTerminalStore;
 use agent_client_protocol::{
-    schema::{
-        v1::{
-            AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock,
-            CreateTerminalRequest, CreateTerminalResponse, FileSystemCapabilities, Implementation,
-            InitializeRequest, KillTerminalRequest, KillTerminalResponse, ListSessionsRequest,
-            LoadSessionRequest, NewSessionRequest, PermissionOptionKind, PromptRequest,
-            ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest,
-            ReleaseTerminalResponse, RequestPermissionOutcome, RequestPermissionRequest,
-            RequestPermissionResponse, SelectedPermissionOutcome, SessionId, SessionNotification,
-            SessionUpdate, TerminalOutputRequest, TerminalOutputResponse, TextContent,
-            WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
-            WriteTextFileResponse,
-        },
-        ProtocolVersion,
+    schema::ProtocolVersion,
+    v1::schema::{
+        AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock,
+        CreateTerminalRequest, CreateTerminalResponse, FileSystemCapabilities, Implementation,
+        InitializeRequest, KillTerminalRequest, KillTerminalResponse, ListSessionsRequest,
+        LoadSessionRequest, NewSessionRequest, PermissionOptionKind, PromptRequest,
+        ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest, ReleaseTerminalResponse,
+        RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+        SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate,
+        TerminalOutputRequest, TerminalOutputResponse, TextContent, WaitForTerminalExitRequest,
+        WaitForTerminalExitResponse, WriteTextFileRequest, WriteTextFileResponse,
     },
-    Agent, ByteStreams, Client, ConnectTo, ConnectionTo, Error, Responder,
+    v1::{ConnectionTo, Responder},
+    Agent, ByteStreams, Client, ConnectTo, Error,
 };
 use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use async_process::Child;
@@ -459,7 +457,7 @@ async fn run_connection(
     let kill_terminals = terminals.clone();
     let wait_terminals = terminals.clone();
     let result = Client
-        .builder()
+        .v1()
         .on_receive_notification(
             async move |notification: SessionNotification, _connection: ConnectionTo<Agent>| {
                 let event = map_notification(notification);
@@ -1373,7 +1371,7 @@ fn public_io_reason(error: &io::Error) -> String {
 mod tests {
     use super::*;
     use crate::{GrokVersion, MINIMUM_VERSION, QUALIFIED_VERSION};
-    use agent_client_protocol::schema::v1::{
+    use agent_client_protocol::v1::schema::{
         AgentCapabilities, AuthMethod, AuthMethodAgent, AuthenticateResponse, ContentChunk,
         ImageContent, InitializeResponse, ListSessionsResponse, LoadSessionResponse,
         NewSessionResponse, PermissionOption, PromptResponse, SessionCapabilities, SessionInfo,
@@ -1506,7 +1504,7 @@ mod tests {
             let permission_flag = Arc::clone(&permission_approved);
             let cancel_observed = Arc::clone(&cancelled);
             let agent = Agent
-                .builder()
+                .v1()
                 .on_receive_request(
                     async move |_request: InitializeRequest,
                                 responder: Responder<InitializeResponse>,
