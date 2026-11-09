@@ -95,21 +95,21 @@ edition = "2021"
 publish = false
 
 [workspace.dependencies]
-egui = "0.36"
-eframe = { version = "0.36", features = ["wgpu"] }
-egui-wgpu = "0.36"
+egui = "0.37"
+eframe = { version = "0.37", features = ["wgpu"] }
+egui-wgpu = "0.37"
 # "file" installs the file:// loader (without it every Media::Image errors);
 # "webp" adds animated-webp support on top of the image crate's static decode.
-egui_extras = { version = "0.36", features = ["image", "file", "webp"] }
+egui_extras = { version = "0.37", features = ["image", "file", "webp"] }
 # Headless UI test harness (dev-only) Ã¢â‚¬â€ MUST track the egui minor version.
-egui_kittest = { version = "0.36", default-features = false }
+egui_kittest = { version = "0.37", default-features = false }
 # The document layer (dpl-doc): slide.json is serde data, end to end.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Schema-pin tests ONLY (dev-dep in dpl-workflows): validates the serde
 # shapes against schemas/*.schema.json so Rust and wire never drift.
 # default-features off: no reqwest — our $refs are all local.
-jsonschema = { version = "0.59", default-features = false }
+jsonschema = { version = "0.60", default-features = false }
 # ADR-011: the ONE outbound HTTPS client, used only by dpl-chat-imagine's
 # bounded worker against the compiled-in xAI Imagine endpoint.
 ureq = "3"
@@ -119,7 +119,7 @@ data-encoding = "2"
 fjall = "3.1.8"
 moka = { version = "0.12", features = ["sync"] }
 sha2 = "0.11"
-agent-client-protocol = "=3.4.0"
+agent-client-protocol = "=5.0.0"
 async-channel = "2"
 async-io = "2"
 async-process = "2"
@@ -129,7 +129,7 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 # The AEP orchestrator's capability probe (operator-ratified): read total
 # RAM cross-platform so the aerender tuning scales 16GB→128GB. "system"
 # feature only — no disk/network/component probing.
-sysinfo = { version = "0.39", default-features = false, features = ["system"] }
+sysinfo = { version = "0.40", default-features = false, features = ["system"] }
 # ThorVG (C++, vendored) — the native Lottie engine, linked ONLY by the
 # dpl-lottie-render subprocess helper (ADR-009 FFI leaf), never by the app.
 thorvg-sys = "0.4"
@@ -143,7 +143,7 @@ zbus = { version = "5", default-features = false, features = ["async-io"] }
 x11rb = { version = "0.14", default-features = false, features = ["allow-unsafe-code", "xtest"] }
 toml = "1.1"
 tokio = { version = "1", default-features = false, features = ["sync"] }
-turso = "0.7"
+turso = "0.8"
 # The agent seam (R1v): localhost HTTP over the fabric — axum is the
 # operator-ratified server; tokio-stream folds broadcast → SSE; tower is
 # dev-only endpoint testing (oneshot, no sockets).
