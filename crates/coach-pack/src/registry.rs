@@ -147,6 +147,7 @@ mod tests {
             ladder: Vec::new(),
             verbs: Vec::new(),
             teaching_landmarks: Vec::new(),
+            teaching_seed_control: None,
             extras: toml::Table::new(),
         }
     }

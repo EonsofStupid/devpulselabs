@@ -36,6 +36,7 @@ fn blender_pack() -> Pack {
         ladder: Vec::new(),
         verbs: Vec::new(),
         teaching_landmarks: Vec::new(),
+        teaching_seed_control: None,
         extras: toml::Table::new(),
     }
 }
@@ -57,6 +58,7 @@ fn calculator_pack() -> Pack {
         ladder: Vec::new(),
         verbs: Vec::new(),
         teaching_landmarks: Vec::new(),
+        teaching_seed_control: None,
         extras: toml::Table::new(),
     }
 }

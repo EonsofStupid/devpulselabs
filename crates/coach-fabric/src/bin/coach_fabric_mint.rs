@@ -27,7 +27,11 @@ fn main() {
         .find(|w| w[0] == "--budget-nodes")
         .and_then(|w| w[1].parse::<u32>().ok());
 
-    let mut request = match request_from_inventory_name(&target) {
+    let seed = args
+        .windows(2)
+        .find(|w| w[0] == "--seed")
+        .map(|w| w[1].clone());
+    let mut request = match request_from_inventory_name(&target, seed) {
         Ok(r) => r,
         Err(r) => {
             if json {

@@ -98,6 +98,9 @@ pub struct Pack {
     pub ladder: Vec<(String, PromotedRung)>,
     pub verbs: Vec<VerbGrant>,
     pub teaching_landmarks: Vec<String>,
+    /// `[teaching] seed_control` — the anchor a lesson mounts first. The
+    /// Foundry elects it (S3b); the hub reads it INSTEAD of name-sniffing.
+    pub teaching_seed_control: Option<String>,
     pub extras: Table,
 }
 
@@ -344,11 +347,18 @@ impl Pack {
 
         // [teaching]
         let mut teaching_landmarks = Vec::new();
+        let mut teaching_seed_control = None;
         if let Some(v) = doc.remove("teaching") {
             match v {
                 Value::Table(mut t) => {
                     teaching_landmarks =
                         take_str_array(&mut t, "teaching.landmarks", "landmarks", &mut warnings);
+                    teaching_seed_control = take_str(
+                        &mut t,
+                        "teaching.seed_control",
+                        "seed_control",
+                        &mut warnings,
+                    );
                     renest_leftovers(&mut doc, "teaching", t, &mut warnings);
                 }
                 other => warnings.push(format!(
@@ -374,6 +384,7 @@ impl Pack {
                 ladder,
                 verbs,
                 teaching_landmarks,
+                teaching_seed_control,
                 extras: doc,
             },
             warnings,
@@ -443,9 +454,15 @@ impl Pack {
             doc.insert("verb".into(), Value::Array(rows));
         }
 
-        if !self.teaching_landmarks.is_empty() || doc.contains_key("teaching") {
+        if !self.teaching_landmarks.is_empty()
+            || self.teaching_seed_control.is_some()
+            || doc.contains_key("teaching")
+        {
             let mut t = remove_table(&mut doc, "teaching");
             insert_str_array(&mut t, "landmarks", &self.teaching_landmarks);
+            if let Some(seed) = &self.teaching_seed_control {
+                t.insert("seed_control".into(), Value::String(seed.clone()));
+            }
             doc.insert("teaching".into(), Value::Table(t));
         }
 
@@ -608,6 +625,7 @@ mod tests {
                 extras: Table::new(),
             }],
             teaching_landmarks: vec!["3D Viewport".into()],
+            teaching_seed_control: Some("Open".into()),
             extras: Table::new(),
         }
     }

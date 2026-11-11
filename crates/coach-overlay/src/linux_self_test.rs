@@ -5,6 +5,9 @@
 //! Subcommands:
 //! - `self-test` — locate + stream-verify + WINDOW paint + Sync-grab + XTEST → Triggered
 //! - `locate` / `invoke` / `spotlight` — spike-parity operators (debug)
+//! - `inspect` — fabric inspector (S3b): outline every `--name` anchor's
+//!   live rect over the app window — the "am I anchored where I think
+//!   I am" debug paint. Repeated `--name` flags accepted.
 
 // spawn-audit: exempt(devtools overlay — operator console is the product)
 
@@ -52,6 +55,8 @@ pub fn entry() {
 fn run(args: &[String]) -> Result<i32, String> {
     let mut app = "gnome-calculator".to_string();
     let mut name = "7".to_string();
+    // Every `--name` in order — `inspect` outlines them all.
+    let mut names: Vec<String> = Vec::new();
     let mut seconds = 20u64;
     let mut message = "Press 7".to_string();
     let mut command = "self-test".to_string();
@@ -62,7 +67,9 @@ fn run(args: &[String]) -> Result<i32, String> {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "self-test" | "locate" | "invoke" | "spotlight" => command = args[i].clone(),
+            "self-test" | "locate" | "invoke" | "spotlight" | "inspect" => {
+                command = args[i].clone()
+            }
             "--self-test" => command = "self-test".into(),
             "--app" => {
                 i += 1;
@@ -71,6 +78,7 @@ fn run(args: &[String]) -> Result<i32, String> {
             "--name" => {
                 i += 1;
                 name = args.get(i).cloned().ok_or("--name needs a value")?;
+                names.push(name.clone());
             }
             "--window-rect" => {
                 i += 1;
@@ -131,6 +139,49 @@ fn run(args: &[String]) -> Result<i32, String> {
             println!(
                 "invoke: doAction(click) ok · display_changed={changed:?} (None = Text iface empty on this GTK4)"
             );
+            Ok(0)
+        }
+        "inspect" => {
+            if names.is_empty() {
+                return Err("inspect wants at least one --name anchor".into());
+            }
+            if seconds == 20 {
+                seconds = 12; // debug paint default, not the lesson default
+            }
+            let mut anchors: Vec<(String, IRect)> = Vec::new();
+            let mut misses: Vec<String> = Vec::new();
+            for anchor_name in &names {
+                match block_on(locate_target(&app, anchor_name)) {
+                    Ok(located) => anchors.push((anchor_name.clone(), located.window_rect)),
+                    Err(e) => misses.push(format!("{anchor_name}: {e}")),
+                }
+            }
+            for miss in &misses {
+                eprintln!("inspect: MISS {miss}");
+            }
+            let Some(first_rect) = anchors.first().map(|(_, r)| *r) else {
+                return Err("inspect: every anchor failed to locate".into());
+            };
+            // Compose once for the client origin/size; the first anchor
+            // seeds the composition (any resolvable rect works).
+            let located = compose_located(&app, first_rect)?;
+            println!(
+                "inspect: app={app} anchors={} misses={} client={}×{}@{},{} · {seconds}s",
+                anchors.len(),
+                misses.len(),
+                located.client_size.0,
+                located.client_size.1,
+                located.client_origin.0,
+                located.client_origin.1
+            );
+            run_inspect(InspectPaint {
+                anchors,
+                misses: misses.len(),
+                client_origin: located.client_origin,
+                client_size: located.client_size,
+                seconds,
+            })
+            .map_err(|e| e.to_string())?;
             Ok(0)
         }
         "spotlight" => {
@@ -979,6 +1030,151 @@ fn spawn_hotspot_watch(
         let _ = conn.ungrab_button(xproto::ButtonIndex::M1, root, xproto::ModMask::ANY);
         let _ = conn.flush();
     });
+}
+
+struct InspectPaint {
+    /// (anchor name, WINDOW-space rect) — everything that located.
+    anchors: Vec<(String, IRect)>,
+    misses: usize,
+    client_origin: (i32, i32),
+    client_size: (i32, i32),
+    seconds: u64,
+}
+
+/// Fabric inspector: outline every anchor rect + label, click-through,
+/// timed. No grabs, no XTEST, no scatter — a debug lens, not a lesson.
+fn run_inspect(paint: InspectPaint) -> eframe::Result<()> {
+    let InspectPaint {
+        anchors,
+        misses,
+        client_origin,
+        client_size,
+        seconds,
+    } = paint;
+    let (cw, ch) = client_size;
+    if cw <= 0 || ch <= 0 {
+        eprintln!("inspect: refused degenerate client size {cw}×{ch}");
+        return Ok(());
+    }
+    let viewport = egui::ViewportBuilder::default()
+        .with_title("DevPULSE fabric inspector")
+        .with_inner_size([cw as f32, ch as f32])
+        .with_position([client_origin.0 as f32, client_origin.1 as f32])
+        .with_decorations(false)
+        .with_transparent(true)
+        .with_mouse_passthrough(true)
+        .with_always_on_top()
+        .with_taskbar(false);
+    let started = Instant::now();
+    eframe::run_native(
+        "dpl-coach-overlay-inspect",
+        eframe::NativeOptions {
+            viewport,
+            ..Default::default()
+        },
+        Box::new(move |_cc| {
+            Ok(Box::new(InspectApp {
+                anchors,
+                misses,
+                client_size,
+                started,
+                seconds,
+            }))
+        }),
+    )
+}
+
+struct InspectApp {
+    anchors: Vec<(String, IRect)>,
+    misses: usize,
+    client_size: (i32, i32),
+    started: Instant,
+    seconds: u64,
+}
+
+impl eframe::App for InspectApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.started.elapsed().as_secs() >= self.seconds {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+        let ppp = ui.ctx().pixels_per_point();
+        let painter = ui.painter();
+        let palette = ForeignPalette::default();
+        let screen = egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(
+                self.client_size.0 as f32 / ppp,
+                self.client_size.1 as f32 / ppp,
+            ),
+        );
+        // Frame the inspected client area itself.
+        painter.rect_stroke(
+            screen.shrink(1.0),
+            0.0,
+            egui::Stroke::new(1.0, palette.tint),
+            egui::StrokeKind::Inside,
+        );
+        for (name, rect) in &self.anchors {
+            let r = egui::Rect::from_min_size(
+                egui::pos2(rect.x as f32 / ppp, rect.y as f32 / ppp),
+                egui::vec2(rect.w as f32 / ppp, rect.h as f32 / ppp),
+            )
+            .intersect(screen);
+            if r.width() <= 0.0 || r.height() <= 0.0 {
+                continue;
+            }
+            painter.rect_stroke(
+                r,
+                2.0,
+                egui::Stroke::new(2.0, palette.ring),
+                egui::StrokeKind::Outside,
+            );
+            let galley = painter.layout_no_wrap(
+                name.clone(),
+                egui::FontId::monospace(11.0),
+                palette.caption_ink,
+            );
+            let size = galley.size() + egui::vec2(8.0, 4.0);
+            let mut pos = egui::pos2(r.left(), r.top() - size.y - 2.0);
+            if pos.y < screen.min.y {
+                pos.y = r.top() + 2.0;
+            }
+            pos.x = pos
+                .x
+                .clamp(screen.min.x, (screen.max.x - size.x).max(screen.min.x));
+            let plate = egui::Rect::from_min_size(pos, size);
+            painter.rect_filled(plate, 3.0, palette.caption_fill);
+            painter.galley(
+                plate.min + egui::vec2(4.0, 2.0),
+                galley,
+                palette.caption_ink,
+            );
+        }
+        let caption = format!(
+            "fabric inspector · {} anchors · {} misses",
+            self.anchors.len(),
+            self.misses
+        );
+        let galley =
+            painter.layout_no_wrap(caption, egui::FontId::monospace(13.0), palette.caption_ink);
+        let size = galley.size() + egui::vec2(14.0, 8.0);
+        let plate = egui::Rect::from_min_size(
+            egui::pos2(screen.min.x + 8.0, screen.max.y - size.y - 8.0),
+            size,
+        );
+        painter.rect_filled(plate, 6.0, palette.caption_fill);
+        painter.galley(
+            plate.min + egui::vec2(7.0, 4.0),
+            galley,
+            palette.caption_ink,
+        );
+        ui.ctx().request_repaint_after(Duration::from_millis(100));
+    }
 }
 
 struct SpotlightPaint {

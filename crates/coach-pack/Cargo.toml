@@ -8,14 +8,18 @@ publish.workspace = true
 # pass plan docs-history-2026-10-12:docs/plans/coach-seam-s3a-identity-spine.md): the pack
 # registry + evidence resolver over the protocol's seam identity types
 # (rehomed there by S2, docs-history-2026-10-12:docs/plans/coach-seam-s2-protocol-rehoming.md).
-# Egui-free; never a dep of `app` directly; consumed by dpl-hub-coach +
-# the Foundry (S3b).
+# Egui-free; never a dep of `app` directly; consumed by dpl-hub-coach, with
+# its own Foundry module (S3b).
 
 [dependencies]
 egui-pilot-ai-protocol.workspace = true
 dpl-coach-inventory = { path = "../coach-inventory" }
 toml.workspace = true
 sha2.workspace = true
+dpl-coach-fabric = { path = "../coach-fabric" }
+dpl-coach-runtime = { path = "../coach-runtime" }
+dpl-fabric.workspace = true
+dpl-ledger.workspace = true
 
 [lints]
 workspace = true
