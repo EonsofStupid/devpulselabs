@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-09
+updated: 2026-11-10
 active_lane: recording-for-ai
 dirty: false
 ---
@@ -13,7 +13,7 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-11-09. **Baseline `v0.1.0` (R295, R296):** the tag marks the
+**Updated:** 2026-11-10. **Baseline `v0.1.0` (R295, R296):** the tag marks the
 merge of everything through RA1a (#313), ST3, and all ten open dependency
 updates, which clear the nine open security alerts. Tag `v0.1.1` adds chat
 resume's code (PC1b), with native resume and standalone launch still disabled
@@ -52,6 +52,23 @@ private repos, so it no longer applies now the repo is public.
 `docs/plans/ci-exe-upload.md`.
 
 ## Now
+
+**Guided workflow fixes (R297–R299).** The work from 2026-11-01 and 11-02 lived
+uncommitted in a worktree of the old clone and is now on main. A guide edit copies
+into a new revision and never deletes the original (GF1a). Recorder Stop waits for
+capture to finish, a failed Save keeps the recording so it can be retried, and a
+stopped session can be recovered after a restart (GF1b). The Open Workflow mapping
+is the `interop` module of `dpl-workflows`, with nothing in the app calling it yet
+(GF0). The full gate passes and the app screens are unchanged. Live capture and Linux checks of
+these fixes are still open, and retained checkpoints need a storage-size pass.
+Findings F3–F6 in the [review](research/guided-workflow-standard-review.md) are
+not fixed: see [`plans/coach-correctness.md`](plans/coach-correctness.md).
+
+**Absorbing the old branches (R300).** Each one goes into the crate that already
+owns its area, one PR each, with no new crates: the process supervisor into
+`dpl-proc`, Foundry into `dpl-coach-pack`, then chat modes, MCP and brainstorm
+seats into `crates/chat/*`. The originals are local tags under `retired/`. The
+old clone at `D:\localdev\devpulselabs` now holds only `main`.
 
 **Project chat implementation (R292).** The operator authorized the reviewed
 design with **resume**, then PC1b execution with **execute** on 2026-10-29.

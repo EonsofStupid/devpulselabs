@@ -2284,8 +2284,12 @@ impl eframe::App for App {
                         self.sd_phase = 2;
                     }
                 }
-                2 => {
-                    let msg = self.viziwiz.steps_save_now().to_string();
+                2 if !self.viziwiz.steps_recording() => {
+                    self.viziwiz.steps_save_now();
+                    self.sd_phase = 3;
+                }
+                3 if !self.viziwiz.steps_saving() => {
+                    let msg = self.viziwiz.status_text().to_string();
                     eprintln!("steps-drill: {msg}");
                     std::process::exit(if msg.starts_with("guide:") && msg.contains('→') {
                         0

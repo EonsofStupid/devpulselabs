@@ -1,0 +1,173 @@
+{
+  "arazzo": "1.1.0",
+  "info": {
+    "title": "Source-grounded UI procedure mapping comparison",
+    "version": "0.1.0",
+    "description": "Descriptive fixtures for a proposed local adapter. No HTTP service or operations are implemented."
+  },
+  "sourceDescriptions": [
+    {
+      "name": "fixtureApi",
+      "url": "./fixture-api.openapi.json",
+      "type": "openapi"
+    }
+  ],
+  "x-dpl-ui-procedure": {
+    "profile": "local-mapping-0.1",
+    "mappingOnly": true,
+    "sources": [
+      "tests/eguipilotai/own-looks.toml",
+      "crates/chat/window/src/lib.rs",
+      "crates/app/src/coach_signals.rs"
+    ]
+  },
+  "workflows": [
+    {
+      "workflowId": "edit-save",
+      "x-dpl-ui-procedure": {
+        "required": [
+          "durable-artifact-observation",
+          "human-automation-equivalence"
+        ],
+        "losses": [
+          "Substring chip evidence does not establish durable artifact persistence."
+        ]
+      },
+      "steps": [
+        {
+          "stepId": "name-look",
+          "operationId": "fillLookName",
+          "requestBody": {
+            "contentType": "application/json",
+            "payload": {
+              "targetId": "root/editor/look-name",
+              "text": "Orchid intro"
+            }
+          },
+          "successCriteria": [
+            {
+              "condition": "$statusCode == 200"
+            }
+          ]
+        },
+        {
+          "stepId": "save-look",
+          "operationId": "clickLookSave",
+          "successCriteria": [
+            {
+              "condition": "$statusCode == 200"
+            }
+          ]
+        },
+        {
+          "stepId": "observe-chip",
+          "operationId": "observeLookChip",
+          "successCriteria": [
+            {
+              "condition": "$statusCode == 200"
+            },
+            {
+              "condition": "$response.body#/containsExpectedText == true"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "workflowId": "window-setting",
+      "x-dpl-ui-procedure": {
+        "required": [
+          "viewport-scoped-targets",
+          "selected-state-observation",
+          "human-automation-equivalence"
+        ],
+        "losses": [
+          "Arazzo does not itself resolve native viewport targets or supply a selected-state observer."
+        ]
+      },
+      "steps": [
+        {
+          "stepId": "choose-claude",
+          "operationId": "selectClaude",
+          "requestBody": {
+            "contentType": "application/json",
+            "payload": {
+              "targetId": "chat.primary/chat.sidebar.providers/claude",
+              "viewport": "chat.primary"
+            }
+          },
+          "successCriteria": [
+            {
+              "condition": "$statusCode == 200"
+            }
+          ]
+        },
+        {
+          "stepId": "observe-selected",
+          "operationId": "observeClaudeSelected",
+          "successCriteria": [
+            {
+              "condition": "$statusCode == 200"
+            },
+            {
+              "condition": "$response.body#/selected == true"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "workflowId": "export-observe",
+      "x-dpl-ui-procedure": {
+        "required": [
+          "job-correlated-completion",
+          "human-automation-equivalence"
+        ],
+        "losses": [
+          "The proposed adapter must expose JobId and a correlated observer that current Flow lacks. Bounded polling differs from event consumption; it is not a lossless event mapping."
+        ]
+      },
+      "steps": [
+        {
+          "stepId": "start-export",
+          "operationId": "startExport",
+          "outputs": {
+            "jobId": "$response.body#/jobId"
+          },
+          "successCriteria": [
+            {
+              "condition": "$statusCode == 202"
+            }
+          ]
+        },
+        {
+          "stepId": "observe-export",
+          "operationId": "observeExport",
+          "parameters": [
+            {
+              "name": "jobId",
+              "in": "path",
+              "value": "$steps.start-export.outputs.jobId"
+            }
+          ],
+          "successCriteria": [
+            {
+              "condition": "$statusCode == 200"
+            },
+            {
+              "condition": "$response.body#/done == true"
+            }
+          ],
+          "onFailure": [
+            {
+              "name": "pollAgain",
+              "type": "retry",
+              "retryAfter": 1,
+              "retryLimit": 30
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

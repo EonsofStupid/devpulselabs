@@ -85,7 +85,8 @@ impl GalleryView {
     fn load(filter: Option<&'static str>) -> Self {
         let (rows, status) =
             match dpl_index::Index::open_default().and_then(|ix| ix.recent(500, None)) {
-                Ok(rows) => {
+                Ok(mut rows) => {
+                    fill_guide_posters(&mut rows, &dpl_roots::content_root());
                     let status = format!("{} artifacts", rows.len());
                     (rows, status)
                 }
@@ -103,6 +104,27 @@ impl GalleryView {
             targets,
             status,
         }
+    }
+}
+
+/// Upgrade old index rows in this view's cache once at load, never per paint.
+/// New/reindexed guides already carry the manifest-derived poster identity.
+fn fill_guide_posters(rows: &mut [dpl_index::Record], root: &std::path::Path) {
+    for row in rows {
+        if row.kind != "guide" || row.poster_rel_path.is_some() {
+            continue;
+        }
+        let rel = std::path::Path::new(&row.rel_path);
+        if rel.as_os_str().is_empty()
+            || row.rel_path.contains(':')
+            || rel
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            continue;
+        }
+        row.poster_rel_path =
+            dpl_index::record_for_capture(&root.join(rel), root, "guide", "edit").poster_rel_path;
     }
 }
 
@@ -893,13 +915,7 @@ fn thumb_uri(r: &dpl_index::Record, root: &std::path::Path) -> Option<String> {
     }
     let rel = match r.kind.as_str() {
         "image" => Some(r.rel_path.clone()),
-        "video" => r.poster_rel_path.clone(),
-        "guide" => {
-            let first = root.join(&r.rel_path).join("step-001.webp");
-            first
-                .is_file()
-                .then_some(format!("{}/step-001.webp", r.rel_path))
-        }
+        "video" | "guide" => r.poster_rel_path.clone(),
         "session" => {
             let poster = root.join(&r.rel_path).join("session.jpg");
             poster
@@ -1506,5 +1522,42 @@ impl Hub for WiredfrontHub {
                 fabric.publish_shell(dpl_fabric::ShellEvent::NavigateRequest { route: go });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod guide_revision_thumbnail_tests {
+    use super::*;
+
+    #[test]
+    fn thumbnail_uses_first_kept_step_and_refuses_pending_revision() {
+        let root = std::env::temp_dir().join(format!(
+            "dpl-guide-thumb-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dir = root.join("inbox/revision");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("step-001.webp"), b"preserved excluded frame").unwrap();
+        std::fs::write(dir.join("step-003.webp"), b"first kept frame").unwrap();
+        std::fs::write(dir.join("guide.json"), r#"{"kind":"guide","name":"revision","stepCount":1,"steps":[{"order":1,"file":"step-003.webp"}]}"#).unwrap();
+        let record = dpl_index::record_for_capture(&dir, &root, "guide", "edit");
+        assert!(thumb_uri(&record, &root)
+            .unwrap()
+            .ends_with("/step-003.webp"));
+        let mut legacy = vec![dpl_index::Record {
+            kind: "guide".into(),
+            rel_path: "inbox/revision".into(),
+            ..Default::default()
+        }];
+        fill_guide_posters(&mut legacy, &root);
+        assert_eq!(legacy[0].poster_rel_path, record.poster_rel_path);
+        std::fs::write(dir.join(".guide-revision-pending"), b"pending").unwrap();
+        let record = dpl_index::record_for_capture(&dir, &root, "guide", "edit");
+        assert!(thumb_uri(&record, &root).is_none());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -240,8 +240,7 @@ pub struct Composer {
     embed_video: bool,
     make_video: bool,
     make_gif: bool,
-    /// Two-tap arm for Apply edits — pruning deletes source frames, and a
-    /// destructive action never rides one stray tap.
+    /// Two-tap arm for saving the reviewed steps as a separate revision.
     apply_armed: bool,
     /// The in-flight/last guide EXPORT — a JobBoard handle like the rest.
     export_job: Option<dpl_fabric::JobId>,
@@ -2037,32 +2036,40 @@ impl Composer {
         }
     }
 
-    /// Apply the reviewer's edits to the SOURCE guide through the ONE
-    /// edit engine (`engine-steps::edit::update_guide`): kept steps in
-    /// their new order, captions written, pruned frames deleted.
+    /// Save a new revision through the one edit engine, then select and index
+    /// that revision. Source guides and their media remain unchanged.
     fn apply_review(&mut self) {
         let Some(rev) = &self.review else {
             return;
         };
-        let kept: Vec<_> = rev
-            .steps
-            .iter()
-            .filter(|s| s.keep)
-            .map(review_edit)
-            .collect();
-        let rel = rev.rel.clone();
-        match dpl_engine_steps::edit::update_guide(&rev.dir, kept) {
-            Ok(n) => {
-                // W8 gap-fix: the edit is a MUTATION — index + signal it
-                // (the sweep found update_guide wrote no index row).
-                let root = Self::content_root();
-                let rec = dpl_index::record_for_capture(&rev.dir.clone(), &root, "guide", "edit");
+        // Check the cached source before asking for the connected root: a
+        // disconnected library must retain edits, not panic or write elsewhere.
+        let paths = dpl_roots::writable(&rev.dir).and_then(|source| {
+            dpl_roots::writable(&Self::content_root()).map(|root| (root, source))
+        });
+        let (root, source) = match paths {
+            Ok(paths) => paths,
+            Err(error) => {
+                self.signal(dpl_fabric::CaptureEvent::Failed {
+                    error: error.clone(),
+                });
+                self.status = format!("Apply failed: {error}");
+                self.apply_armed = false;
+                return;
+            }
+        };
+        match save_review_revision(&root, &source, rev) {
+            Ok((saved, rel)) => {
+                let rec = dpl_index::record_for_capture(&saved.dir, &root, "guide", "edit");
                 if let Ok(ix) = dpl_index::Index::open_default() {
                     if ix.upsert(&rec).is_ok() {
                         Self::signal_saved(&self.fabric, &rec);
                     }
                 }
-                self.status = format!("Guide updated — {n} step(s) kept.");
+                self.status = format!(
+                    "Guide revision saved — {} step(s) kept. Original preserved.",
+                    saved.steps
+                );
                 self.guides = None;
                 self.load_review(&rel);
             }
@@ -5721,7 +5728,7 @@ impl Composer {
     }
 
     /// Guide step 2 · REVIEW & TUNE — the W5 reviewer rows: thumb, keep,
-    /// reorder, caption; Apply is two-tap (pruning deletes source frames).
+    /// reorder, caption; Apply is two-tap and saves a separate revision.
     fn guide_review_section(&mut self, ui: &mut egui::Ui, gact: &mut Option<GAct>) {
         cl::dressed(SURFACE, cl::Intent::Quiet, Tone::Cyan, cl::TraitState::Idle).show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -5760,8 +5767,7 @@ impl Composer {
                         if rs.keep {
                             "This step ships — tap to skip it"
                         } else {
-                            "Skipped — tap to keep it (Apply deletes skipped frames \
-                             from the guide)"
+                            "Skipped in the new revision — tap to keep it. The original is preserved."
                         },
                     );
                     if resp.clicked() {
@@ -5797,11 +5803,9 @@ impl Composer {
                 let resp = cl::tip(
                     small_btn(ui, label, "gapply"),
                     if self.apply_armed {
-                        "Tap again to write the edits — skipped steps and their \
-                         frames are removed from this guide"
+                        "Tap again to save a new revision. The original guide and its media are preserved."
                     } else {
-                        "Write prune/reorder/captions into the guide — it takes \
-                         two taps, so a stray tap never deletes"
+                        "Save the kept steps, order and captions as a new revision — tap twice to save."
                     },
                 );
                 ui.pilot_track(
@@ -6073,6 +6077,40 @@ fn review_edit(s: &ReviewStep) -> dpl_engine_steps::edit::GuideStepEdit {
         clip_in: s.step.clip_in,
         clip_out: s.step.clip_out,
     }
+}
+
+/// Save under the same content root the reviewer will use to reopen/index it.
+/// Validate the source's relative identity before creating any revision files.
+fn save_review_revision(
+    root: &Path,
+    source: &Path,
+    review: &GuideReview,
+) -> Result<(dpl_engine_steps::edit::GuideRevision, String), String> {
+    fn relative(root: &Path, dir: &Path) -> Result<String, String> {
+        let path = dir
+            .strip_prefix(root)
+            .map_err(|_| "guide is outside the active content root")?;
+        if path.as_os_str().is_empty()
+            || path
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err("guide must be a child folder inside the active content root".into());
+        }
+        path.to_str()
+            .map(|text| text.replace('\\', "/"))
+            .ok_or_else(|| "guide path must have a UTF-8 identity".into())
+    }
+    relative(root, source)?;
+    let kept = review
+        .steps
+        .iter()
+        .filter(|step| step.keep)
+        .map(review_edit)
+        .collect();
+    let saved = dpl_engine_steps::edit::update_guide(source, kept)?;
+    let rel = relative(root, &saved.dir)?;
+    Ok((saved, rel))
 }
 
 /// The ONE guide-export path — the Guide tab and the `--export-guide`
@@ -8170,6 +8208,62 @@ mod tests {
             step,
         });
         assert!(blank.caption.is_none(), "blank caption clears");
+    }
+
+    #[test]
+    fn review_save_selects_a_new_relative_identity_and_keeps_the_source() {
+        let root = std::env::temp_dir().join(format!(
+            "dpl-review-revision-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dir = root.join("inbox/original");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("frame.webp"), b"synthetic").unwrap();
+        let raw = r#"{"kind":"guide","name":"original","stepCount":1,"steps":[{"order":1,"file":"frame.webp","caption":"before"}],"custom":{"keep":true}}"#;
+        std::fs::write(dir.join("guide.json"), raw).unwrap();
+        let manifest = dpl_guide::load_guide(&dir).unwrap();
+        let review = GuideReview {
+            rel: "inbox/original".into(),
+            dir: dir.clone(),
+            steps: manifest
+                .steps
+                .into_iter()
+                .map(|step| ReviewStep {
+                    keep: true,
+                    caption: "after".into(),
+                    step,
+                })
+                .collect(),
+        };
+        assert!(save_review_revision(&root.join("unrelated"), &dir, &review).is_err());
+        assert_eq!(std::fs::read_dir(root.join("inbox")).unwrap().count(), 1);
+        let (saved, rel) = save_review_revision(&root, &dir, &review).unwrap();
+        assert_ne!(rel, review.rel);
+        assert_eq!(root.join(&rel), saved.dir);
+        assert_eq!(
+            dpl_guide::load_guide(&saved.dir).unwrap().steps[0]
+                .caption
+                .as_deref(),
+            Some("after")
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("guide.json")).unwrap(),
+            raw
+        );
+        let indexed = dpl_index::record_for_capture(&saved.dir, &root, "guide", "edit");
+        assert_eq!(indexed.rel_path, rel);
+        let no_steps = GuideReview {
+            rel,
+            dir: saved.dir.clone(),
+            steps: Vec::new(),
+        };
+        assert!(save_review_revision(&root, &saved.dir, &no_steps).is_err());
+        assert_eq!(std::fs::read_dir(root.join("inbox")).unwrap().count(), 2);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

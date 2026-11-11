@@ -14,7 +14,9 @@
 
 use dpl_coldlight::Tone;
 use dpl_engine_capture as cap;
-use dpl_engine_steps::{normalize_meta_auto, CaptureMeta, Hotkey, StepsRecorder};
+use dpl_engine_steps::{
+    normalize_meta_auto, CaptureMeta, Hotkey, RecoveryCandidate, StepsRecorder, StopResult,
+};
 use dpl_fabric::{Fabric, ShellEvent};
 use dpl_landing::{
     CaptureKind, Destination, LandingMode, LandingPolicy, NameContext, BUCKET_SEEDS,
@@ -33,6 +35,7 @@ const PALETTE_KEY: &str = "devpulse.viziwiz.palette";
 mod editor;
 mod palette;
 pub mod session;
+mod steps;
 
 use editor::{RegionSelect, SnipMode};
 use palette::{PaletteActions, PaletteView, Tab};
@@ -103,6 +106,8 @@ enum LandOutcome {
     Pending,
 }
 
+type GuideSaveResult = Result<(dpl_engine_steps::SavedGuide, CaptureMeta, u64), String>;
+
 pub struct Viziwiz {
     open: bool,
     tab: Tab,
@@ -113,6 +118,12 @@ pub struct Viziwiz {
     fabric: Fabric,
     steps: Arc<StepsRecorder>,
     steps_note: Arc<Mutex<String>>,
+    /// Stop acknowledges only after the capture worker is quiescent. Never
+    /// wait for an OS capture call on the native paint thread.
+    steps_stop: Option<std::sync::mpsc::Receiver<Result<StopResult, String>>>,
+    recoverable_steps: Vec<RecoveryCandidate>,
+    steps_prepared_meta: Option<CaptureMeta>,
+    steps_save: Option<std::sync::mpsc::Receiver<GuideSaveResult>>,
     /// OS-global chords, queued on the hook thread, drained each frame.
     hotkeys: Arc<Mutex<Vec<Hotkey>>>,
     hook_wired: bool,
@@ -188,6 +199,10 @@ impl Viziwiz {
             fabric: fabric.clone(),
             steps: StepsRecorder::new(sink),
             steps_note,
+            steps_stop: None,
+            recoverable_steps: Vec::new(),
+            steps_prepared_meta: None,
+            steps_save: None,
             hotkeys: Arc::new(Mutex::new(Vec::new())),
             hook_wired: false,
             pending: None,
@@ -477,9 +492,22 @@ impl Viziwiz {
     }
 
     fn capture_blocked(&mut self) -> bool {
-        if self.pending.is_some() {
-            self.status = "a capture is waiting on the Save card — Save or Discard first".into();
+        if self.steps_save.is_some() {
+            self.status = "Saving guide — keeping the source recording".into();
+            true
+        } else if self.steps_stop.is_some() {
+            self.status = "Stopping steps — waiting for the current capture".into();
+            true
+        } else if self.pending.is_some() {
+            self.status =
+                "a capture is waiting on the Save card — finish that capture first".into();
             self.set_open(true);
+            true
+        } else if self.steps.has_pending() && !self.steps.status().recording {
+            self.begin_steps_stop();
+            true
+        } else if self.steps.status().recording {
+            self.status = "Finish the current steps recording first".into();
             true
         } else {
             false
@@ -538,9 +566,14 @@ impl Viziwiz {
         self.session.is_some()
     }
 
-    /// True while the Steps recorder runs (the hotkey drill's verdict).
+    /// True while recording or waiting for the Stop acknowledgement.
     pub fn steps_recording(&self) -> bool {
-        self.steps.status().recording
+        self.steps.status().recording || self.steps_stop.is_some()
+    }
+
+    /// The guide copy is still running; the Save card retains its draft.
+    pub fn steps_saving(&self) -> bool {
+        self.steps_save.is_some()
     }
 
     /// The honest status line — the drill's verdict source.
@@ -551,7 +584,10 @@ impl Viziwiz {
     /// The Steps toggle (Ctrl+Shift+9, OS-global since C2): start when
     /// idle, stop into the Save card when recording.
     pub fn toggle_steps(&mut self) {
-        if self.steps.status().recording {
+        if self.steps_stop.is_some() || self.steps_save.is_some() {
+            return;
+        }
+        if self.steps.status().recording || (self.steps.has_pending() && self.pending.is_none()) {
             self.stop_steps();
         } else {
             self.start_steps();
@@ -559,6 +595,9 @@ impl Viziwiz {
     }
 
     pub fn mark_step(&mut self) {
+        if self.steps_stop.is_some() || self.steps_save.is_some() {
+            return;
+        }
         if let Err(e) = self.steps.mark() {
             self.status = e;
         }
@@ -610,6 +649,9 @@ impl Viziwiz {
     /// meta law still holds — the drill only fills what the operator
     /// would have typed (a fallback name, a "drill" tag).
     pub fn steps_save_now(&mut self) -> &str {
+        if self.steps_save.is_some() {
+            return self.status_text();
+        }
         if let Some(p) = self.pending.as_mut() {
             if p.name.trim().is_empty() {
                 p.name = "drill-guide".into();
@@ -623,6 +665,14 @@ impl Viziwiz {
     }
 
     fn start_steps(&mut self) {
+        if self.video.is_some()
+            || self.session.is_some()
+            || self.region.is_some()
+            || self.delay_armed.is_some()
+        {
+            self.status = "Finish the current capture before starting a guide".into();
+            return;
+        }
         if self.capture_blocked() {
             self.tab = Tab::Steps;
             return;
@@ -646,30 +696,15 @@ impl Viziwiz {
     /// Stop keeps the session PENDING and opens the Save card seeded
     /// from the first captured window's title (C2 — the old flow).
     fn stop_steps(&mut self) {
-        match self.steps.stop() {
-            Ok(stop) => {
-                let policy = self.landing.for_kind(CaptureKind::Guide);
-                self.pending = Some(PendingLanding {
-                    kind: CaptureKind::Guide,
-                    path: PathBuf::new(),
-                    count: stop.count,
-                    name: seed_name(&stop.seed_title),
-                    tags: policy.pattern.tags.join(" "),
-                    library: true,
-                    show: String::new(),
-                    episode: String::new(),
-                });
-                self.tab = Tab::Steps;
-                self.set_open(true);
-                self.status = format!("{} steps pending — name your guide to file it", stop.count);
-            }
-            Err(e) => self.status = format!("steps: {e}"),
-        }
+        self.begin_steps_stop();
     }
 
     /// The LandingCard's Save — guides keep strict metadata; other kinds
     /// index the on-disk artifact with merged tags.
     fn save_landing(&mut self) {
+        if self.steps_stop.is_some() || self.steps_save.is_some() {
+            return;
+        }
         let Some(p) = self.pending.as_ref() else {
             return;
         };
@@ -703,30 +738,38 @@ impl Viziwiz {
             episode: p.episode.clone(),
         };
         let tags = Self::merged_tags(&self.landing, &pending_tags);
-        let meta = CaptureMeta {
+        let meta = self.steps_prepared_meta.clone().unwrap_or(CaptureMeta {
             library: p.library,
             show: p.show.trim().to_string(),
             episode: p.episode.trim().to_string(),
             name: p.name.trim().to_string(),
             tags,
-        };
-        let saved = Self::inbox().and_then(|inbox| self.steps.save(&inbox, meta.clone()));
-        match saved {
-            Ok(folder) => {
-                let count = self.pending.take().map(|p| p.count).unwrap_or(0);
-                let warn = Self::inbox()
-                    .map(|inbox| Self::index_guide(&self.fabric, &inbox.join(&folder), &meta))
-                    .unwrap_or_default();
-                self.status = format!("guide: {count} steps → {folder}{warn}");
-            }
-            Err(e) => self.status = format!("guide: {e}"),
-        }
+        });
+        self.begin_steps_save(meta);
     }
 
     fn discard_landing(&mut self) {
+        if self.steps_stop.is_some() || self.steps_save.is_some() {
+            return;
+        }
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|p| p.kind == CaptureKind::Guide)
+        {
+            match self.steps.discard() {
+                Ok(()) => {
+                    self.pending = None;
+                    self.steps_prepared_meta = None;
+                    self.status = "Recording archived — source files retained".into();
+                }
+                Err(error) => self.status = format!("Could not archive recording: {error}"),
+            }
+            return;
+        }
         if let Some(p) = self.pending.take() {
             match p.kind {
-                CaptureKind::Guide => self.steps.discard(),
+                CaptureKind::Guide => unreachable!("guides handled above"),
                 CaptureKind::Session => {
                     let _ = std::fs::remove_dir_all(&p.path);
                 }
@@ -1128,6 +1171,18 @@ impl Viziwiz {
     /// render the palette viewport (or the REC pill) and the editor.
     pub fn ui(&mut self, ctx: &egui::Context) {
         self.wire_hotkeys(ctx);
+        self.poll_steps_save();
+        self.poll_steps_stop();
+        if self.steps_stop.is_none()
+            && self.pending.is_none()
+            && self.steps.has_pending()
+            && !self.steps.status().recording
+        {
+            self.begin_steps_stop();
+        }
+        if self.steps_stop.is_some() || self.steps_save.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(40));
+        }
         while let Ok(ev) = self.rx.try_recv() {
             if ev == ShellEvent::ViziwizSummon {
                 self.set_open(true);
@@ -1223,7 +1278,7 @@ impl Viziwiz {
             self.region_viewport(ctx);
         }
 
-        let recording_steps = self.steps.status().recording;
+        let recording_steps = self.steps.status().recording && self.steps_stop.is_none();
         if !self.open && !recording_steps {
             return;
         }
@@ -1233,9 +1288,9 @@ impl Viziwiz {
         // margin (10) on each side.
         let size = if recording_steps {
             egui::vec2(248.0, 76.0)
-        } else if self.pending.is_some() {
+        } else if self.pending.is_some() || self.tab == Tab::Steps {
             // The LandingCard needs the extra rows.
-            egui::vec2(396.0, 360.0)
+            egui::vec2(396.0, 400.0)
         } else {
             egui::vec2(396.0, 290.0)
         };
@@ -1253,6 +1308,10 @@ impl Viziwiz {
         let tab = self.tab;
         let status = self.status.clone();
         let steps_state = self.steps.status();
+        let steps_stopping = self.steps_stop.is_some();
+        let steps_saving = self.steps_save.is_some();
+        let steps_prepared = self.steps_prepared_meta.is_some();
+        let recoverable_steps = &self.recoverable_steps;
         let mut pending = self.pending.take();
         let video_elapsed = self.video.as_ref().map(|v| v.started.elapsed().as_secs());
         let session_state = self
@@ -1310,7 +1369,7 @@ impl Viziwiz {
                             .margin(egui::Margin::same(10))
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                if steps_state.recording {
+                                if steps_state.recording && !steps_stopping {
                                     palette::rec_pill(ui, steps_state.count, &mut actions);
                                 } else {
                                     palette::palette(
@@ -1330,6 +1389,10 @@ impl Viziwiz {
                                             picked_audio,
                                             session_state,
                                             steps_note: &note,
+                                            steps_stopping,
+                                            steps_saving,
+                                            steps_prepared,
+                                            recoverable_steps,
                                             delay,
                                             landing_mode,
                                             landing_bucket: &landing_bucket,
@@ -1346,6 +1409,11 @@ impl Viziwiz {
         self.pending = pending;
 
         self.apply(actions, ctx);
+        // A Stop requested by this frame's button needs another paint even
+        // when the palette was already open and emitted no visibility fact.
+        if self.steps_stop.is_some() || self.steps_save.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(40));
+        }
     }
 
     fn apply(&mut self, actions: PaletteActions, ctx: &egui::Context) {
@@ -1453,6 +1521,12 @@ impl Viziwiz {
         }
         if actions.steps_stop {
             self.stop_steps();
+        }
+        if actions.refresh_steps_recovery {
+            self.refresh_steps_recovery();
+        }
+        if let Some(index) = actions.recover_steps {
+            self.recover_steps(index);
         }
         if actions.landing_save {
             self.save_landing();

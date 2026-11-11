@@ -1,0 +1,184 @@
+[
+    {
+        "case":  "import-storyboard",
+        "exit_code":  0,
+        "output":  {
+                       "execution":  "not-run",
+                       "native":  {
+                                      "blurb":  "Outline beats, mint slide drafts, optionally imagine art, assemble a comp.",
+                                      "id":  "storyboard",
+                                      "label":  "Storyboard",
+                                      "stages":  [
+                                                     {
+                                                         "beats":  [
+                                                                       {
+                                                                           "brief":  "Grab attention in one line.",
+                                                                           "id":  "hook",
+                                                                           "role":  "hook",
+                                                                           "title":  "The hook"
+                                                                       },
+                                                                       {
+                                                                           "brief":  "Why this matters, fast.",
+                                                                           "id":  "context",
+                                                                           "role":  "context",
+                                                                           "title":  "The setup"
+                                                                       },
+                                                                       {
+                                                                           "brief":  "The core idea, shown.",
+                                                                           "id":  "beat-1",
+                                                                           "role":  "beat",
+                                                                           "title":  "First beat"
+                                                                       },
+                                                                       {
+                                                                           "brief":  "The payoff or proof.",
+                                                                           "id":  "beat-2",
+                                                                           "role":  "beat",
+                                                                           "title":  "Second beat"
+                                                                       },
+                                                                       {
+                                                                           "brief":  "What to do next.",
+                                                                           "id":  "cta",
+                                                                           "role":  "cta",
+                                                                           "title":  "Call to action"
+                                                                       }
+                                                                   ],
+                                                         "id":  "outline",
+                                                         "kind":  "outline"
+                                                     },
+                                                     {
+                                                         "id":  "slides",
+                                                         "kind":  "slide-from-beat",
+                                                         "template":  "title"
+                                                     },
+                                                     {
+                                                         "id":  "imagine",
+                                                         "kind":  "generate-image"
+                                                     },
+                                                     {
+                                                         "fps":  30,
+                                                         "h":  1080,
+                                                         "id":  "assemble",
+                                                         "kind":  "assemble-comp",
+                                                         "w":  1920
+                                                     },
+                                                     {
+                                                         "id":  "render",
+                                                         "kind":  "render"
+                                                     }
+                                                 ],
+                                      "surface":  "wiredfront",
+                                      "v":  1
+                                  },
+                       "status":  "mapped"
+                   }
+    },
+    {
+        "case":  "assess-export-gap",
+        "exit_code":  2,
+        "output":  {
+                       "assessment":  {
+                                          "annotations":  {
+                                                              "limitations":  [
+                                                                                  "The completion call is a proposed observer, not an implemented adapter. Current Flow cannot capture the started JobId; the jobs.done bridge loses JobId and cannot prove that this export completed."
+                                                                              ],
+                                                              "preconditions":  [
+                                                                                    "Composer is prepared with exportable content and root/composer.guide/export is actionable."
+                                                                                ],
+                                                              "sources":  [
+                                                                              "crates/app/src/coach_signals.rs",
+                                                                              "crates/composer/src/lib.rs"
+                                                                          ]
+                                                          },
+                                          "diagnostics":  [
+                                                              {
+                                                                  "path":  "/do",
+                                                                  "reason":  "dpl_workflows::StageKind has media stages, not UI interaction stages; no native WorkflowDoc lowering or production execution is supplied"
+                                                              },
+                                                              {
+                                                                  "path":  "/document/metadata/dplUiProcedure/required/0",
+                                                                  "reason":  "Composer emits JobId-correlated Done/Failed facts, but Flow cannot capture that identity or await the corresponding fact. Generic jobs.done loses identity and cannot prove export success."
+                                                              },
+                                                              {
+                                                                  "path":  "/document/metadata/dplUiProcedure/required/1",
+                                                                  "reason":  "Coach touchpoints and agent input exist, but the shared resumable human-follow/automation outcome contract is not implemented or qualified."
+                                                              },
+                                                              {
+                                                                  "path":  "/do",
+                                                                  "reason":  "Flow can click composer.guide/export, but cannot bind the returned JobId or await its terminal outcome. jobs.done and a finished job\u0027s Clear button cannot establish this export\u0027s success."
+                                                              }
+                                                          ],
+                                          "id":  "export-observe",
+                                          "mapping_only":  true,
+                                          "native_workflow":  "unsupported",
+                                          "pilot_mapping":  "partial",
+                                          "preconditions_verified":  false,
+                                          "required_features":  [
+                                                                    {
+                                                                        "feature":  "job-correlated-completion",
+                                                                        "reason":  "Composer emits JobId-correlated Done/Failed facts, but Flow cannot capture that identity or await the corresponding fact. Generic jobs.done loses identity and cannot prove export success.",
+                                                                        "status":  "unsupported"
+                                                                    },
+                                                                    {
+                                                                        "feature":  "human-automation-equivalence",
+                                                                        "reason":  "Coach touchpoints and agent input exist, but the shared resumable human-follow/automation outcome contract is not implemented or qualified.",
+                                                                        "status":  "unsupported"
+                                                                    }
+                                                                ]
+                                      },
+                       "standard_schema":  "valid",
+                       "status":  "unsupported-execution"
+                   }
+    },
+    {
+        "case":  "duplicate-json",
+        "exit_code":  2,
+        "output":  {
+                       "issues":  [
+                                      {
+                                          "path":  "",
+                                          "reason":  "invalid or ambiguous JSON: duplicate object key \"do\" at line 1 column 13"
+                                      }
+                                  ],
+                       "status":  "refused"
+                   }
+    },
+    {
+        "case":  "malformed-json",
+        "exit_code":  2,
+        "output":  {
+                       "issues":  [
+                                      {
+                                          "path":  "",
+                                          "reason":  "invalid or ambiguous JSON: EOF while parsing an object at line 1 column 1"
+                                      }
+                                  ],
+                       "status":  "refused"
+                   }
+    },
+    {
+        "case":  "unknown-behavior",
+        "exit_code":  2,
+        "output":  {
+                       "issues":  [
+                                      {
+                                          "path":  "/run",
+                                          "reason":  "field is outside the bounded profile; refusing to discard it"
+                                      }
+                                  ],
+                       "status":  "refused"
+                   }
+    },
+    {
+        "case":  "unknown-workflow",
+        "exit_code":  2,
+        "output":  {
+                       "issues":  [
+                                      {
+                                          "path":  "workflow",
+                                          "reason":  "unknown registered native workflow \"nonexistent\""
+                                      }
+                                  ],
+                       "status":  "refused"
+                   }
+    }
+]

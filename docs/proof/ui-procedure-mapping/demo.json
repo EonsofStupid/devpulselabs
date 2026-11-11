@@ -1,0 +1,187 @@
+{
+    "arazzo":  {
+                   "export_observation":  "bounded-polling-not-event-equivalence",
+                   "operations":  "hypothetical-adapter-contract-only",
+                   "runtime_support":  "not-implemented",
+                   "standard_schema":  "valid"
+               },
+    "experiment":  "GF0",
+    "native_controls":  [
+                            {
+                                "execution":  "not-run",
+                                "id":  "storyboard",
+                                "native_round_trip":  "equal",
+                                "standard_schema":  "valid"
+                            },
+                            {
+                                "execution":  "not-run",
+                                "id":  "explainer",
+                                "native_round_trip":  "equal",
+                                "standard_schema":  "valid"
+                            }
+                        ],
+    "runtime_qualification":  "not-performed",
+    "status":  "mapping-checks-passed",
+    "ui_procedures":  [
+                          {
+                              "assessment":  {
+                                                 "annotations":  {
+                                                                     "limitations":  [
+                                                                                         "The Text expectation observes a substring in the UI chip. It does not prove durable persistence or independently verified manual completion."
+                                                                                     ],
+                                                                     "preconditions":  [
+                                                                                           "Use the existing own-looks fixture setup through opening Save as a new look; the look-name field and save button must already be visible."
+                                                                                       ],
+                                                                     "sources":  [
+                                                                                     "tests/eguipilotai/own-looks.toml",
+                                                                                     "crates/editor/src/lib.rs"
+                                                                                 ]
+                                                                 },
+                                                 "diagnostics":  [
+                                                                     {
+                                                                         "path":  "/do",
+                                                                         "reason":  "dpl_workflows::StageKind has media stages, not UI interaction stages; no native WorkflowDoc lowering or production execution is supplied"
+                                                                     },
+                                                                     {
+                                                                         "path":  "/document/metadata/dplUiProcedure/required/0",
+                                                                         "reason":  "A look-chip Text substring is UI evidence, not a durable-artifact oracle. Flow has no persisted-document expectation; independent load_look verification is required."
+                                                                     },
+                                                                     {
+                                                                         "path":  "/document/metadata/dplUiProcedure/required/1",
+                                                                         "reason":  "Coach touchpoints and agent input exist, but the shared resumable human-follow/automation outcome contract is not implemented or qualified."
+                                                                     },
+                                                                     {
+                                                                         "path":  "/do",
+                                                                         "reason":  "The current naming field does not publish its value. Flow can Fill, Click and assert the chip\u0027s Text substring, but that is not an exact persisted-document verification."
+                                                                     }
+                                                                 ],
+                                                 "id":  "edit-save",
+                                                 "mapping_only":  true,
+                                                 "native_workflow":  "unsupported",
+                                                 "pilot_mapping":  "partial",
+                                                 "preconditions_verified":  false,
+                                                 "required_features":  [
+                                                                           {
+                                                                               "feature":  "durable-artifact-observation",
+                                                                               "reason":  "A look-chip Text substring is UI evidence, not a durable-artifact oracle. Flow has no persisted-document expectation; independent load_look verification is required.",
+                                                                               "status":  "unsupported"
+                                                                           },
+                                                                           {
+                                                                               "feature":  "human-automation-equivalence",
+                                                                               "reason":  "Coach touchpoints and agent input exist, but the shared resumable human-follow/automation outcome contract is not implemented or qualified.",
+                                                                               "status":  "unsupported"
+                                                                           }
+                                                                       ]
+                                             },
+                              "standard_schema":  "valid"
+                          },
+                          {
+                              "assessment":  {
+                                                 "annotations":  {
+                                                                     "limitations":  [
+                                                                                         "Selecting Claude is a UI selection only: no provider turn, credentials, permission change or persistence claim. Current Flow does not carry the required viewport and selected-state observation semantics."
+                                                                                     ],
+                                                                     "preconditions":  [
+                                                                                           "The independent Chat primary window is already open and its provider selector is visible."
+                                                                                       ],
+                                                                     "sources":  [
+                                                                                     "crates/chat/window/src/lib.rs"
+                                                                                 ]
+                                                                 },
+                                                 "diagnostics":  [
+                                                                     {
+                                                                         "path":  "/do",
+                                                                         "reason":  "dpl_workflows::StageKind has media stages, not UI interaction stages; no native WorkflowDoc lowering or production execution is supplied"
+                                                                     },
+                                                                     {
+                                                                         "path":  "/document/metadata/dplUiProcedure/required/1",
+                                                                         "reason":  "Selected state is published and expressible through same-viewport CoachCondition::NodeFlag, not a direct Flow Expectation; general cross-window coach conditions remain unsound."
+                                                                     },
+                                                                     {
+                                                                         "path":  "/document/metadata/dplUiProcedure/required/2",
+                                                                         "reason":  "Coach touchpoints and agent input exist, but the shared resumable human-follow/automation outcome contract is not implemented or qualified."
+                                                                     },
+                                                                     {
+                                                                         "path":  "/do",
+                                                                         "reason":  "Flow can scope Click to chat.primary. Selected state needs a same-viewport CoachCondition::NodeFlag and a Satisfied expectation; there is no direct selected-state Expectation or child-window screenshot proof."
+                                                                     }
+                                                                 ],
+                                                 "id":  "window-setting",
+                                                 "mapping_only":  true,
+                                                 "native_workflow":  "unsupported",
+                                                 "pilot_mapping":  "partial",
+                                                 "preconditions_verified":  false,
+                                                 "required_features":  [
+                                                                           {
+                                                                               "feature":  "viewport-scoped-targets",
+                                                                               "reason":  "Existing Locator/ViewportSelector and viewport-scoped actions can carry these explicit chat.primary targets; this is a static mapping assessment, not live qualification.",
+                                                                               "status":  "capability-supported"
+                                                                           },
+                                                                           {
+                                                                               "feature":  "selected-state-observation",
+                                                                               "reason":  "Selected state is published and expressible through same-viewport CoachCondition::NodeFlag, not a direct Flow Expectation; general cross-window coach conditions remain unsound.",
+                                                                               "status":  "limited"
+                                                                           },
+                                                                           {
+                                                                               "feature":  "human-automation-equivalence",
+                                                                               "reason":  "Coach touchpoints and agent input exist, but the shared resumable human-follow/automation outcome contract is not implemented or qualified.",
+                                                                               "status":  "unsupported"
+                                                                           }
+                                                                       ]
+                                             },
+                              "standard_schema":  "valid"
+                          },
+                          {
+                              "assessment":  {
+                                                 "annotations":  {
+                                                                     "limitations":  [
+                                                                                         "The completion call is a proposed observer, not an implemented adapter. Current Flow cannot capture the started JobId; the jobs.done bridge loses JobId and cannot prove that this export completed."
+                                                                                     ],
+                                                                     "preconditions":  [
+                                                                                           "Composer is prepared with exportable content and root/composer.guide/export is actionable."
+                                                                                       ],
+                                                                     "sources":  [
+                                                                                     "crates/app/src/coach_signals.rs",
+                                                                                     "crates/composer/src/lib.rs"
+                                                                                 ]
+                                                                 },
+                                                 "diagnostics":  [
+                                                                     {
+                                                                         "path":  "/do",
+                                                                         "reason":  "dpl_workflows::StageKind has media stages, not UI interaction stages; no native WorkflowDoc lowering or production execution is supplied"
+                                                                     },
+                                                                     {
+                                                                         "path":  "/document/metadata/dplUiProcedure/required/0",
+                                                                         "reason":  "Composer emits JobId-correlated Done/Failed facts, but Flow cannot capture that identity or await the corresponding fact. Generic jobs.done loses identity and cannot prove export success."
+                                                                     },
+                                                                     {
+                                                                         "path":  "/document/metadata/dplUiProcedure/required/1",
+                                                                         "reason":  "Coach touchpoints and agent input exist, but the shared resumable human-follow/automation outcome contract is not implemented or qualified."
+                                                                     },
+                                                                     {
+                                                                         "path":  "/do",
+                                                                         "reason":  "Flow can click composer.guide/export, but cannot bind the returned JobId or await its terminal outcome. jobs.done and a finished job\u0027s Clear button cannot establish this export\u0027s success."
+                                                                     }
+                                                                 ],
+                                                 "id":  "export-observe",
+                                                 "mapping_only":  true,
+                                                 "native_workflow":  "unsupported",
+                                                 "pilot_mapping":  "partial",
+                                                 "preconditions_verified":  false,
+                                                 "required_features":  [
+                                                                           {
+                                                                               "feature":  "job-correlated-completion",
+                                                                               "reason":  "Composer emits JobId-correlated Done/Failed facts, but Flow cannot capture that identity or await the corresponding fact. Generic jobs.done loses identity and cannot prove export success.",
+                                                                               "status":  "unsupported"
+                                                                           },
+                                                                           {
+                                                                               "feature":  "human-automation-equivalence",
+                                                                               "reason":  "Coach touchpoints and agent input exist, but the shared resumable human-follow/automation outcome contract is not implemented or qualified.",
+                                                                               "status":  "unsupported"
+                                                                           }
+                                                                       ]
+                                             },
+                              "standard_schema":  "valid"
+                          }
+                      ]
+}

@@ -7,7 +7,7 @@ use dpl_coldlight::{self as cl, Tone};
 use dpl_landing::{CaptureKind, LandingMode};
 use egui::{Align2, Color32, CornerRadius, FontId, RichText, Sense, StrokeKind};
 use egui_pilot_ai::protocol::Role as PilotRole;
-use egui_pilot_ai::{NodeMetadata, PilotId, UiPilotExt};
+use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 
 use crate::{PendingLanding, TONE};
 
@@ -36,6 +36,8 @@ const SESSION_STOP: PilotId = PilotId::new("viziwiz.session.stop");
 const STEPS_START: PilotId = PilotId::new("viziwiz.steps.start");
 const STEPS_MARK: PilotId = PilotId::new("viziwiz.steps.mark");
 const STEPS_STOP: PilotId = PilotId::new("viziwiz.steps.stop");
+const STEPS_RECOVERY_REFRESH: PilotId = PilotId::new("viziwiz.steps.recovery.refresh");
+const STEPS_RECOVER: PilotId = PilotId::new("viziwiz.steps.recover");
 const DELAY_CYCLE: PilotId = PilotId::new("viziwiz.delay");
 const RESNIP: PilotId = PilotId::new("viziwiz.resnip");
 const LANDING_MODE: PilotId = PilotId::new("viziwiz.landing.mode");
@@ -110,6 +112,8 @@ pub(crate) struct PaletteActions {
     pub(crate) steps_start: bool,
     pub(crate) steps_mark: bool,
     pub(crate) steps_stop: bool,
+    pub(crate) refresh_steps_recovery: bool,
+    pub(crate) recover_steps: Option<usize>,
     pub(crate) landing_save: bool,
     pub(crate) landing_discard: bool,
     pub(crate) cycle_landing_mode: bool,
@@ -134,6 +138,10 @@ pub(crate) struct PaletteView<'a> {
     pub(crate) picked_audio: usize,
     pub(crate) session_state: Option<(u64, usize)>,
     pub(crate) steps_note: &'a str,
+    pub(crate) steps_stopping: bool,
+    pub(crate) steps_saving: bool,
+    pub(crate) steps_prepared: bool,
+    pub(crate) recoverable_steps: &'a [dpl_engine_steps::RecoveryCandidate],
     pub(crate) delay: u8,
     pub(crate) landing_mode: LandingMode,
     pub(crate) landing_bucket: &'a str,
@@ -160,6 +168,10 @@ pub(crate) fn palette(
         picked_audio,
         session_state,
         steps_note,
+        steps_stopping,
+        steps_saving,
+        steps_prepared,
+        recoverable_steps,
         delay,
         landing_mode,
         landing_bucket,
@@ -215,8 +227,21 @@ pub(crate) fn palette(
     policy_strip(ui, landing_mode, landing_bucket, actions);
     ui.separator();
 
-    if let Some(p) = pending {
-        landing_card(ui, p, actions);
+    if steps_stopping {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Finishing the current capture…");
+        });
+    } else if let Some(p) = pending {
+        ui.add_enabled_ui(!steps_saving, |ui| {
+            landing_card(ui, p, steps_prepared, actions);
+        });
+        if steps_saving {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Saving guide…");
+            });
+        }
     } else {
         match tab {
             Tab::Img => {
@@ -518,6 +543,7 @@ pub(crate) fn palette(
                             .color(cl::ink::MUTED),
                     );
                 }
+                steps_recovery(ui, recoverable_steps, actions);
             }
         }
     }
@@ -574,95 +600,164 @@ fn landing_card_title(kind: CaptureKind, count: u32) -> String {
 
 /// The W9c LandingCard — guide keeps strict metadata; other kinds are
 /// name + tags only.
-fn landing_card(ui: &mut egui::Ui, p: &mut PendingLanding, actions: &mut PaletteActions) {
+fn landing_card(
+    ui: &mut egui::Ui,
+    p: &mut PendingLanding,
+    prepared: bool,
+    actions: &mut PaletteActions,
+) {
     ui.label(
         RichText::new(landing_card_title(p.kind, p.count))
             .strong()
             .color(cl::ink::STRONG),
     );
     ui.add_space(cl::space::S1);
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("name").small().color(cl::ink::MUTED));
-        let hint = if p.kind == CaptureKind::Guide {
-            "kebab-case"
-        } else {
-            "display name"
-        };
-        let name = ui.add(
-            egui::TextEdit::singleline(&mut p.name)
-                .hint_text(hint)
-                .desired_width(200.0),
-        );
-        ui.pilot_track(
-            &name,
-            NodeMetadata::new(LANDING_NAME, PilotRole::TextInput, "landing name")
-                .value(p.name.clone()),
-        );
-    });
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("tags").small().color(cl::ink::MUTED));
-        let tags = ui.add(
-            egui::TextEdit::singleline(&mut p.tags)
-                .hint_text("space or comma separated")
-                .desired_width(200.0),
-        );
-        ui.pilot_track(
-            &tags,
-            NodeMetadata::new(LANDING_TAGS, PilotRole::TextInput, "landing tags")
-                .value(p.tags.clone()),
-        );
-    });
-    if p.kind == CaptureKind::Guide {
+    ui.add_enabled_ui(!prepared, |ui| {
         ui.horizontal(|ui| {
-            if ui.selectable_label(p.library, "General").clicked() {
-                p.library = true;
-            }
-            let episode = ui.selectable_label(!p.library, "Episode");
-            ui.pilot_track(
-                &episode,
-                NodeMetadata::new(LANDING_DEST, PilotRole::Button, "destination")
-                    .value(if p.library { "general" } else { "episode" }),
+            ui.label(RichText::new("name").small().color(cl::ink::MUTED));
+            let hint = if p.kind == CaptureKind::Guide {
+                "kebab-case"
+            } else {
+                "display name"
+            };
+            let name = ui.add(
+                egui::TextEdit::singleline(&mut p.name)
+                    .hint_text(hint)
+                    .desired_width(200.0),
             );
-            if episode.clicked() {
-                p.library = false;
-            }
-            if !p.library {
-                ui.add(
-                    egui::TextEdit::singleline(&mut p.show)
-                        .hint_text("show")
-                        .desired_width(80.0),
-                );
-                ui.add(
-                    egui::TextEdit::singleline(&mut p.episode)
-                        .hint_text("episode")
-                        .desired_width(80.0),
-                );
-            }
+            ui.pilot_track(
+                &name,
+                NodeMetadata::new(LANDING_NAME, PilotRole::TextInput, "landing name")
+                    .value(p.name.clone()),
+            );
         });
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("tags").small().color(cl::ink::MUTED));
+            let tags = ui.add(
+                egui::TextEdit::singleline(&mut p.tags)
+                    .hint_text("space or comma separated")
+                    .desired_width(200.0),
+            );
+            ui.pilot_track(
+                &tags,
+                NodeMetadata::new(LANDING_TAGS, PilotRole::TextInput, "landing tags")
+                    .value(p.tags.clone()),
+            );
+        });
+        if p.kind == CaptureKind::Guide {
+            ui.horizontal(|ui| {
+                if ui.selectable_label(p.library, "General").clicked() {
+                    p.library = true;
+                }
+                let episode = ui.selectable_label(!p.library, "Episode");
+                ui.pilot_track(
+                    &episode,
+                    NodeMetadata::new(LANDING_DEST, PilotRole::Button, "destination")
+                        .value(if p.library { "general" } else { "episode" }),
+                );
+                if episode.clicked() {
+                    p.library = false;
+                }
+                if !p.library {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut p.show)
+                            .hint_text("show")
+                            .desired_width(80.0),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut p.episode)
+                            .hint_text("episode")
+                            .desired_width(80.0),
+                    );
+                }
+            });
+        }
+    });
+    if prepared {
+        ui.label(RichText::new("Save will finish the existing copy using these details.").small());
     }
     ui.add_space(cl::space::S1);
     ui.horizontal(|ui| {
-        if pilot_chip(
-            ui,
-            LANDING_SAVE,
-            "",
-            "Save",
-            TONE,
-            "File this capture with the name and tags above",
-        ) {
-            actions.landing_save = true;
-        }
+        ui.add_enabled_ui(p.kind != CaptureKind::Guide || p.count > 0, |ui| {
+            if pilot_chip(
+                ui,
+                LANDING_SAVE,
+                "",
+                "Save",
+                TONE,
+                "File this capture with the name and tags above",
+            ) {
+                actions.landing_save = true;
+            }
+        });
         if pilot_chip(
             ui,
             LANDING_DISCARD,
             "",
-            "Discard",
+            if p.kind == CaptureKind::Guide {
+                "Archive"
+            } else {
+                "Discard"
+            },
             TONE,
-            "Throw this capture away — deletes the file or folder",
+            if p.kind == CaptureKind::Guide {
+                "Close this recording and keep its source files in the library"
+            } else {
+                "Throw this capture away — deletes the file or folder"
+            },
         ) {
             actions.landing_discard = true;
         }
     });
+}
+
+fn steps_recovery(
+    ui: &mut egui::Ui,
+    candidates: &[dpl_engine_steps::RecoveryCandidate],
+    actions: &mut PaletteActions,
+) {
+    if pilot_chip(
+        ui,
+        STEPS_RECOVERY_REFRESH,
+        "",
+        "Find interrupted recordings",
+        TONE,
+        "Find unfinished step recordings in this library so you can review and save them",
+    ) {
+        actions.refresh_steps_recovery = true;
+    }
+    egui::ScrollArea::vertical()
+        .max_height(110.0)
+        .show(ui, |ui| {
+            for (index, candidate) in candidates.iter().enumerate() {
+                let key = PilotKey::new(candidate.dir.to_string_lossy().into_owned());
+                ui.push_id(&candidate.dir, |ui| {
+                    ui.horizontal(|ui| {
+                        if pilot_chip(
+                            ui,
+                            STEPS_RECOVER.child(&key),
+                            "",
+                            "Recover",
+                            TONE,
+                            "Open this recording for review; recording stays stopped",
+                        ) {
+                            actions.recover_steps = Some(index);
+                        }
+                        let title = if candidate.seed_title.is_empty() {
+                            "Untitled recording"
+                        } else {
+                            &candidate.seed_title
+                        };
+                        ui.label(format!(
+                            "{} · {} steps",
+                            truncate(title, 24),
+                            candidate.count
+                        ))
+                        .on_hover_text(title);
+                    });
+                });
+            }
+        });
 }
 
 /// The REC pill — the palette collapsed while Steps records.
@@ -717,7 +812,7 @@ pub(crate) fn rec_pill(ui: &mut egui::Ui, count: u32, actions: &mut PaletteActio
 /// every chip explains itself in layman language.
 fn pilot_chip(
     ui: &mut egui::Ui,
-    id: PilotId,
+    id: impl Into<egui_pilot_ai::PilotPath>,
     glyph: &str,
     label: &str,
     tone: Tone,

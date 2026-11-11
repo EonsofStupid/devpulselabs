@@ -844,11 +844,23 @@ pub mod sidecar {
 
 // ── the disk scan (reindex's truth feed) ────────────────────────────────
 
+fn pending_guide_revision(dir: &Path) -> bool {
+    match std::fs::symlink_metadata(dir.join(".guide-revision-pending")) {
+        Ok(_) => true,
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
 /// What a FOLDER artifact is, by its marker file: a recording
 /// (recording.json, RA1a), a guide (guide.json) or a session (session.mp4 /
 /// events.jsonl — a partial session with only the event track still counts;
 /// files are the truth). None = not an artifact folder.
 fn folder_kind(dir: &Path) -> Option<&'static str> {
+    // Immutable guide edits can contain copied session markers before commit.
+    // The editor's final pending -> complete rename publishes the revision.
+    if pending_guide_revision(dir) {
+        return None;
+    }
     if dir.join("recording.json").is_file() {
         Some("recording")
     } else if dir.join("guide.json").is_file() {
@@ -888,7 +900,8 @@ fn scan_inbox(root: &Path) -> Result<Vec<Record>, String> {
 /// reindex then cleared their rows (RA1a). An artifact folder is one record and
 /// is not entered. A folder of step pictures with no guide.json (a guide closed
 /// before Save) is skipped, as it always was. A linked folder is recorded when it
-/// is an artifact, but never walked.
+/// is an artifact, but never walked. A guide revision still being written is
+/// not entered either: its copied files are not artifacts until it commits.
 fn scan_inbox_dir(root: &Path, dir: &Path, out: &mut Vec<Record>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -899,7 +912,10 @@ fn scan_inbox_dir(root: &Path, dir: &Path, out: &mut Vec<Record>) {
         if path.is_dir() {
             if let Some(kind) = folder_kind(&path) {
                 out.push(record_for(&path, root, kind, &name));
-            } else if !entry.file_type().is_ok_and(|t| t.is_symlink()) && !unsaved_guide(&path) {
+            } else if !entry.file_type().is_ok_and(|t| t.is_symlink())
+                && !unsaved_guide(&path)
+                && !pending_guide_revision(&path)
+            {
                 scan_inbox_dir(root, &path, out);
             }
             continue;
@@ -963,6 +979,9 @@ fn unsaved_guide(dir: &Path) -> bool {
 /// drive keeps for itself (`$RECYCLE.BIN`, `System Volume Information`,
 /// hidden ones) and links are skipped; nothing is written.
 fn scan_location(base: &Path, dir: &Path, id: &str, location: &str, out: &mut Vec<Record>) {
+    if pending_guide_revision(dir) {
+        return;
+    }
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -1061,7 +1080,24 @@ fn record_for(path: &Path, root: &Path, kind: &str, file_name: &str) -> Record {
             r.poster_rel_path = side.poster_rel_path;
         }
     }
+    if kind == "guide" {
+        // Preserved source sidecars may point at a pruned/source frame. Derive
+        // the current first retained frame once, at indexing time, not paint.
+        r.poster_rel_path = guide_poster(path, root);
+    }
     r
+}
+
+fn guide_poster(dir: &Path, root: &Path) -> Option<String> {
+    let manifest = dpl_guide::load_guide(dir).ok()?;
+    let step = manifest.steps.first()?;
+    let file = &step.file;
+    if step.is_replay() || file.is_empty() || file.contains(['/', '\\', ':']) || file.contains("..")
+    {
+        return None;
+    }
+    let poster = dir.join(file);
+    poster.is_file().then(|| rel_path_of(&poster, root))
 }
 
 fn rel_path_of(path: &Path, root: &Path) -> String {
@@ -1118,6 +1154,44 @@ pub fn record_for_capture(path: &Path, root: &Path, kind: &str, source: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_guide_revision_is_hidden_from_inbox_and_location_scans() {
+        let root = scratch("pending-revision");
+        let dir = root.join("inbox/revision");
+        std::fs::create_dir(&dir).unwrap();
+        for name in [
+            ".guide-revision-pending",
+            "guide.json",
+            "session.mp4",
+            "events.jsonl",
+            "step.webp",
+        ] {
+            std::fs::write(dir.join(name), b"fixture").unwrap();
+        }
+        assert!(scan_inbox(&root).unwrap().is_empty());
+        let mut linked = Vec::new();
+        scan_location(&root, &root, "fixture", "linked:fixture", &mut linked);
+        assert!(linked.is_empty());
+        scan_location(&dir, &dir, "fixture", "linked:fixture", &mut linked);
+        assert!(
+            linked.is_empty(),
+            "a pending location root must also be excluded"
+        );
+        std::fs::rename(
+            dir.join(".guide-revision-pending"),
+            dir.join(".guide-revision-complete"),
+        )
+        .unwrap();
+        assert_eq!(scan_inbox(&root).unwrap().len(), 1);
+        scan_location(&root, &root, "fixture", "linked:fixture", &mut linked);
+        assert_eq!(
+            linked.len(),
+            2,
+            "committed frame and session become discoverable"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir()

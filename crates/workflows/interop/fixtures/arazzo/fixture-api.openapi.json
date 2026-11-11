@@ -1,0 +1,201 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Proposed UI mapping adapter fixture",
+    "version": "0.1.0",
+    "description": "OFFLINE DESCRIPTION ONLY. These operations are not implemented, are not existing public DevPULSE APIs, and imply no production HTTP endpoint. Source-grounded targets describe required adapter behavior only."
+  },
+  "paths": {
+    "/look/name": {
+      "post": {
+        "operationId": "fillLookName",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "targetId",
+                  "text"
+                ],
+                "properties": {
+                  "targetId": {
+                    "const": "root/editor/look-name"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Input delivery acknowledged; no persistence claim."
+          }
+        }
+      }
+    },
+    "/look/save": {
+      "post": {
+        "operationId": "clickLookSave",
+        "description": "Proposed click of root/editor/look-save.",
+        "responses": {
+          "200": {
+            "description": "Click delivery acknowledged; no persistence claim."
+          }
+        }
+      }
+    },
+    "/look/chip": {
+      "get": {
+        "operationId": "observeLookChip",
+        "description": "Proposed substring observation of Look: Orchid intro at root/editor/look-chip.",
+        "responses": {
+          "200": {
+            "description": "UI text evidence only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "containsExpectedText"
+                  ],
+                  "properties": {
+                    "containsExpectedText": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chat/provider": {
+      "post": {
+        "operationId": "selectClaude",
+        "description": "Proposed UI selection only. No provider turn, credentials or persistence.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "targetId",
+                  "viewport"
+                ],
+                "properties": {
+                  "targetId": {
+                    "const": "chat.primary/chat.sidebar.providers/claude"
+                  },
+                  "viewport": {
+                    "const": "chat.primary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Input delivery acknowledged."
+          }
+        }
+      }
+    },
+    "/chat/provider/selected": {
+      "get": {
+        "operationId": "observeClaudeSelected",
+        "description": "Proposed viewport-scoped selected flag observer, unavailable in current Flow.",
+        "responses": {
+          "200": {
+            "description": "Observed selected flag.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "selected"
+                  ],
+                  "properties": {
+                    "selected": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/exports": {
+      "post": {
+        "operationId": "startExport",
+        "description": "Proposed click root/composer.guide/export with a returned JobId. Current Flow cannot supply this correlation.",
+        "responses": {
+          "202": {
+            "description": "Export started; not completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "jobId"
+                  ],
+                  "properties": {
+                    "jobId": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/exports/{jobId}": {
+      "get": {
+        "operationId": "observeExport",
+        "description": "Proposed authoritative job-correlated observation. Generic jobs.done is insufficient.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Observed status for the exact requested JobId; completion alone is insufficient.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "done"
+                  ],
+                  "properties": {
+                    "done": {
+                      "type": "boolean",
+                      "description": "True only for the successful terminal Done result of this exact job. False for pending or Failed results; failure must never satisfy successCriteria."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
