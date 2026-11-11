@@ -1,6 +1,6 @@
 # GF0 execution handoff
 
-Operator: execute following R296. Plan:
+Operator: execute following R299. Plan:
 `docs/plans/ui-procedure-mapping-spike.md`. Worktree:
 `.worktrees/guided-workflow-review`, branch `review/guided-workflow-standard`,
 baseline main `711fc72`. Parent and operator checkouts are preserved.

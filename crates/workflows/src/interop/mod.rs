@@ -5,7 +5,7 @@
 //! Only the exact profile emitted here is accepted. Unknown behavior, metadata,
 //! versions and fields are refused, including fields native serde would ignore.
 
-use dpl_workflows::{Stage, StageKind, WorkflowDoc};
+use crate::{Stage, StageKind, WorkflowDoc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -126,20 +126,20 @@ fn serialize<T: Serialize>(value: &T, path: &str) -> MappingResult<Value> {
 }
 
 fn validate_native(doc: &WorkflowDoc) -> MappingResult<()> {
-    let mut issues: Vec<_> = dpl_workflows::validate(doc)
+    let mut issues: Vec<_> = crate::validate(doc)
         .into_iter()
         .map(|issue| MappingIssue {
             path: format!("native.{}", issue.path),
             reason: issue.message,
         })
         .collect();
-    if doc.v != dpl_workflows::SCHEMA_V {
+    if doc.v != crate::SCHEMA_V {
         issues.push(MappingIssue {
             path: "native.v".into(),
             reason: format!(
                 "unsupported native version {}; expected {}",
                 doc.v,
-                dpl_workflows::SCHEMA_V
+                crate::SCHEMA_V
             ),
         });
     }

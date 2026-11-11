@@ -4,7 +4,7 @@
 **Status:** engineering recommendation based on primary sources and local review;
 not a published standard, partner commitment or implementation result.  
 **Related:** [initial review](guided-workflow-standard-review.md),
-[product/research brief](scripted-ui-events-brief.md), R294–R296.
+[product/research brief](scripted-ui-events-brief.md), R297–R299.
 
 ## 1. Recommendation
 

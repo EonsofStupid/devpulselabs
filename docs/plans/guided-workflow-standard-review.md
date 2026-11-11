@@ -55,13 +55,13 @@ commit/push or PR needed for this review-only request.
 
 [Review report](../research/guided-workflow-standard-review.md) records the
 baseline, twelve static findings, independent audits, primary-source prior art,
-current standards, proposed contract and staged verification. R294 records the
+current standards, proposed contract and staged verification. R297 records the
 operator's exact request. No fresh runtime qualification or product change.
 Existing feature branches and public-repository setup remain separate.
 
 ## 9. Operator clarification — 2026-11-02
 
-Record R295 and clarify that guided product UI owns the everyday authoring
+Record R298 and clarify that guided product UI owns the everyday authoring
 experience; complexity is exposed progressively in advanced/devtools UI.
 Separate the standards research scope for A2UI-triggered typed workflow
 commands, verified outcome signals and bounded feedback. Compare existing

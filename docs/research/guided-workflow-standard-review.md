@@ -3,7 +3,7 @@
 **Date:** 2026-11-01  
 **Baseline:** main `711fc72`, isolated `review/guided-workflow-standard`.  
 **Status:** research and static source review; proposed design, not ratified implementation.  
-**Request:** [R294](../requirements.md#r294--2026-11-01).  
+**Request:** [R297](../requirements.md#r294--2026-11-01).  
 **Review plan:** [guided-workflow-standard-review](../plans/guided-workflow-standard-review.md).
 
 ## 1. Decision
@@ -505,7 +505,7 @@ inventing a new transport or compact UI syntax first.
 
 ## 10. Product clarification — 2026-11-02
 
-R295 makes the authoring experience explicit: guided UI handles recording,
+R298 makes the authoring experience explicit: guided UI handles recording,
 feeding evidence, generation, testing and publication; advanced/devtools UI
 exposes complexity progressively over the same artifact. The focused
 [scripted UI events brief](scripted-ui-events-brief.md) separates the standards

@@ -900,7 +900,8 @@ fn scan_inbox(root: &Path) -> Result<Vec<Record>, String> {
 /// reindex then cleared their rows (RA1a). An artifact folder is one record and
 /// is not entered. A folder of step pictures with no guide.json (a guide closed
 /// before Save) is skipped, as it always was. A linked folder is recorded when it
-/// is an artifact, but never walked.
+/// is an artifact, but never walked. A guide revision still being written is
+/// not entered either: its copied files are not artifacts until it commits.
 fn scan_inbox_dir(root: &Path, dir: &Path, out: &mut Vec<Record>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -911,7 +912,10 @@ fn scan_inbox_dir(root: &Path, dir: &Path, out: &mut Vec<Record>) {
         if path.is_dir() {
             if let Some(kind) = folder_kind(&path) {
                 out.push(record_for(&path, root, kind, &name));
-            } else if !entry.file_type().is_ok_and(|t| t.is_symlink()) && !unsaved_guide(&path) {
+            } else if !entry.file_type().is_ok_and(|t| t.is_symlink())
+                && !unsaved_guide(&path)
+                && !pending_guide_revision(&path)
+            {
                 scan_inbox_dir(root, &path, out);
             }
             continue;

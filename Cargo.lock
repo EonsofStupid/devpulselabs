@@ -2652,16 +2652,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dpl-workflow-interop"
-version = "0.1.0"
-dependencies = [
- "dpl-workflows",
- "jsonschema",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "dpl-workflows"
 version = "0.1.0"
 dependencies = [

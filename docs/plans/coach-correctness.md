@@ -1,7 +1,7 @@
 # GF1c — Coach boundary and matching correctness
 
-Status: authorized implementation, 2026-11-02. Continues the operator's explicit
-research/implement/deliver instruction and guided-workflow review F3-F6.
+Status: open. F3-F6 are not fixed. Two first files for F3 were never wired in and
+are kept in the local tag `retired/guided-workflow-snapshot`, not on main.
 
 ## F3 grounded cut
 

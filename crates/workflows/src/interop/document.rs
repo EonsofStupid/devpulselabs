@@ -1,6 +1,6 @@
 //! Strict document decoding: duplicate keys must not erase source behavior.
 
-use crate::{refusal, MappingIssue, MappingResult};
+use super::{refusal, MappingIssue, MappingResult};
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Number, Value};

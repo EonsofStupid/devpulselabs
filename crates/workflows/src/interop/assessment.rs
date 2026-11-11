@@ -4,7 +4,7 @@
 //! this module authorizes execution or creates a native workflow. A recognized
 //! procedure still reports every obligation the current APIs cannot preserve.
 
-use crate::{
+use super::{
     exact, field, object, only_keys, pointer, refusal, string, wire_name, MappingIssue,
     MappingResult, DSL_VERSION,
 };

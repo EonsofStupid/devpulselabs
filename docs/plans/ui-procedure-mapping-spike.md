@@ -1,6 +1,6 @@
 # GF0 — executable standards mapping experiment
 
-2026-11-02. Authorized by the operator's **execute** following R296's adoption
+2026-11-02. Authorized by the operator's **execute** following R299's adoption
 assessment. Baseline main711fc72 in the existing isolated review worktree.
 
 ## Objective and scope
@@ -17,7 +17,7 @@ support. No production endpoint, process adapter, UI change or live recorder.
 
 ## Implementation
 
-1. Add one isolated workspace crate, `dpl-workflow-interop`, for pure mapping,
+1. Add one isolated workspace crate, `dpl-workflow-interop` (later folded into `dpl-workflows` as its `interop` module), for pure mapping,
    validation and diagnostics; a local CLI/example reads fixtures and prints
    a JSON assessment. It has no dependency from the application and does not
    invoke actions, commands, scripts, network or model inference.

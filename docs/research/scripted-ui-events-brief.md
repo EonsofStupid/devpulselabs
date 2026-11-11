@@ -1,6 +1,6 @@
 # Scripted UI events — focused standards research brief
 
-2026-11-02. Operator clarification R295. Proposed research scope; no new
+2026-11-02. Operator clarification R298. Proposed research scope; no new
 protocol, implementation or production boundary is ratified by this brief.
 Parent evidence: [guided workflow review](guided-workflow-standard-review.md).
 

@@ -1,4 +1,4 @@
-use dpl_workflow_interop::{export_workflow, import_workflow, MappingIssue, CALL_PREFIX};
+use dpl_workflows::interop::{export_workflow, import_workflow, MappingIssue, CALL_PREFIX};
 use serde_json::{json, Value};
 
 fn fixture() -> Value {

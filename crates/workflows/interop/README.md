@@ -1,4 +1,4 @@
-# dpl-workflow-interop — GF0 local mapping experiment
+# Workflow interop (module `interop` of dpl-workflows) — GF0 local mapping experiment
 
 Pure mapping and diagnostics, with no execution engine or application dependency.
 This crate tests whether existing standards can carry DevPULSE's workflow data
@@ -9,10 +9,10 @@ and identifies missing semantics in three source-grounded UI procedures.
 From the workspace root:
 
 ```powershell
-cargo test -p dpl-workflow-interop --offline
-cargo run -p dpl-workflow-interop --offline --example mapping -- demo
-cargo run -p dpl-workflow-interop --offline --example mapping -- export storyboard
-cargo run -p dpl-workflow-interop --offline --example mapping -- assess crates/workflow-interop/fixtures/open-workflow/export-observe.json
+cargo test -p dpl-workflows --offline
+cargo run -p dpl-workflows --offline --example workflow_mapping -- demo
+cargo run -p dpl-workflows --offline --example workflow_mapping -- export storyboard
+cargo run -p dpl-workflows --offline --example workflow_mapping -- assess crates/workflows/interop/fixtures/open-workflow/export-observe.json
 ```
 
 `demo` succeeds when the mapping experiment checks pass, including expected UI
@@ -57,8 +57,8 @@ names, not new callable endpoints. The Arazzo fixture describes hypothetical
 OpenAPI operations; its polling representation is not an event-preserving
 translation of export completion. No API server is created.
 
-See [mapping plan](../../docs/plans/ui-procedure-mapping-spike.md),
-[adoption assessment](../../docs/research/ui-procedure-standard-adoption.md),
+See [mapping plan](../../../docs/plans/ui-procedure-mapping-spike.md),
+[adoption assessment](../../../docs/research/ui-procedure-standard-adoption.md),
 the fixtures' provenance and the schemas' source/license records. This local
 prototype retains the repository license; no independently reusable SDK or
 official standards conformance claim is made.

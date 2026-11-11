@@ -1,11 +1,11 @@
-use dpl_workflow_interop::{
+use dpl_workflows::interop::{
     assess_procedure, FeatureStatus, NativeWorkflowMapping, PilotMappingStatus,
 };
 use serde_json::{json, Value};
 
 fn fixture(name: &str) -> Value {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("fixtures/open-workflow")
+        .join("interop/fixtures/open-workflow")
         .join(format!("{name}.json"));
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }

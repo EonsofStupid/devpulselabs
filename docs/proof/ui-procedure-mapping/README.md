@@ -39,7 +39,7 @@ The actual built example was also invoked directly:
 The last six outputs are retained in [cli-cases.json](cli-cases.json). Exported
 and adversarial inputs were written only to ignored `target/gf0-cli-check/`.
 No source/user document was rewritten by the CLI. The schema source hashes and
-licenses are recorded in the [schema provenance](../../../crates/workflow-interop/schemas/README.md).
+licenses are recorded in the [schema provenance](../../../crates/workflows/interop/schemas/README.md).
 
 The checked Windows debug example SHA-256 was
 `5eae4439f30820c53b2d3f996c96c07f7d3384b3b193da6f7f15262dbca7ffed`.

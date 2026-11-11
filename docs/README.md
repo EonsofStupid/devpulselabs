@@ -153,9 +153,9 @@ named first and the others are marked **P2**: they merge into it during
 | [`eguipilotai-devpulse-authoring.md`](eguipilotai-devpulse-authoring.md) | Authoring scenarios for DevPULSE. |
 | [`eguipilotai-playwright-review.md`](eguipilotai-playwright-review.md) | The capability matrix. **`cargo green` reads this exact path** (`xtask docs_status`). |
 | [`research/eguipilotai/`](research/eguipilotai/README.md) | The harness research and contracts. |
-| [`research/guided-workflow-standard-review.md`](research/guided-workflow-standard-review.md) | R294: EguiPilot/Coach and ViziWiz/PixVix audit, prior art, proposed watch/follow/execute profile and MCP/A2UI bindings. Review, not implementation authority. |
-| [`research/scripted-ui-events-brief.md`](research/scripted-ui-events-brief.md) | R295: turnkey guided authoring, advanced inspector and focused A2UI-triggered workflow/signal standards research. |
-| [`research/ui-procedure-standard-adoption.md`](research/ui-procedure-standard-adoption.md) | R296: existing-standard gap analysis, independent adopter incentives, licensing prerequisite, formal MCP route and measurable adoption gates. |
+| [`research/guided-workflow-standard-review.md`](research/guided-workflow-standard-review.md) | R297: EguiPilot/Coach and ViziWiz/PixVix audit, prior art, proposed watch/follow/execute profile and MCP/A2UI bindings. Review, not implementation authority. |
+| [`research/scripted-ui-events-brief.md`](research/scripted-ui-events-brief.md) | R298: turnkey guided authoring, advanced inspector and focused A2UI-triggered workflow/signal standards research. |
+| [`research/ui-procedure-standard-adoption.md`](research/ui-procedure-standard-adoption.md) | R299: existing-standard gap analysis, independent adopter incentives, licensing prerequisite, formal MCP route and measurable adoption gates. |
 | [`plans/ui-procedure-mapping-spike.md`](plans/ui-procedure-mapping-spike.md) | Authorized GF0 scope and verification for the executable standards mapping experiment. |
 | [`research/ui-procedure-mapping.md`](research/ui-procedure-mapping.md) | GF0 mapping results, concrete native capability gaps and local checker evidence. |
 | [`plans/guide-edit-preservation.md`](plans/guide-edit-preservation.md) | GF1a: immutable source-guide editing, pending publication/readers, source preservation and qualification scope. |

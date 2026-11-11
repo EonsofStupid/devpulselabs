@@ -1,6 +1,6 @@
 # Guided workflow review — 2026-11-01
 
-Operator R294 requests a proper EguiPilot/ViziWiz/PixVix review, optimized hosted
+Operator R297 requests a proper EguiPilot/ViziWiz/PixVix review, optimized hosted
 guides, opt-in human demonstrations compiled into reusable procedures, live AI
 demonstrations and guided learning, cheap execution/feedback, and novelty/MCP/
 A2UI research. Scope completed as review; no code implementation or publication.
@@ -9,7 +9,7 @@ Baseline: `711fc72`, isolated `.worktrees/guided-workflow-review`, branch
 `review/guided-workflow-standard`. Operator checkout untouched. Plan:
 `docs/plans/guided-workflow-standard-review.md`. Deliverable:
 `docs/research/guided-workflow-standard-review.md`. Requirement appended verbatim
-as R294 and doc map linked. No commit/push/PR for this review-only cut.
+as R297 and doc map linked. No commit/push/PR for this review-only cut.
 
 Independent audits: pilot_review (native semantics/Coach), guide_review
 (capture/export), workflow_prior_art (primary research). Both code auditors

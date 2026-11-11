@@ -1,6 +1,6 @@
 # UI procedure standards adoption research — 2026-11-02
 
-R295 clarified turnkey guided authoring plus advanced inspection. R296 rejected
+R298 clarified turnkey guided authoring plus advanced inspection. R299 rejected
 paraphrase and requested senior engineering research on actual standard adoption.
 Same isolated worktree/branch, baseline main711fc72; docs only, uncommitted.
 

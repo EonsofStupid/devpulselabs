@@ -1,6 +1,6 @@
 //! Upstream shape checks, not runtime or full standards conformance tests.
 
-use dpl_workflow_interop::export_workflow;
+use dpl_workflows::interop::export_workflow;
 use serde_json::Value;
 use std::collections::BTreeSet;
 
@@ -10,14 +10,14 @@ fn parse(source: &str) -> Value {
 
 fn workflow_schema() -> jsonschema::Validator {
     jsonschema::validator_for(&parse(include_str!(
-        "../schemas/open-workflow-1.0.3.derived.json"
+        "../interop/schemas/open-workflow-1.0.3.derived.json"
     )))
     .expect("pinned workflow schema compiles offline")
 }
 
 fn arazzo_schema() -> jsonschema::Validator {
     jsonschema::validator_for(&parse(include_str!(
-        "../schemas/arazzo-1.1-2026-04-15.upstream.json"
+        "../interop/schemas/arazzo-1.1-2026-04-15.upstream.json"
     )))
     .expect("pinned Arazzo schema compiles offline")
 }
@@ -36,15 +36,15 @@ fn ui_procedure_documents_match_pinned_workflow_shape() {
     for (name, source) in [
         (
             "edit-save",
-            include_str!("../fixtures/open-workflow/edit-save.json"),
+            include_str!("../interop/fixtures/open-workflow/edit-save.json"),
         ),
         (
             "window-setting",
-            include_str!("../fixtures/open-workflow/window-setting.json"),
+            include_str!("../interop/fixtures/open-workflow/window-setting.json"),
         ),
         (
             "export-observe",
-            include_str!("../fixtures/open-workflow/export-observe.json"),
+            include_str!("../interop/fixtures/open-workflow/export-observe.json"),
         ),
     ] {
         assert_valid(&validator, &parse(source), name);
@@ -67,13 +67,17 @@ fn every_real_registered_native_workflow_exports_to_valid_standard_shape() {
 
 #[test]
 fn arazzo_comparison_matches_pinned_schema_and_local_operation_references() {
-    let document = parse(include_str!("../fixtures/arazzo/ui-procedures.json"));
+    let document = parse(include_str!(
+        "../interop/fixtures/arazzo/ui-procedures.json"
+    ));
     assert_valid(&arazzo_schema(), &document, "Arazzo comparison");
     assert_eq!(
         document["sourceDescriptions"][0]["url"],
         "./fixture-api.openapi.json"
     );
-    let api = parse(include_str!("../fixtures/arazzo/fixture-api.openapi.json"));
+    let api = parse(include_str!(
+        "../interop/fixtures/arazzo/fixture-api.openapi.json"
+    ));
     let mut operations = BTreeSet::new();
     for path in api["paths"].as_object().expect("paths").values() {
         for operation in path.as_object().expect("path item").values() {
@@ -97,14 +101,18 @@ fn arazzo_comparison_matches_pinned_schema_and_local_operation_references() {
 
 #[test]
 fn upstream_schemas_reject_missing_required_structure() {
-    let mut workflow = parse(include_str!("../fixtures/open-workflow/edit-save.json"));
+    let mut workflow = parse(include_str!(
+        "../interop/fixtures/open-workflow/edit-save.json"
+    ));
     workflow["document"]
         .as_object_mut()
         .unwrap()
         .remove("namespace");
     assert!(!workflow_schema().is_valid(&workflow));
 
-    let mut arazzo = parse(include_str!("../fixtures/arazzo/ui-procedures.json"));
+    let mut arazzo = parse(include_str!(
+        "../interop/fixtures/arazzo/ui-procedures.json"
+    ));
     arazzo["workflows"][0]["steps"][0]
         .as_object_mut()
         .unwrap()

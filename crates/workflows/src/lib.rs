@@ -18,6 +18,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+pub mod interop;
+
 /// Current schema version for both documents. Bump on breaking shape
 /// changes; `load` refuses a newer version honestly instead of misreading.
 pub const SCHEMA_V: u32 = 1;

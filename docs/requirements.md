@@ -2331,7 +2331,7 @@ dependency updates, and the `v0.1.0` baseline.
 
 > look eguiPilot, that needs to be properly reviewed.  I also have the viziwiz and pixivix tools.  That tool is suppose to create guides optimized to be like remotion where i can create heavily optmized incredilby friendly guides for my site to host and load.  I also want to have eguiPilot become a guided workflow.  We have playwright, remotion, We have it so I enable recording.  Every mouse click, app interacted with typed into.  That all gets saved so you can then feed that as training to the AI to create the machine code scripted event.  Just MCP was invented.  We are inventing our own language for AI and apps to be expected to have.  This will have UI exist for passive and guided learning where the AI demonstates exactly as you would do it and then you can watch and folklow.  To avoid waste of money and cost of tokens the AI simply just has to execute the event and then just enough tokens to provide json for the components to provide dynamic generated feedback on the now instead of it feeling like a truly robotic event.  We want to research if i am still first to this concept and how to evolve a2ui and the mcp to now expect this new standard
 
-Source: operator session, 2026-11-01. Requests review and research into opted-in
+Source: operator session, 2026-11-01. First recorded as R294–R296 in a worktree of the old clone and renumbered when that work reached main, where R294–R296 are different requirements. Requests review and research into opted-in
 demonstration recording, reusable watch/follow/execute procedures, optimized
 hosted guides, bounded AI feedback and MCP/A2UI interoperability. Grounding and
 proposed delivery order: [guided workflow review](research/guided-workflow-standard-review.md).
@@ -2375,3 +2375,15 @@ Operator follow-up after GF1a, 2026-11-02: continues the identified recorder
 correctness and recovery cut, [GF1b](plans/recorder-stop-save.md), covering
 Stop/session ordering and retryable Save while preserving captured source files.
 
+
+### R300 · 2026-11-10
+
+> get all of these fucking branches merged now this is such a fucking mess
+
+> i want this work actually done I want this actually moving towards just being actually useful not just keep creating new boundaries but extending from existing and grouping this is getting so fucking messy it feels like and overlapping instead of existing
+
+Source: operator session, 2026-11-10. **Operator rulings 2026-11-10:**
+- **The guided-workflow work:** "Fold it all in".
+- **Automatic merging:** "Built-in auto-merge", in place of the 15-minute delivery bot.
+- **The older never-landed work:** "Port each, one PR each".
+- **The old clone:** "Clean it".

@@ -55,7 +55,8 @@ The tool depot is staged beside it from
   reduced to save time.
 - **MERGE ONLY ON DOUBLE-GREEN** (2026-07-29 incident law): never merge a
   PR until BOTH Actions lanes (`green-windows` + `green-linux`) are
-  COMPLETED SUCCESS — `gh pr checks <n> --watch` first, then merge. The
+  COMPLETED SUCCESS. Use `gh pr merge <n> --auto --squash` (R300): GitHub
+  merges it only once both required checks pass. The
   local pre-push gate only proves the pusher's own OS; #139 merged with
   Windows red (unconditional x11rb → `xcb.lib` link death), #142 merged
   mid-run and turned the Linux lane red (clippy in a linux-only file).

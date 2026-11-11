@@ -1,6 +1,6 @@
 //! Offline mapping experiment. No app, endpoint, model or workflow is executed.
 
-use dpl_workflow_interop::{
+use dpl_workflows::interop::{
     assess_procedure, export_workflow, import_workflow, parse_document, MappingIssue,
     MappingResult, MAX_DOCUMENT_BYTES,
 };
@@ -8,14 +8,15 @@ use serde_json::{json, Value};
 use std::io::Read;
 use std::process::ExitCode;
 
-const OPEN_WORKFLOW_SCHEMA: &str = include_str!("../schemas/open-workflow-1.0.3.derived.json");
-const ARAZZO_SCHEMA: &str = include_str!("../schemas/arazzo-1.1-2026-04-15.upstream.json");
+const OPEN_WORKFLOW_SCHEMA: &str =
+    include_str!("../interop/schemas/open-workflow-1.0.3.derived.json");
+const ARAZZO_SCHEMA: &str = include_str!("../interop/schemas/arazzo-1.1-2026-04-15.upstream.json");
 const UI_FIXTURES: &[&str] = &[
-    include_str!("../fixtures/open-workflow/edit-save.json"),
-    include_str!("../fixtures/open-workflow/window-setting.json"),
-    include_str!("../fixtures/open-workflow/export-observe.json"),
+    include_str!("../interop/fixtures/open-workflow/edit-save.json"),
+    include_str!("../interop/fixtures/open-workflow/window-setting.json"),
+    include_str!("../interop/fixtures/open-workflow/export-observe.json"),
 ];
-const ARAZZO_FIXTURE: &str = include_str!("../fixtures/arazzo/ui-procedures.json");
+const ARAZZO_FIXTURE: &str = include_str!("../interop/fixtures/arazzo/ui-procedures.json");
 
 fn fail<T>(path: &str, reason: impl Into<String>) -> MappingResult<T> {
     Err(vec![MappingIssue {

@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-09
+updated: 2026-11-10
 active_lane: recording-for-ai
 dirty: false
 ---
@@ -13,7 +13,7 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-11-09. **Baseline `v0.1.0` (R295, R296):** the tag marks the
+**Updated:** 2026-11-10. **Baseline `v0.1.0` (R295, R296):** the tag marks the
 merge of everything through RA1a (#313), ST3, and all ten open dependency
 updates, which clear the nine open security alerts. Tag `v0.1.1` adds chat
 resume's code (PC1b), with native resume and standalone launch still disabled
@@ -53,63 +53,22 @@ private repos, so it no longer applies now the repo is public.
 
 ## Now
 
-**Guided workflow review (R294).** Static code audits and primary-source research
-are complete in `review/guided-workflow-standard`. The
-[report](research/guided-workflow-standard-review.md) separates actual
-EguiPilot/Coach and ViziWiz/PixVix behavior from the proposed shared procedure,
-hosted publishing, live demonstration and MCP/A2UI bindings. Twelve source-backed
-findings include capture stop/session races, guide-edit path deletion, failed-save
-recovery, Coach predicate/locator errors and overlay boundary drift. F1, F2 and F7
-are now addressed by the bounded preservation cuts below; the other findings
-remain open. The original review ran no executable/performance qualification. The broad
-concept has close prior art, especially DocWizards and AgentRR. The recommended
-first implementation cut addresses correctness/preservation before a recorded
-watch/follow/execute vertical slice. Existing storage/chat lanes remain separate.
-R295 adds turnkey guided authoring with progressive advanced UI and a focused
-[scripted UI events research brief](research/scripted-ui-events-brief.md).
-R296's [adoption assessment](research/ui-procedure-standard-adoption.md) adds
-existing Open Workflow/Arazzo overlap, LSP/MCP Apps/OpenTelemetry case evidence,
-current formal MCP gates and the repo's read-only license as a reusable-SDK
-prerequisite. Recommendation: test a bounded UI-procedure profile and outside
-implementation before proposing new protocol semantics. The operator's execute
-follow-up delivered [GF0](research/ui-procedure-mapping.md): an isolated Rust
-mapping crate and runnable offline checker. Both registered native media
-workflows round-trip unchanged; three UI slices validate against Open Workflow
-1.0.3 and expose unsupported durable/job/human-follow guarantees. The Arazzo
-1.1 comparison validates as a hypothetical adapter description. All 25 tests,
-clippy and eight actual CLI cases passed. This is mapping evidence, not live UI
-or standards conformance. No partner outreach, license change or performance
-claim.
+**Guided workflow fixes (R297–R299).** The work from 2026-11-01 and 11-02 lived
+uncommitted in a worktree of the old clone and is now on main. A guide edit copies
+into a new revision and never deletes the original (GF1a). Recorder Stop waits for
+capture to finish, a failed Save keeps the recording so it can be retried, and a
+stopped session can be recovered after a restart (GF1b). The Open Workflow mapping
+is the `interop` module of `dpl-workflows`, with nothing in the app calling it yet
+(GF0). The full gate passes and the app screens are unchanged. Live capture and Linux checks of
+these fixes are still open, and retained checkpoints need a storage-size pass.
+Findings F3–F6 in the [review](research/guided-workflow-standard-review.md) are
+not fixed: see [`plans/coach-correctness.md`](plans/coach-correctness.md).
 
-**Guide edit preservation (GF1a).** Resume delivered
-[immutable source-guide revisions](plans/guide-edit-preservation.md): Apply
-copies into a fresh folder, preserves original files and raw extension metadata,
-and rejects unsafe/ambiguous input. Pending revisions stay out of discovery and
-export. Composer guards library identity, indexes/selects the new revision and
-retains edits on failure. Gallery caches the first retained frame, with legacy
-row backfill at view load. The five affected crate suites passed 113 tests (one
-existing PDF test ignored); the real disk example passed. Evidence and limits:
-[run record](proof/guide-edit-preservation/README.md). Flat source guides only;
-existing exports/nested attachments refuse rather than risk stale output or
-lost content. No application screenshots or Linux execution claimed. The recorder
-cut below continues preservation work before the remaining Coach/capture fixes
-and a shared watch/follow/execute outcome controller. Changes remain
-local to the review worktree; no commit/push in this cut.
-
-**Recorder Stop/Save and recovery (GF1b).** The next resume delivered
-[F2/F7 correctness](plans/recorder-stop-save.md): bounded generation-tagged work,
-a real Stop barrier, durable checkpoints, exclusive source leases and retryable
-copy/publication that retains source files. Recovery restores stopped sessions
-and prepared metadata; damaged sources do not hide healthy recordings. ViziWiz
-waits for Stop and Save off the paint thread, retains failed drafts and exposes
-recovery/archive actions. Async indexing respects the original saved path and
-library generation. All 155 affected tests passed (one existing PDF test ignored),
-as did clippy including native app targets, formatting, structure and the actual
-disk example. [Evidence and limits](proof/recorder-stop-save/README.md). Live
-capture, Linux, pixel and performance qualification remain open; retained full
-checkpoint snapshots still need a storage-size optimization. Next: ground F3's
-Coach overlay feature boundary, then F4–F6 matching/scope correctness before
-expanding guided execution. All work remains local and uncommitted.
+**Absorbing the old branches (R300).** Each one goes into the crate that already
+owns its area, one PR each, with no new crates: the process supervisor into
+`dpl-proc`, Foundry into `dpl-coach-pack`, then chat modes, MCP and brainstorm
+seats into `crates/chat/*`. The originals are local tags under `retired/`. The
+old clone at `D:\localdev\devpulselabs` now holds only `main`.
 
 **Project chat implementation (R292).** The operator authorized the reviewed
 design with **resume**, then PC1b execution with **execute** on 2026-10-29.

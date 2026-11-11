@@ -3,7 +3,7 @@
 2026-11-02. Implements the first engineering step of the
 [adoption assessment](ui-procedure-standard-adoption.md), authorized by
 **execute**. Plan: [GF0](../plans/ui-procedure-mapping-spike.md).
-Local crate: `crates/workflow-interop`. No product UI, recorder or runtime change.
+Local module: `crates/workflows/src/interop` (first built as its own crate, then folded into `dpl-workflows`). No product UI, recorder or runtime change.
 
 ## Mapping result
 
