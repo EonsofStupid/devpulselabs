@@ -27,17 +27,7 @@
 //! Module of `dpl-coach-pack`. Egui-free. Consumed by `dpl-hub-coach`; never a dep of `app` directly.
 //! Plan: `docs/plans/coach-seam-s3b-foundry-v0.md`.
 
-mod artifacts;
-mod job;
-mod probe;
-mod stage;
-
-pub use artifacts::{
-    battery_from_table, probes_from_table, read_table, AnchorNode, Anchors, BatteryRow, ProbeRow,
-};
-pub use job::{
-    elect_seed, foundry_dir, induct_pack, is_checkpointed, mint_app_id_from_evidence, purge,
-    remake, run, FoundryOutcome, FoundryRequest, JobState, StageReport, StageStatus,
-};
-pub use probe::{probe_verbs, SpanSink};
-pub use stage::FoundryStage;
+pub mod artifacts;
+pub mod job;
+pub mod probe;
+pub mod stage;

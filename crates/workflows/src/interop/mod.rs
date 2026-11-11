@@ -9,14 +9,8 @@ use crate::{Stage, StageKind, WorkflowDoc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-mod assessment;
-mod document;
-
-pub use assessment::{
-    assess_procedure, FeatureAssessment, FeatureStatus, NativeWorkflowMapping, PilotMappingStatus,
-    ProcedureAnnotations, ProcedureAssessment, ProcedureId,
-};
-pub use document::{parse_document, MAX_DOCUMENT_BYTES};
+pub mod assessment;
+pub mod document;
 
 pub const DSL_VERSION: &str = "1.0.3";
 pub const PROFILE_NAMESPACE: &str = "devpulse-native-workflows";

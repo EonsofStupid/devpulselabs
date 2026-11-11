@@ -16,9 +16,10 @@
 //! foundry_drill Calculator /tmp/s3b-reg /tmp/s3b-ana remake
 //! ```
 
-use dpl_coach_pack::foundry::{
-    mint_app_id_from_evidence, purge, remake, run, FoundryOutcome, FoundryRequest, FoundryStage,
+use dpl_coach_pack::foundry::job::{
+    mint_app_id_from_evidence, purge, remake, run, FoundryOutcome, FoundryRequest, StageReport,
 };
+use dpl_coach_pack::foundry::stage::FoundryStage;
 use dpl_coach_pack::{FingerprintBundle, PackRegistry, Resolution};
 
 fn main() {
@@ -48,7 +49,7 @@ fn main() {
         }
     }
 
-    let progress = |report: dpl_coach_pack::foundry::StageReport| {
+    let progress = |report: StageReport| {
         println!(
             "[{:>7}] {:?} — {}",
             report.stage.slug(),

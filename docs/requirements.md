@@ -2387,3 +2387,21 @@ Source: operator session, 2026-11-10. **Operator rulings 2026-11-10:**
 - **Automatic merging:** "Built-in auto-merge", in place of the 15-minute delivery bot.
 - **The older never-landed work:** "Port each, one PR each".
 - **The old clone:** "Clean it".
+
+### R301 · 2026-11-11
+
+> OLD MEANS YOU FUCKING DUPLICATED THERE WAS NEVER OLD THAT IS THE EXACT SHIT i am talking about why the efuck are there two fucking chats
+
+> get this teh fuck updated and planned out get one fucking chat i am in prerelease i do not want comaptibility i do not want fucking import export
+
+> I BETTER NOT HAVE ANY REGRESSION ONE FUCKING SOURCE
+
+Source: operator session, 2026-11-11, answering how the never-merged chat
+branch should land. Recorded in the [chat plan](plans/chat-native-program.md)'s
+R301 amendment.
+
+> that needs to be properly understood you are not getting this properly understood i meant shortcuts such as alaias and import export barrlel imports and "legacy" when we are still trying to get a working dev baseline I can actually use while we continue building it
+
+**Operator rulings 2026-11-11:**
+- **One source for chat:** "Run A1 next". Providers, accounts, profiles and sign-in move under `crates/ai/*` as the chat plan's §4.3.1 says, before new chat work lands.
+- **"No import/export"** means no shortcuts: no aliases (`use x as y`), no barrel re-exports (`pub use` of another module's items), and nothing kept as "legacy". It does not mean removing `dpl_workflows::interop`.

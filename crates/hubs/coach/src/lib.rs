@@ -14,10 +14,11 @@
 
 use dpl_coach_fabric::{eta_hint, mint, MintOutcome, MintProgress, MintRequest};
 use dpl_coach_inventory::{inventory, Complexity, InventoryItem};
-use dpl_coach_pack::foundry::{
-    foundry_dir, purge, read_table, run as run_foundry, Anchors, FoundryOutcome, FoundryRequest,
-    FoundryStage, StageReport, StageStatus,
+use dpl_coach_pack::foundry::artifacts::{read_table, Anchors};
+use dpl_coach_pack::foundry::job::{
+    self, foundry_dir, purge, FoundryOutcome, FoundryRequest, StageReport, StageStatus,
 };
+use dpl_coach_pack::foundry::stage::FoundryStage;
 use dpl_coach_pack::{FingerprintBundle, PackRegistry, Resolution};
 use dpl_coach_runtime::{invoke, mount_spec, resolve_seed, AgencyMode, FabricSession};
 use dpl_coldlight::{self as cl, Tone};
@@ -115,29 +116,27 @@ fn resolve_identity(registry: &PackRegistry, item: &InventoryItem) -> ResolvedId
                 seed,
             }
         }
-        Resolution::Unresolved { synthesized } => {
-            match dpl_coach_pack::foundry::mint_app_id_from_evidence(&bundle) {
-                Some(minted) => {
-                    let loaded = registry.load(&minted).ok();
-                    let has_pack = loaded.is_some();
-                    let seed = loaded.and_then(|p| p.pack.teaching_seed_control);
-                    ResolvedIdentity {
-                        app_id: minted,
-                        tier: "minted",
-                        detail: "reverse-DNS desktop id names this identity".into(),
-                        has_pack,
-                        seed,
-                    }
+        Resolution::Unresolved { synthesized } => match job::mint_app_id_from_evidence(&bundle) {
+            Some(minted) => {
+                let loaded = registry.load(&minted).ok();
+                let has_pack = loaded.is_some();
+                let seed = loaded.and_then(|p| p.pack.teaching_seed_control);
+                ResolvedIdentity {
+                    app_id: minted,
+                    tier: "minted",
+                    detail: "reverse-DNS desktop id names this identity".into(),
+                    has_pack,
+                    seed,
                 }
-                None => ResolvedIdentity {
-                    app_id: synthesized.identity.app_id.clone(),
-                    tier: "unresolved",
-                    detail: "no installed pack claims this evidence".into(),
-                    has_pack: false,
-                    seed: None,
-                },
             }
-        }
+            None => ResolvedIdentity {
+                app_id: synthesized.identity.app_id.clone(),
+                tier: "unresolved",
+                detail: "no installed pack claims this evidence".into(),
+                has_pack: false,
+                seed: None,
+            },
+        },
     }
 }
 
@@ -383,7 +382,7 @@ impl CoachHub {
         };
         thread::spawn(move || {
             let progress_tx = tx.clone();
-            let outcome = run_foundry(&request, move |report| {
+            let outcome = job::run(&request, move |report| {
                 let _ = progress_tx.send(FoundryMsg::Report(report));
             });
             let _ = tx.send(FoundryMsg::Done(outcome));
@@ -702,7 +701,7 @@ impl CoachHub {
 /// "what happened last run" view for the demo hook and cold reopens.
 fn replay_console(registry: &PackRegistry, id: &AppId) -> Vec<ConsoleRow> {
     let dir = foundry_dir(registry, id);
-    let job = dpl_coach_pack::foundry::JobState::load(&dir);
+    let job = job::JobState::load(&dir);
     FoundryStage::ALL
         .into_iter()
         .map(|stage| {

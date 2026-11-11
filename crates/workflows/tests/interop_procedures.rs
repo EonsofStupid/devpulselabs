@@ -1,4 +1,4 @@
-use dpl_workflows::interop::{
+use dpl_workflows::interop::assessment::{
     assess_procedure, FeatureStatus, NativeWorkflowMapping, PilotMappingStatus,
 };
 use serde_json::{json, Value};

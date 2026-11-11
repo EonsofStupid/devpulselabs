@@ -1,9 +1,8 @@
 //! Offline mapping experiment. No app, endpoint, model or workflow is executed.
 
-use dpl_workflows::interop::{
-    assess_procedure, export_workflow, import_workflow, parse_document, MappingIssue,
-    MappingResult, MAX_DOCUMENT_BYTES,
-};
+use dpl_workflows::interop::assessment::assess_procedure;
+use dpl_workflows::interop::document::{parse_document, MAX_DOCUMENT_BYTES};
+use dpl_workflows::interop::{export_workflow, import_workflow, MappingIssue, MappingResult};
 use serde_json::{json, Value};
 use std::io::Read;
 use std::process::ExitCode;

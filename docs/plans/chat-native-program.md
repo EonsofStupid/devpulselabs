@@ -14,6 +14,37 @@ Rewritten 2026-10-11 in THE checkout (`D:\projects\devpulselabs`). It
 supersedes every earlier version of this file and the `wip/c1-paused`
 amendments.
 
+**Amended 2026-11-11 (R301, ruled: "Run A1 next").** One chat,
+one source, no regression.
+- This file is the only chat plan. `docs/status.md` points here, and nothing
+  else plans chat.
+- The code and this plan disagree today. §4.3.1 puts providers and
+  subscriptions under `crates/ai/*`, but A1 never ran, and CW1 was built in
+  `crates/chat/providers/codex`. A1 runs next, as one move with
+  behaviour unchanged and no shims, so the code matches this plan before
+  anything new lands.
+- The August branch `feat/providers-carousel` is not a second chat. It is work
+  on this plan's own passes that never merged, now kept only as the local tag
+  `retired/providers-carousel`. Each piece is built into its pass, in the final
+  layout, and the tag is deleted once the last piece lands:
+
+  | Piece | Pass |
+  |---|---|
+  | Providers rail, chips and tile carousel; their accessibility roles; missing glyphs | C2 |
+  | One + menu on the composer, with modes on it | C2, C3 |
+  | Modes reach Codex, only those the model advertises; `model/list` | A2 (Codex) |
+  | Connectors (MCP): sign-in and health per server | A2 census, then C3 |
+  | Brainstorm: whose idea it was; one press asks each seat; a quiet seat is let go | RM5 (Brainstorm), with R23 |
+
+  Not built from it: its `crates/ai-core` (A1 authors `dpl-ai-core` from the
+  existing chat crates instead), its `crates/seat` (written against
+  Shippin/Automaton, a §2 non-goal), its Codex 0.147 schema (main vendors
+  0.163), and its kernel K1-K3 refactor.
+- Pre-release: code moves once and the old shape is deleted in the same
+  change. No shortcuts: no aliases, no barrel re-exports, nothing kept as
+  "legacy".
+- The order from here: A1, then the pieces above in the §4.4 order.
+
 **Amended 2026-10-11 (operator: *"update the existing if wrong and ensure
 you plan against the existing code to implement canonical consistent naming
 and file and folder patterns"*):**

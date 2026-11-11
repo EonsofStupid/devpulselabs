@@ -8,14 +8,14 @@ use dpl_coach_runtime::{
     app_assert_state, app_wait_until, require_real_target, window_focus, window_geom, window_move,
     window_resize,
 };
-use dpl_fabric::{Fabric as SignalFabric, SeamAgency, SeamEvent, SeamSpan, TransportRung};
+use dpl_fabric::{SeamAgency, SeamEvent, SeamSpan, TransportRung};
 use std::path::Path;
 use std::time::Instant;
 
 /// The Foundry's span channel: a local signal fabric with the ledger
 /// listening — the same meeting-point-files pattern the daemon uses.
 pub struct SpanSink {
-    signals: SignalFabric,
+    signals: dpl_fabric::Fabric,
     tap: Option<dpl_ledger::LedgerTap>,
     /// `None` only when the ledger could not open — reported, never silent.
     pub ledger_error: Option<String>,
@@ -23,7 +23,7 @@ pub struct SpanSink {
 
 impl SpanSink {
     pub fn open(analytics_root: &Path) -> Self {
-        let signals = SignalFabric::new();
+        let signals = dpl_fabric::Fabric::new();
         match dpl_ledger::LedgerTap::open(&signals, analytics_root.to_path_buf()) {
             Ok(tap) => Self {
                 signals,
