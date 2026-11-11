@@ -1,0 +1,23 @@
+{
+  "document": {
+    "dsl": "1.0.3",
+    "namespace": "dpl-ui-mapping",
+    "name": "edit-save",
+    "version": "0.1.0",
+    "metadata": {
+      "dplUiProcedure": {
+        "profile": "local-mapping-0.1",
+        "mappingOnly": true,
+        "required": ["durable-artifact-observation", "human-automation-equivalence"],
+        "sources": ["tests/eguipilotai/own-looks.toml", "crates/editor/src/lib.rs"],
+        "preconditions": ["Use the existing own-looks fixture setup through opening Save as a new look; the look-name field and save button must already be visible."],
+        "limitations": ["The Text expectation observes a substring in the UI chip. It does not prove durable persistence or independently verified manual completion."]
+      }
+    }
+  },
+  "do": [
+    {"name-look": {"call": "dpl.ui.fill", "with": {"target": {"id": "root/editor/look-name"}, "text": "Orchid intro"}}},
+    {"save-look": {"call": "dpl.ui.click", "with": {"target": {"id": "root/editor/look-save"}}}},
+    {"observe-chip": {"call": "dpl.ui.expect-text", "with": {"target": {"id": "root/editor/look-chip"}, "value": "Look: Orchid intro", "match": "substring"}}}
+  ]
+}

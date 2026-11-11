@@ -141,7 +141,16 @@ pub struct Export {
 }
 
 /// Load a guide folder's `guide.json` (recorder-written or exported).
+fn require_published(dir: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(dir.join(".guide-revision-pending")) {
+        Ok(_) => Err("guide revision is not committed; open the original guide".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("cannot verify guide revision publication: {error}")),
+    }
+}
+
 pub fn load_guide(dir: &Path) -> Result<Manifest, String> {
+    require_published(dir)?;
     let path = dir.join("guide.json");
     let raw = std::fs::read_to_string(&path)
         .map_err(|e| format!("not a guide folder ({}): {e}", path.display()))?;
@@ -473,6 +482,9 @@ pub fn export_guide(
     out_dir: &Path,
     opts: ExportOpts,
 ) -> Result<Export, String> {
+    if let Some(session) = session {
+        require_published(session)?;
+    }
     let mut m = load_guide(source)?;
     if m.steps.is_empty() {
         return Err("this guide has no steps".into());
@@ -585,6 +597,37 @@ pub fn export_guide(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_revisions_cannot_be_loaded_or_exported_as_guide_or_session() {
+        let root = scratch("pending-revision");
+        let dir = fixture_guide(&root);
+        std::fs::write(dir.join(".guide-revision-pending"), b"pending").unwrap();
+        assert!(load_guide(&dir).unwrap_err().contains("not committed"));
+        let out = root.join("not-created");
+        assert!(export_guide(&dir, None, &out, ExportOpts::default()).is_err());
+        assert!(!out.exists());
+        std::fs::rename(
+            dir.join(".guide-revision-pending"),
+            dir.join(".guide-revision-complete"),
+        )
+        .unwrap();
+        assert!(load_guide(&dir).is_ok());
+        let session = root.join("pending-session");
+        std::fs::create_dir(&session).unwrap();
+        std::fs::write(session.join(".guide-revision-pending"), b"pending").unwrap();
+        std::fs::write(session.join("session.mp4"), b"unfinished").unwrap();
+        assert!(
+            export_guide(&dir, Some(&session), &out, ExportOpts::default())
+                .unwrap_err()
+                .contains("not committed")
+        );
+        assert!(
+            !out.exists(),
+            "session refusal precedes output creation and ffmpeg"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn scratch(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("dpl-guide-{tag}-{}", std::process::id()));

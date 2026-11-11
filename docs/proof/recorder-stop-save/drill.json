@@ -1,0 +1,13 @@
+{
+  "destination_bytes_match": true,
+  "fixture": "synthetic bytes; no OS hook or capture",
+  "native_guide_reader_accepted": true,
+  "pending_discovery_after_save": 0,
+  "publication_complete": true,
+  "published": "D:\\localdev\\devpulselabs\\.worktrees\\guided-workflow-review\\target\\recorder-recovery-1793654221432432300\\Inbox\\recovery-drill_v1",
+  "recovered_count": 1,
+  "recovered_stopped": true,
+  "restart_duplicate_refused": true,
+  "source": "D:\\localdev\\devpulselabs\\.worktrees\\guided-workflow-review\\target\\recorder-recovery-1793654221432432300\\Inbox\\.steps-recording-drill-1793654221432432300",
+  "source_bytes_preserved": true
+}

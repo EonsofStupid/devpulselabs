@@ -49,6 +49,7 @@ members = [
     "crates/proc",
     "crates/comp",
     "crates/workflows",
+    "crates/workflow-interop",
     "crates/guide",
     "crates/composer",
     "crates/editor",
@@ -207,6 +208,7 @@ dpl-doc = { path = "crates/doc" }
 dpl-proc = { path = "crates/proc" }
 dpl-comp = { path = "crates/comp" }
 dpl-workflows = { path = "crates/workflows" }
+dpl-workflow-interop = { path = "crates/workflow-interop" }
 dpl-guide = { path = "crates/guide" }
 dpl-composer = { path = "crates/composer" }
 dpl-editor = { path = "crates/editor" }

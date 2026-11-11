@@ -153,6 +153,15 @@ named first and the others are marked **P2**: they merge into it during
 | [`eguipilotai-devpulse-authoring.md`](eguipilotai-devpulse-authoring.md) | Authoring scenarios for DevPULSE. |
 | [`eguipilotai-playwright-review.md`](eguipilotai-playwright-review.md) | The capability matrix. **`cargo green` reads this exact path** (`xtask docs_status`). |
 | [`research/eguipilotai/`](research/eguipilotai/README.md) | The harness research and contracts. |
+| [`research/guided-workflow-standard-review.md`](research/guided-workflow-standard-review.md) | R294: EguiPilot/Coach and ViziWiz/PixVix audit, prior art, proposed watch/follow/execute profile and MCP/A2UI bindings. Review, not implementation authority. |
+| [`research/scripted-ui-events-brief.md`](research/scripted-ui-events-brief.md) | R295: turnkey guided authoring, advanced inspector and focused A2UI-triggered workflow/signal standards research. |
+| [`research/ui-procedure-standard-adoption.md`](research/ui-procedure-standard-adoption.md) | R296: existing-standard gap analysis, independent adopter incentives, licensing prerequisite, formal MCP route and measurable adoption gates. |
+| [`plans/ui-procedure-mapping-spike.md`](plans/ui-procedure-mapping-spike.md) | Authorized GF0 scope and verification for the executable standards mapping experiment. |
+| [`research/ui-procedure-mapping.md`](research/ui-procedure-mapping.md) | GF0 mapping results, concrete native capability gaps and local checker evidence. |
+| [`plans/guide-edit-preservation.md`](plans/guide-edit-preservation.md) | GF1a: immutable source-guide editing, pending publication/readers, source preservation and qualification scope. |
+| [`proof/guide-edit-preservation/README.md`](proof/guide-edit-preservation/README.md) | Actual tests and executable disk evidence for GF1a; platform and product limits. |
+| [`plans/recorder-stop-save.md`](plans/recorder-stop-save.md) | GF1b: recorder lifecycle barriers, source-preserving publication, crash recovery, exclusive source leases and native acknowledgement UI. |
+| [`proof/recorder-stop-save/README.md`](proof/recorder-stop-save/README.md) | GF1b verification record, native guide interoperability and remaining runtime/performance limits. |
 
 ## Ops
 

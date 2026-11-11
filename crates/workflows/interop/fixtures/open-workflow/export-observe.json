@@ -1,0 +1,22 @@
+{
+  "document": {
+    "dsl": "1.0.3",
+    "namespace": "dpl-ui-mapping",
+    "name": "export-observe",
+    "version": "0.1.0",
+    "metadata": {
+      "dplUiProcedure": {
+        "profile": "local-mapping-0.1",
+        "mappingOnly": true,
+        "required": ["job-correlated-completion", "human-automation-equivalence"],
+        "sources": ["crates/app/src/coach_signals.rs", "crates/composer/src/lib.rs"],
+        "preconditions": ["Composer is prepared with exportable content and root/composer.guide/export is actionable."],
+        "limitations": ["The completion call is a proposed observer, not an implemented adapter. Current Flow cannot capture the started JobId; the jobs.done bridge loses JobId and cannot prove that this export completed."]
+      }
+    }
+  },
+  "do": [
+    {"start-export": {"call": "dpl.ui.click", "with": {"target": {"id": "root/composer.guide/export"}}}},
+    {"observe-export": {"call": "dpl.jobs.expect-completed", "with": {"correlation": "job-id-returned-by-start-export", "terminal": "done"}}}
+  ]
+}

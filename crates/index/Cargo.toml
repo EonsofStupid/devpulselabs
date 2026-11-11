@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 dpl-roots.workspace = true
+dpl-guide.workspace = true
 # TURSO — the pure-Rust SQLite engine, operator-ratified (docs-history-2026-10-12:docs/plans/x1-index.md):
 # the same engine the old repo proved, as a local embedded file. Its
 # async API wraps behind this crate's sync surface via a current-thread

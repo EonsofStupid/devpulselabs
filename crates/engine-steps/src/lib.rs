@@ -13,14 +13,12 @@
 //!   (cursor at the target → accurate highlight); real actions then settle
 //!   250ms and shoot the "done" frame — kept only if the screen actually
 //!   changed, which IS the no-op dedup. A MARKED moment is always kept.
-//! - Filing happens exactly once in `save`: rename-uniquify the temp folder,
-//!   write `guide.json`. (Sidecar + artifact index arrive with the PV1c
-//!   inbox/index port — tracked in docs/plans/port-viziwiz.md.)
+//! - Stop acknowledges a quiescent capture barrier. Save publishes a copy
+//!   through durable checkpoints/receipts; original source bytes remain.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::mpsc::{channel, Sender};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -28,6 +26,10 @@ use serde::{Deserialize, Serialize};
 use dpl_engine_capture as engine;
 
 pub mod edit;
+mod lifecycle;
+mod storage;
+pub use lifecycle::StepsRecorder;
+pub use storage::{RecoveryCandidate, RecoveryScan, SavedGuide};
 
 /// Lossy-WebP quality for step images (carried: visually lossless for UI).
 const STEP_QUALITY: f32 = 82.0;
@@ -38,7 +40,7 @@ const SETTLE_MS: u64 = 250;
 
 /// One metadata implementation for every capture vehicle: kebab name with
 /// auto `_v1`, ≥1 kebab tag, episode/General destination.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct CaptureMeta {
     pub library: bool,
     #[serde(default)]
@@ -129,6 +131,8 @@ pub enum StepsEvent {
     },
 }
 
+/// Called in recorder event order. Sinks must only enqueue/publish events;
+/// they must not call lifecycle methods. Reentrant status() is supported.
 pub type EventSink = Arc<dyn Fn(StepsEvent) + Send + Sync>;
 
 #[derive(Clone, Copy)]
@@ -150,8 +154,8 @@ impl Trigger {
     }
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StepRec {
     pub order: u32,
     pub file: String,
@@ -167,9 +171,13 @@ pub struct StepRec {
     pub bytes: usize,
 }
 
-struct Session {
-    dir: PathBuf,
-    steps: Vec<StepRec>,
+#[derive(Clone, Debug)]
+pub(crate) struct Session {
+    pub(crate) dir: PathBuf,
+    pub(crate) steps: Vec<StepRec>,
+    pub(crate) next_attempt: u64,
+    /// The OS releases this source lease after the final session clone drops.
+    pub(crate) _lease: Arc<std::fs::File>,
 }
 
 #[derive(Serialize, Clone, Copy)]
@@ -179,7 +187,7 @@ pub struct StepsState {
     pub count: u32,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct StopResult {
     pub count: u32,
@@ -194,7 +202,8 @@ static MOUSE_Y: AtomicI32 = AtomicI32::new(0);
 /// carry no modifier field, so the hook remembers (C2).
 static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
 static SHIFT_DOWN: AtomicBool = AtomicBool::new(false);
-static TRIGGERS: OnceLock<Sender<Trigger>> = OnceLock::new();
+static HOOK_RECORDER: OnceLock<Mutex<Weak<StepsRecorder>>> = OnceLock::new();
+static HOOK_INSTALLED: AtomicBool = AtomicBool::new(false);
 
 /// The OS-global chords (C2) — the old app's three shortcuts, now ridden
 /// on the SAME rdev hook as the click capture (no shortcut plugin).
@@ -236,273 +245,6 @@ fn track_modifier(key: rdev::Key, down: bool) -> bool {
     true
 }
 
-pub struct StepsRecorder {
-    inner: Mutex<Option<Session>>,
-    running: Arc<AtomicBool>,
-    /// DRILL-ONLY opt-in: capture THIS app's own focused window. Normal
-    /// recording keeps excluding it so the palette never self-captures;
-    /// the AI-driven `--steps-drill` demonstrates the app itself.
-    allow_self: AtomicBool,
-    sink: EventSink,
-}
-
-impl StepsRecorder {
-    pub fn new(sink: EventSink) -> Arc<Self> {
-        Arc::new(Self {
-            inner: Mutex::new(None),
-            running: Arc::new(AtomicBool::new(false)),
-            allow_self: AtomicBool::new(false),
-            sink,
-        })
-    }
-
-    /// DRILL-ONLY: let captures include this process's own windows.
-    pub fn set_allow_self(&self, on: bool) {
-        self.allow_self.store(on, Ordering::Relaxed);
-    }
-
-    fn emit_state(&self, recording: bool, count: u32) {
-        (self.sink)(StepsEvent::State { recording, count });
-    }
-
-    fn emit_skip(&self, reason: &str) {
-        eprintln!("[steps] skip: {reason}");
-        (self.sink)(StepsEvent::Skip(reason.to_string()));
-    }
-
-    /// Begin recording into `<inbox>/<auto-name>`. The 5s prep countdown is
-    /// the UI's job BEFORE calling this, carried.
-    pub fn start(
-        self: &Arc<Self>,
-        inbox: &std::path::Path,
-        meta: CaptureMeta,
-    ) -> Result<(), String> {
-        if self.running.load(Ordering::Relaxed) {
-            return Err("already recording steps".into());
-        }
-        // A stopped-but-never-filed PENDING session must not leak.
-        if let Some(old) = self.inner.lock().expect("steps lock").take() {
-            let _ = std::fs::remove_dir_all(&old.dir);
-        }
-        let meta = normalize_meta_auto(meta, "guide")?;
-        let dir = inbox.join(&meta.name);
-        std::fs::create_dir_all(&dir).map_err(|e| format!("guide dir: {e}"))?;
-        *self.inner.lock().expect("steps lock") = Some(Session {
-            dir,
-            steps: Vec::new(),
-        });
-        ensure_hook(self.clone());
-        self.running.store(true, Ordering::Relaxed);
-        self.emit_state(true, 0);
-        Ok(())
-    }
-
-    /// The Mark button / hotkey — always kept, never deduped.
-    pub fn mark(&self) -> Result<(), String> {
-        if !self.running.load(Ordering::Relaxed) {
-            return Err("not recording".into());
-        }
-        if let Some(tx) = TRIGGERS.get() {
-            let _ = tx.send(Trigger::Marked);
-        }
-        Ok(())
-    }
-
-    /// Stop; the session stays PENDING for the Save card.
-    pub fn stop(&self) -> Result<StopResult, String> {
-        self.running.store(false, Ordering::Relaxed);
-        let mut guard = self.inner.lock().expect("steps lock");
-        let Some(sess) = guard.as_ref() else {
-            return Err("not recording".into());
-        };
-        if sess.steps.is_empty() {
-            let dir = sess.dir.clone();
-            *guard = None;
-            drop(guard);
-            let _ = std::fs::remove_dir_all(&dir);
-            self.emit_state(false, 0);
-            return Err("no steps captured".into());
-        }
-        let count = sess.steps.len() as u32;
-        let seed_title = sess
-            .steps
-            .first()
-            .map(|s| s.title.clone())
-            .unwrap_or_default();
-        drop(guard);
-        self.emit_state(false, count);
-        Ok(StopResult { count, seed_title })
-    }
-
-    /// File the pending guide EXACTLY ONCE: rename-uniquify + guide.json.
-    pub fn save(&self, inbox: &std::path::Path, meta: CaptureMeta) -> Result<String, String> {
-        let meta = normalize_meta(meta)?;
-        let mut sess = match self.inner.lock().expect("steps lock").take() {
-            Some(s) => s,
-            None => return Err("no guide to save".into()),
-        };
-        if sess.steps.is_empty() {
-            let _ = std::fs::remove_dir_all(&sess.dir);
-            return Err("no steps captured".into());
-        }
-        let mut final_dir = inbox.join(&meta.name);
-        let mut n = 2u32;
-        while final_dir.exists() && final_dir != sess.dir {
-            final_dir = inbox.join(format!("{}-{n}", meta.name));
-            n += 1;
-        }
-        if final_dir != sess.dir {
-            std::fs::rename(&sess.dir, &final_dir).map_err(|e| format!("rename guide: {e}"))?;
-            sess.dir = final_dir;
-        }
-        // The folder name is authoritative (it may have been uniquified).
-        let name = sess
-            .dir
-            .file_name()
-            .map(|f| f.to_string_lossy().to_string())
-            .unwrap_or(meta.name);
-
-        let total: usize = sess.steps.iter().map(|s| s.bytes).sum();
-        let manifest = serde_json::json!({
-            "kind": "guide",
-            "name": name,
-            "stepCount": sess.steps.len(),
-            "totalBytes": total,
-            "steps": sess.steps,
-        });
-        std::fs::write(
-            sess.dir.join("guide.json"),
-            serde_json::to_vec_pretty(&manifest).map_err(|e| format!("guide manifest: {e}"))?,
-        )
-        .map_err(|e| format!("guide.json: {e}"))?;
-        self.emit_state(false, 0);
-        (self.sink)(StepsEvent::Saved { name: name.clone() });
-        Ok(name)
-    }
-
-    /// Drop the pending guide without filing (the Save card's Discard).
-    pub fn discard(&self) {
-        if let Some(sess) = self.inner.lock().expect("steps lock").take() {
-            let _ = std::fs::remove_dir_all(&sess.dir);
-        }
-        self.emit_state(false, 0);
-    }
-
-    pub fn status(&self) -> StepsState {
-        let count = self
-            .inner
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().map(|s| s.steps.len() as u32))
-            .unwrap_or(0);
-        StepsState {
-            recording: self.running.load(Ordering::Relaxed),
-            count,
-        }
-    }
-
-    /// One step, on the worker thread (carried two-frame model; the session
-    /// lock is released across the settle so status/stop never block).
-    fn capture_step(&self, trigger: Trigger) {
-        // pid 0 belongs to no window — passing it disables the exclusion.
-        let our_pid = if self.allow_self.load(Ordering::Relaxed) {
-            0
-        } else {
-            std::process::id()
-        };
-        let (dir, order) = {
-            let guard = match self.inner.lock() {
-                Ok(g) => g,
-                Err(_) => return,
-            };
-            match guard.as_ref() {
-                Some(sess) => (sess.dir.clone(), sess.steps.len() as u32 + 1),
-                None => return,
-            }
-        };
-        let action_str = match trigger {
-            Trigger::Marked => "marked",
-            Trigger::KeyAction => "key",
-            Trigger::Click { .. } => "click",
-        };
-
-        let file = format!("step-{order:03}.webp");
-        let path = dir.join(&file);
-        let shot = match engine::capture_focused_window_step(&path, STEP_QUALITY, our_pid) {
-            Ok(s) => s,
-            Err(e) => {
-                let reason = if e.contains("no external window") {
-                    "switch to the app you're demonstrating".to_string()
-                } else {
-                    e
-                };
-                self.emit_skip(&reason);
-                return;
-            }
-        };
-        let click = trigger
-            .click_point()
-            .and_then(|(gx, gy)| relative_click(gx, gy, &shot));
-
-        let mut result_file = None;
-        let mut total_bytes = shot.bytes;
-        if !trigger.is_marked() {
-            std::thread::sleep(Duration::from_millis(SETTLE_MS));
-            let rfile = format!("step-{order:03}-done.webp");
-            let rpath = dir.join(&rfile);
-            match engine::capture_focused_window_step(&rpath, STEP_QUALITY, our_pid) {
-                Ok(done) => {
-                    if engine::fingerprint_distance(shot.hash, done.hash) == 0 {
-                        let _ = std::fs::remove_file(&path);
-                        let _ = std::fs::remove_file(&rpath);
-                        self.emit_skip("nothing changed");
-                        return;
-                    }
-                    result_file = Some(rfile);
-                    total_bytes += done.bytes;
-                }
-                Err(_) => {
-                    let _ = std::fs::remove_file(&rpath);
-                }
-            }
-        }
-
-        let mut guard = match self.inner.lock() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
-        let discard = || {
-            let _ = std::fs::remove_file(&path);
-            if let Some(ref rf) = result_file {
-                let _ = std::fs::remove_file(dir.join(rf));
-            }
-        };
-        let Some(sess) = guard.as_mut() else {
-            discard();
-            return;
-        };
-        if sess.dir != dir {
-            discard();
-            return;
-        }
-        sess.steps.push(StepRec {
-            order,
-            file,
-            result_file: result_file.clone(),
-            action: action_str.into(),
-            click: click.map(|(x, y)| [x, y]),
-            app: shot.app.clone(),
-            title: shot.title.clone(),
-            width: shot.width,
-            height: shot.height,
-            bytes: total_bytes,
-        });
-        let count = sess.steps.len() as u32;
-        drop(guard);
-        self.emit_state(true, count);
-    }
-}
-
 /// Map a global click point into a shot as a normalized (0..1) point.
 /// None when the click clearly wasn't inside the captured window (carried).
 fn relative_click(gx: f64, gy: f64, shot: &engine::StepShot) -> Option<(f64, f64)> {
@@ -523,24 +265,17 @@ fn ensure_hook(recorder: Arc<StepsRecorder>) {
     install_hook(&recorder, None);
 }
 
-/// Install the global hook + capture worker exactly once (carried design).
+/// Install the global hook once; each recorder owns its bounded worker queue.
 /// Call at BOOT with a sink so the chords work before any recording;
 /// hotkeys fire regardless of the `running` gate — that is their point.
 pub fn install_hook(recorder: &Arc<StepsRecorder>, hotkeys: Option<HotkeySink>) {
-    if TRIGGERS.get().is_some() {
+    *HOOK_RECORDER
+        .get_or_init(|| Mutex::new(Weak::new()))
+        .lock()
+        .expect("hook recorder lock") = Arc::downgrade(recorder);
+    if HOOK_INSTALLED.swap(true, Ordering::AcqRel) {
         return;
     }
-    let (tx, rx) = channel::<Trigger>();
-    if TRIGGERS.set(tx).is_err() {
-        return;
-    }
-    let worker = recorder.clone();
-    std::thread::spawn(move || {
-        while let Ok(trigger) = rx.recv() {
-            worker.capture_step(trigger);
-        }
-    });
-    let running = recorder.running.clone();
     std::thread::spawn(move || {
         if let Err(e) = rdev::listen(move |event| {
             match event.event_type {
@@ -568,9 +303,6 @@ pub fn install_hook(recorder: &Arc<StepsRecorder>, hotkeys: Option<HotkeySink>) 
                 }
                 _ => {}
             }
-            if !running.load(Ordering::Relaxed) {
-                return;
-            }
             let trigger = match event.event_type {
                 rdev::EventType::ButtonPress(rdev::Button::Left) => Some(Trigger::Click {
                     x: f64::from(MOUSE_X.load(Ordering::Relaxed)),
@@ -580,8 +312,14 @@ pub fn install_hook(recorder: &Arc<StepsRecorder>, hotkeys: Option<HotkeySink>) 
                 _ => None,
             };
             if let Some(t) = trigger {
-                if let Some(tx) = TRIGGERS.get() {
-                    let _ = tx.send(t);
+                // Never wait for a recorder lock or invoke an event sink on
+                // the OS hook thread. Rebinding briefly drops hook events.
+                if let Some(recorder) = HOOK_RECORDER
+                    .get()
+                    .and_then(|slot| slot.try_lock().ok())
+                    .and_then(|slot| slot.upgrade())
+                {
+                    recorder.submit_hook(t);
                 }
             }
         }) {
@@ -646,65 +384,6 @@ mod tests {
             auto.name
         );
         assert_eq!(auto.tags, vec!["unsorted".to_string()], "auto tags default");
-    }
-
-    #[test]
-    fn pending_guide_files_once_with_rename_uniquify() {
-        let sink: EventSink = Arc::new(|_| {});
-        let rec = StepsRecorder::new(sink);
-        let inbox = std::env::temp_dir().join("dpl-steps-test-inbox");
-        let _ = std::fs::remove_dir_all(&inbox);
-        std::fs::create_dir_all(&inbox).unwrap();
-
-        // Seed a fake pending session (no display needed).
-        let dir = inbox.join("guide-tmp");
-        std::fs::create_dir_all(&dir).unwrap();
-        *rec.inner.lock().unwrap() = Some(Session {
-            dir,
-            steps: vec![StepRec {
-                order: 1,
-                file: "step-001.webp".into(),
-                result_file: None,
-                action: "marked".into(),
-                click: None,
-                app: "Test".into(),
-                title: "Test - App".into(),
-                width: 10,
-                height: 10,
-                bytes: 123,
-            }],
-        });
-        // An existing folder with the target name forces the -2 uniquify.
-        std::fs::create_dir_all(inbox.join("my-guide_v1")).unwrap();
-        let meta = CaptureMeta {
-            library: true,
-            show: String::new(),
-            episode: String::new(),
-            name: "my-guide".into(),
-            tags: vec!["t".into()],
-        };
-        let name = rec.save(&inbox, meta).unwrap();
-        assert_eq!(name, "my-guide_v1-2", "never clobber: uniquified");
-        let manifest: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(inbox.join(&name).join("guide.json")).unwrap())
-                .unwrap();
-        assert_eq!(manifest["kind"], "guide");
-        assert_eq!(manifest["stepCount"], 1);
-        assert!(
-            rec.save(
-                &inbox,
-                CaptureMeta {
-                    library: true,
-                    show: String::new(),
-                    episode: String::new(),
-                    name: "x".into(),
-                    tags: vec!["t".into()],
-                }
-            )
-            .is_err(),
-            "filing happens exactly once"
-        );
-        let _ = std::fs::remove_dir_all(&inbox);
     }
 
     #[test]

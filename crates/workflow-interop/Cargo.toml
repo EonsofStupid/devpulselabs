@@ -1,0 +1,17 @@
+[package]
+name = "dpl-workflow-interop"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Pure bounded workflow interchange experiment; no execution runtime"
+
+[lints]
+workspace = true
+
+[dependencies]
+dpl-workflows.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true

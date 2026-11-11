@@ -153,6 +153,16 @@ Exact provider paths and link ownership still need qualification.
 | 63 | Persist chat data in an operator-selected working project and create/switch an owned activation link, including supported standalone AI session storage outside DevPULSE | R292; `chat-native-program.md` §4.7 | Standalone-client scope and automatic project organization confirmed by the operator. Exact paths, link ownership, concurrent writers and restoration must be specified per supported client before execution; no host links or provider folders changed. |
 | 64 | New machine-local project bindings/provider profiles under `%LOCALAPPDATA%/DevPULSE/chat` or `${XDG_STATE_HOME:-~/.local/state}/devpulse/chat`; new conversation-only links into `<workspace>/.devpulse/chat/providers/`; project-bound named Codex launch entry | `chat-project-storage.md` §§3–5 | Authorized reviewed design. PC1a implements bindings and project archives; PC1b qualifies provider profiles/links and the standalone entry. Existing provider homes remain intact. Provider owns login/auth in the local profile; no credential read/copy/link. All native conversation artifacts, leases, fresh-profile resume and offline behavior must qualify before support is advertised. |
 
+## GF0 standards mapping — authorized execute, 2026-11-02
+
+| # | Reach | Evidence | Status |
+|---|---|---|---|
+| 65 | Read pinned Open Workflow1.0.3 and Arazzo1.1.0 specification/schema files from their official hosts and vendor schemas for offline local mapping tests | `ui-procedure-mapping-spike.md`; R296 adoption assessment | Authorized as necessary grounding for the operator's execute instruction. Source URLs, hashes and licenses retained with vendored schema data. No runtime fetching, new service, host recording, outbound messages or standards submission. |
+
+The one-time YAML-to-JSON conversion used the official `nodeca/js-yaml` 4.1.0
+distribution in ignored `target/`; its source and checksum are recorded with the
+schemas. It is a preparation tool, not an application or Cargo dependency.
+
 ## Log
 
 - 2026-10-10 — authored from three read-only sweeps (code, docs/CI, chat code)

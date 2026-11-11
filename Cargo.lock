@@ -2351,6 +2351,8 @@ name = "dpl-engine-steps"
 version = "0.1.0"
 dependencies = [
  "dpl-engine-capture",
+ "dpl-guide",
+ "dpl-roots",
  "rdev",
  "serde",
  "serde_json",
@@ -2487,6 +2489,7 @@ dependencies = [
 name = "dpl-index"
 version = "0.1.0"
 dependencies = [
+ "dpl-guide",
  "dpl-roots",
  "serde",
  "serde_json",
@@ -2646,6 +2649,16 @@ dependencies = [
  "image",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "dpl-workflow-interop"
+version = "0.1.0"
+dependencies = [
+ "dpl-workflows",
+ "jsonschema",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

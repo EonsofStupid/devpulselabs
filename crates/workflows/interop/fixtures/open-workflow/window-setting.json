@@ -1,0 +1,22 @@
+{
+  "document": {
+    "dsl": "1.0.3",
+    "namespace": "dpl-ui-mapping",
+    "name": "window-setting",
+    "version": "0.1.0",
+    "metadata": {
+      "dplUiProcedure": {
+        "profile": "local-mapping-0.1",
+        "mappingOnly": true,
+        "required": ["viewport-scoped-targets", "selected-state-observation", "human-automation-equivalence"],
+        "sources": ["crates/chat/window/src/lib.rs"],
+        "preconditions": ["The independent Chat primary window is already open and its provider selector is visible."],
+        "limitations": ["Selecting Claude is a UI selection only: no provider turn, credentials, permission change or persistence claim. Current Flow does not carry the required viewport and selected-state observation semantics."]
+      }
+    }
+  },
+  "do": [
+    {"choose-claude": {"call": "dpl.ui.click", "with": {"target": {"id": "chat.primary/chat.sidebar.providers/claude", "viewport": "chat.primary"}}}},
+    {"observe-selected": {"call": "dpl.ui.expect-selected", "with": {"target": {"id": "chat.primary/chat.sidebar.providers/claude", "viewport": "chat.primary"}, "selected": true}}}
+  ]
+}
