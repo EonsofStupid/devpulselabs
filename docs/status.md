@@ -64,11 +64,13 @@ these fixes are still open, and retained checkpoints need a storage-size pass.
 Findings F3–F6 in the [review](research/guided-workflow-standard-review.md) are
 not fixed: see [`plans/coach-correctness.md`](plans/coach-correctness.md).
 
-**Absorbing the old branches (R300).** Each one goes into the crate that already
-owns its area, one PR each, with no new crates: the process supervisor into
-`dpl-proc`, Foundry into `dpl-coach-pack`, then chat modes, MCP and brainstorm
-seats into `crates/chat/*`. The originals are local tags under `retired/`. The
-old clone at `D:\localdev\devpulselabs` now holds only `main`.
+**Landing the never-merged work (R300, R301).** Foundry lands as a module of
+`dpl-coach-pack`. The August chat branch is not a second chat: its pieces are
+mapped to the [chat plan](plans/chat-native-program.md)'s own passes. A1 (providers
+under `crates/ai/*`) runs next, ruled in R301. The process-supervisor branch is not landing:
+its own commit records it as a placebo that fails the gate. The originals are
+local tags under `retired/`. The old clone at `D:\localdev\devpulselabs` now
+holds only `main`.
 
 **Project chat implementation (R292).** The operator authorized the reviewed
 design with **resume**, then PC1b execution with **execute** on 2026-10-29.

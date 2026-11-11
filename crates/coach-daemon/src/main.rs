@@ -828,10 +828,9 @@ async fn import_inner(
     state: &AppState,
     body: ImportBody,
 ) -> Result<(Value, String, AgencyMode, usize), (StatusCode, Json<ApiError>)> {
-    let mut request = request_from_inventory_name(&body.name).map_err(map_refused)?;
-    if let Some(seed) = body.seed {
-        request.seed_name = Some(seed);
-    }
+    // The seed is the CALLER's (S3b seed law) — absent, the mint is
+    // seedless and resolve-time falls back to the first actionable node.
+    let request = request_from_inventory_name(&body.name, body.seed).map_err(map_refused)?;
     require_real_target(&request.atspi_name).map_err(map_refused)?;
 
     let agency = parse_agency(body.agency.as_deref());

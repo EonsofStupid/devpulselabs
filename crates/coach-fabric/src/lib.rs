@@ -105,6 +105,16 @@ pub struct Fabric {
     pub minted_ms: u64,
 }
 
+impl Fabric {
+    /// First named, actionable node in walk order — the seam ADR §6.1
+    /// fallback seed when a pack names no `[teaching] seed_control`.
+    pub fn first_actionable(&self) -> Option<&FabricNode> {
+        self.nodes
+            .iter()
+            .find(|n| !n.actions.is_empty() && !n.name.is_empty())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refused {
     pub reason: String,
@@ -160,8 +170,12 @@ pub fn mint(
     }
 }
 
-/// Resolve an inventory row into a [`MintRequest`] (Calculator seeds `7`).
-pub fn request_from_inventory_name(name_or_id: &str) -> Result<MintRequest, Refused> {
+/// Find one inventory row by id / display name / live AT-SPI name
+/// (exact first, substring after) — the one selector the Coach picker,
+/// the daemon, and the Foundry all share.
+pub fn find_inventory_item(
+    name_or_id: &str,
+) -> Result<dpl_coach_inventory::InventoryItem, Refused> {
     let items = dpl_coach_inventory::inventory(true).map_err(|e| Refused {
         reason: format!("inventory failed: {e}"),
         tip: "Refresh the app list, then try again.".into(),
@@ -176,27 +190,27 @@ pub fn request_from_inventory_name(name_or_id: &str) -> Result<MintRequest, Refu
             || i.display_name.to_lowercase().contains(&needle)
             || i.id.as_str().to_lowercase().contains(&needle)
     });
-    let Some(item) = item else {
-        return Err(Refused {
-            reason: format!("no inventory row matching {name_or_id:?}"),
-            tip: "Pick an installed app from the Coach list (try Calculator).".into(),
-        });
-    };
+    item.cloned().ok_or_else(|| Refused {
+        reason: format!("no inventory row matching {name_or_id:?}"),
+        tip: "Pick an installed app from the Coach list (try Calculator).".into(),
+    })
+}
+
+/// Resolve an inventory row into a [`MintRequest`]. The seed comes from
+/// the CALLER (a pack's `[teaching] seed_control`, an explicit request
+/// field) — S3b killed the name-sniffed seed table that lived here; a
+/// seedless mint falls back to the first actionable node at resolve
+/// time, never to a hardcoded string.
+pub fn request_from_inventory_name(
+    name_or_id: &str,
+    seed_name: Option<String>,
+) -> Result<MintRequest, Refused> {
+    let item = find_inventory_item(name_or_id)?;
     let Some(live) = item.live.as_ref() else {
         return Err(Refused {
             reason: format!("{} is not running", item.display_name),
             tip: format!("Open {}, then Build again.", item.display_name),
         });
-    };
-    let seed_name = {
-        let blob = format!("{} {}", item.id.as_str(), item.display_name).to_lowercase();
-        if blob.contains("cursor") {
-            Some("Search Ctrl+K".into())
-        } else if blob.contains("calculator") {
-            Some("7".into())
-        } else {
-            None
-        }
     };
     Ok(MintRequest {
         target_id: item.id.clone(),
