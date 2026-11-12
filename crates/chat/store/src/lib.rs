@@ -3,9 +3,15 @@
 //! Provider crates own schema interpretation. This crate owns the filesystem
 //! jail, resource ceilings, opaque session resolution, and cursor mechanics.
 
+use dpl_ai_core::event::{BoundedNativePayload, ChatEventContent};
+use dpl_ai_core::history::{
+    DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata,
+};
+use dpl_ai_core::provider::ProviderId;
+use dpl_ai_core::session::ProviderSessionId;
+use dpl_ai_core::usage::{ProviderUsage, SessionUsage, TokenUsage};
 use dpl_chat_core::{
-    BoundedNativePayload, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, ProviderId,
-    ProviderSessionId, SessionState, SessionSummary, TokenUsage, TurnId,
+    ChatEvent, ChatEventId, ChatSessionId, SessionGroup, SessionState, SessionSummary,
 };
 use std::collections::HashSet;
 use std::fmt;
@@ -47,140 +53,6 @@ impl HistoryLimits {
             page_events: self.page_events.clamp(1, 1_000),
             max_line_bytes: self.max_line_bytes.clamp(4 * 1024, 4 * 1024 * 1024),
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HistoryIndexMetadata {
-    pub native_id: ProviderSessionId,
-    pub title: String,
-    pub workspace: String,
-    pub started_at: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecodedHistoryEvent {
-    pub turn_id: Option<TurnId>,
-    pub content: ChatEventContent,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DecodeOutcome {
-    Event(DecodedHistoryEvent),
-    IgnoreKnown,
-}
-
-/// `Send` is a genuine requirement, not a formality: the HOST owns the
-/// catalog (H1 §3.2) and the host's shared state must be `Send`. A decoder is
-/// a pure function over lines and a source is a path plus a decoder, so
-/// nothing here is legitimately thread-bound.
-pub trait HistoryDecoder: Send {
-    fn provider_id(&self) -> ProviderId;
-    fn index_metadata(&self, path: &Path, prefix: &str) -> Option<HistoryIndexMetadata>;
-    fn decode_line(&self, line: &str) -> DecodeOutcome;
-}
-
-/// What a provider is ABLE to report about token usage.
-///
-/// Declared, never discovered. This is the honesty mechanism: a surface
-/// can say "Grok does not report an input/output split" instead of
-/// rendering a silent zero, and a half-implemented provider stays legible
-/// instead of looking broken.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct UsageReporting {
-    /// Separate prompt and completion counts.
-    pub input_output_split: bool,
-    /// A single combined total.
-    pub total_tokens: bool,
-    /// Context-window occupancy (used / size).
-    pub context_window: bool,
-    /// The provider computes real money itself — trusted over our table.
-    pub provider_priced: bool,
-    /// The provider names the model it is running.
-    pub model: bool,
-    /// Counts are CUMULATIVE — each report restates the running total for
-    /// the session (Codex's `total_token_usage`), so the last report is
-    /// the whole picture and reports must NOT be summed. When false, each
-    /// report covers one turn (Claude's per-message `usage`) and a
-    /// session total is the SUM. Getting this backwards silently
-    /// under- or over-counts real spend.
-    pub counts_are_cumulative: bool,
-    /// Usage can be recovered from ALREADY-STORED sessions, so the
-    /// backfill pass can walk this provider's history and recover cost
-    /// the operator has already spent. False for live-only transports
-    /// (Grok's ACP), where usage exists on the wire and nowhere else.
-    pub history_backfill: bool,
-}
-
-impl UsageReporting {
-    /// A provider that reports nothing yet. A truthful state, not a bug —
-    /// it makes "not implemented" legible and turns adding support into
-    /// filling in one file rather than discovering an absence.
-    pub const NOTHING: Self = Self {
-        input_output_split: false,
-        total_tokens: false,
-        context_window: false,
-        provider_priced: false,
-        model: false,
-        counts_are_cumulative: false,
-        history_backfill: false,
-    };
-
-    pub const fn reports_anything(self) -> bool {
-        self.input_output_split || self.total_tokens || self.context_window
-    }
-}
-
-/// ONE provider's usage dialect.
-///
-/// Providers report different things, in different shapes, and CHANGE
-/// them between releases. Each adapter owns its own dialect so a new
-/// provider — or a new release of an existing one — extends HERE without
-/// touching any other provider's code.
-///
-/// Follows `HistoryDecoder`'s discipline exactly: `&str` in, typed out,
-/// so this crate and `dpl-chat-core` stay dependency-free and every
-/// provider keeps parsing its native format with its own serde.
-pub trait ProviderUsage: Send + Sync {
-    fn provider_id(&self) -> ProviderId;
-
-    /// What this provider can report. Callers consult this BEFORE
-    /// treating an absent number as meaningful.
-    fn reports(&self) -> UsageReporting;
-
-    /// Token accounting carried by one native record, if any.
-    fn usage_from_line(&self, line: &str) -> Option<TokenUsage>;
-
-    /// The model named by one native record, if any.
-    fn model_from_line(&self, _line: &str) -> Option<String> {
-        None
-    }
-
-    /// Cost the PROVIDER itself computed, in micros. When a provider
-    /// reports real money (Claude does), it is authoritative over any
-    /// price table of ours — it knows its own billing, we infer it.
-    fn cost_micros_from_line(&self, _line: &str) -> Option<u64> {
-        None
-    }
-}
-
-/// One stored session's recovered accounting (the piggyback result).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SessionUsage {
-    pub native_id: ProviderSessionId,
-    /// Merged across every record that carried accounting.
-    pub usage: TokenUsage,
-    pub model: Option<String>,
-    /// Provider-reported money, when the provider prices itself.
-    pub cost_micros: Option<u64>,
-    /// How many records carried accounting — zero means this session had
-    /// nothing to recover, which is a fact, not a failure.
-    pub records: usize,
-}
-
-impl SessionUsage {
-    pub const fn is_empty(&self) -> bool {
-        self.records == 0
     }
 }
 
@@ -623,7 +495,7 @@ impl HistorySource for JsonlHistorySource {
                     provider_session_id: Some(metadata.native_id),
                     title: metadata.title,
                     workspace: metadata.workspace,
-                    group: dpl_chat_core::SessionGroup::Recent,
+                    group: SessionGroup::Recent,
                     state: SessionState::ReadOnly,
                 },
                 started_at: metadata.started_at,

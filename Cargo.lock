@@ -1787,6 +1787,7 @@ dependencies = [
  "dpl-ai-browser-auth",
  "dpl-ai-claude",
  "dpl-ai-codex",
+ "dpl-ai-core",
  "dpl-ai-cursor",
  "dpl-ai-gemini",
  "dpl-ai-grok",
@@ -1923,7 +1924,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 name = "dpl-ai-accounts"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-core",
+ "dpl-ai-core",
  "dpl-roots",
  "tokio",
  "turso",
@@ -1933,7 +1934,7 @@ dependencies = [
 name = "dpl-ai-browser-auth"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-core",
+ "dpl-ai-core",
  "webbrowser",
 ]
 
@@ -1941,8 +1942,7 @@ dependencies = [
 name = "dpl-ai-claude"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-core",
- "dpl-chat-store",
+ "dpl-ai-core",
  "serde_json",
 ]
 
@@ -1950,10 +1950,8 @@ dependencies = [
 name = "dpl-ai-codex"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-core",
+ "dpl-ai-core",
  "dpl-chat-projects",
- "dpl-chat-runtime",
- "dpl-chat-store",
  "dpl-proc",
  "dpl-tools-deps",
  "process-wrap",
@@ -1961,18 +1959,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpl-ai-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "dpl-ai-cursor"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-core",
+ "dpl-ai-core",
 ]
 
 [[package]]
 name = "dpl-ai-gemini"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-core",
- "dpl-chat-store",
+ "dpl-ai-core",
 ]
 
 [[package]]
@@ -1983,9 +1987,7 @@ dependencies = [
  "async-channel",
  "async-io",
  "async-process",
- "dpl-chat-core",
- "dpl-chat-runtime",
- "dpl-chat-store",
+ "dpl-ai-core",
  "dpl-proc",
  "dpl-tools-deps",
  "futures-lite",
@@ -2007,7 +2009,7 @@ dependencies = [
 name = "dpl-ai-profiles"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-core",
+ "dpl-ai-core",
  "dpl-roots",
  "tokio",
  "turso",
@@ -2027,7 +2029,7 @@ dependencies = [
 name = "dpl-chat-context"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-core",
+ "dpl-ai-core",
  "dpl-hub",
 ]
 
@@ -2035,6 +2037,7 @@ dependencies = [
 name = "dpl-chat-core"
 version = "0.1.0"
 dependencies = [
+ "dpl-ai-core",
  "jsonschema",
  "serde",
  "serde_json",
@@ -2044,7 +2047,7 @@ dependencies = [
 name = "dpl-chat-extensions"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-core",
+ "dpl-ai-core",
  "dpl-hub",
 ]
 
@@ -2052,6 +2055,7 @@ dependencies = [
 name = "dpl-chat-interactions"
 version = "0.1.0"
 dependencies = [
+ "dpl-ai-core",
  "dpl-chat-core",
 ]
 
@@ -2067,7 +2071,7 @@ dependencies = [
 name = "dpl-chat-renderers"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-core",
+ "dpl-ai-core",
  "dpl-coldlight",
  "egui",
 ]
@@ -2076,6 +2080,7 @@ dependencies = [
 name = "dpl-chat-runtime"
 version = "0.1.0"
 dependencies = [
+ "dpl-ai-core",
  "dpl-chat-core",
  "serde",
  "serde_json",
@@ -2089,6 +2094,7 @@ version = "0.1.0"
 name = "dpl-chat-store"
 version = "0.1.0"
 dependencies = [
+ "dpl-ai-core",
  "dpl-chat-core",
 ]
 
@@ -2098,6 +2104,7 @@ version = "0.1.0"
 dependencies = [
  "dpl-ai-claude",
  "dpl-ai-codex",
+ "dpl-ai-core",
  "dpl-ai-gemini",
  "dpl-ai-grok",
  "dpl-chat-core",
@@ -2110,6 +2117,7 @@ dependencies = [
 name = "dpl-chat-window"
 version = "0.1.0"
 dependencies = [
+ "dpl-ai-core",
  "dpl-ai-profiles",
  "dpl-chat-context",
  "dpl-chat-core",
@@ -2133,6 +2141,7 @@ dependencies = [
 name = "dpl-chat-windows"
 version = "0.1.0"
 dependencies = [
+ "dpl-ai-core",
  "dpl-chat-core",
  "dpl-chat-interactions",
  "dpl-hub",
@@ -2377,7 +2386,7 @@ dependencies = [
 name = "dpl-fabric"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-core",
+ "dpl-ai-core",
  "dpl-hub",
  "dpl-intent",
  "tokio",
@@ -2523,6 +2532,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "dpl-ai-core",
  "dpl-fabric",
  "dpl-intent",
  "parquet",
@@ -2565,6 +2575,7 @@ name = "dpl-seam"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "dpl-ai-core",
  "dpl-coldlight",
  "dpl-comp",
  "dpl-engine-media",
@@ -2586,6 +2597,7 @@ dependencies = [
 name = "dpl-shell"
 version = "0.1.0"
 dependencies = [
+ "dpl-ai-core",
  "dpl-backdrop",
  "dpl-coldlight",
  "dpl-fabric",

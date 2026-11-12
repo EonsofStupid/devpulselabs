@@ -15,12 +15,13 @@
 //! and emits one set of signals.
 
 use crate::CodexRuntimeProfile;
-use dpl_chat_core::{AccountSummary, PermissionMode};
-use dpl_chat_runtime::seam::{
+use dpl_ai_core::activation::AccountSummary;
+use dpl_ai_core::adapter::{
     ProviderRuntime, RuntimeCapabilities, RuntimeCommand, RuntimeEvent, RuntimeFailure,
     RuntimeFailureKind, RuntimePermissionOption, RuntimePermissionOptionKind, RuntimeSendError,
     RuntimeUpdate,
 };
+use dpl_ai_core::approval::PermissionMode;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
@@ -1204,7 +1205,7 @@ impl Drop for CodexAppServerRuntime {
 }
 
 impl ProviderRuntime for CodexAppServerRuntime {
-    fn provider(&self) -> dpl_chat_core::ProviderId {
+    fn provider(&self) -> dpl_ai_core::provider::ProviderId {
         crate::PROVIDER
     }
 
@@ -1315,8 +1316,7 @@ pub fn initialize_params() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_core::Capability;
-    use dpl_chat_runtime::seam::qualified_capabilities;
+    use dpl_ai_core::capability::{qualified_capabilities, Capability};
 
     #[test]
     fn native_timeout_invalidates_correlations_and_late_responses() {

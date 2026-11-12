@@ -182,6 +182,7 @@ one file), `crates/doc/src/lib.rs`, and every call site in `crates/`.
 | `Block` (flat, text-only) | not a tree, so no cascade, no provenance, no ripple (§4) | **`Node`** + `NodeKind`. **Not `Entity`** — in Rust GUI, `Entity` means an ECS id (Bevy) and implies components+systems we do not have. A tree node is a `Node`. | `doc/src/node.rs` | schema |
 | `Axes` / "axis" | **ours, undefined** — used before it was specified | **kept, now defined:** an *axis* is one styling property channel carrying a `MergeRule::{Override, Additive}` | `coldlight/src/style.rs` | — |
 | "slot" | **ours, undefined** | **kept, now defined:** `Slot(&'static str)` names a `Rect` region a layout produces (§4.2) | `doc/src/layout.rs` | — |
+| "activation" | **ours, undefined** | **kept, now defined:** a provider's readiness on this machine — not installed, needs sign-in, activated, experimental or blocked — with the evidence and the recovery actions behind it (`ActivationState`, A1b, R301) | `ai/core/src/activation.rs` | — |
 | everything in one `lib.rs` | 3,342 lines in a single module is not how an SME ships a crate | **file split** — `hue · fluid · matrix · style · paint · motion · preset · icon`, each `pub use`d from a thin `lib.rs`. That facade is the canonical path, not a shim. | `coldlight/src/*.rs` | — |
 
 ### 0.6.2 Merged, NOT killed — one authored source, zero call-site churn

@@ -3,14 +3,16 @@
 //! Live structured-stream integration is CH5. The runtime exception is
 //! ratified, but process launch stays fail-closed on the ADR launch gates.
 
-use dpl_chat_core::{
-    BoundedNativePayload, Capability, ChatEventContent, PresenceSpec, ProviderAccent,
-    ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId, TokenUsage,
+use dpl_ai_core::capability::Capability;
+use dpl_ai_core::event::{BoundedNativePayload, ChatEventContent};
+use dpl_ai_core::history::{
+    DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata,
 };
-use dpl_chat_store::{
-    DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata, ProviderUsage,
-    UsageReporting,
+use dpl_ai_core::presence::PresenceSpec;
+use dpl_ai_core::provider::{
+    ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
 };
+use dpl_ai_core::usage::{ProviderUsage, TokenUsage, UsageReporting};
 use serde_json::Value;
 use std::path::Path;
 
@@ -93,7 +95,7 @@ impl HistoryDecoder for ClaudeHistoryDecoder {
         }
         let fallback = history_title_fallback("Claude", &workspace, &started_at, &native_id);
         Some(HistoryIndexMetadata {
-            native_id: dpl_chat_core::ProviderSessionId(native_id.clone()),
+            native_id: dpl_ai_core::session::ProviderSessionId(native_id.clone()),
             title: one_line_title(&title, &fallback),
             workspace,
             started_at,

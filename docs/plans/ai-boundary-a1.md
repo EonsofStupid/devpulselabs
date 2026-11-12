@@ -50,13 +50,49 @@ change in the same commit as the code (structure law).
 providers move to `crates/ai/*` and are renamed `dpl-ai-*`. Every caller's `use`
 paths change in the same commit. No code inside them changes beyond paths.
 
-**A1b. Split the mixed crates.** Author `dpl-ai-core` (§4.3.2 modules, holding only
-what exists today: provider, capability, presence, activation, session, usage,
-history, approval, adapter) and `dpl-ai-host` (registry). Move the AI half of
-`chat/core`, `chat/runtime` and `chat/store` there, delete the moved code from its
-old home, and drop fabric's barrel. Apply the §4.3.5 rename map to what moves.
-Three-tier `Event`, `Participant` and `census` types are authored only where code
-already needs them. Anything else waits for the pass that uses it.
+**A1b. Split the mixed crates (grounded 2026-11-11 on `a4b8c06`).** Create
+`dpl-ai-core` (`crates/ai/core`, pure data, no IO, no chat dependency) and move
+into it, deleting each item from its old home in the same change:
+
+| ai-core module | Moves in | From |
+|---|---|---|
+| `provider` | `ProviderId`, `ProviderProfileId`, `ProviderAccent`, `ProviderDescriptor`, `ProviderManifest` | chat-core |
+| `capability` | `Capability`, `qualified_capabilities` | chat-core, chat-runtime `seam.rs` |
+| `presence` | `PresenceSpec`, `PresenceVerdict` | chat-core |
+| `activation` | `DeviceAuthorizationPrompt`, `ActivationState`, `AccountSummary`, `RecoveryAction(Kind)`, `GuidedValue*` (the prompt holds them) | chat-core |
+| `approval` | `PermissionMode` | chat-core |
+| `session` | `ProviderSessionId` | chat-core |
+| `turn` | `TurnId` | chat-core |
+| `usage` | `TokenUsage`; `UsageReporting`, `ProviderUsage`, `SessionUsage` | chat-core; chat-store |
+| `event` | `ChatEventContent`, `ChatEventKind`, `EventPresentation`, `BoundedNativePayload`, `MAX_NATIVE_PAYLOAD_BYTES` (what providers emit; §4.3.2 `event`) | chat-core |
+| `history` | `HistoryDecoder`, `DecodedHistoryEvent`, `DecodeOutcome`, `HistoryIndexMetadata` | chat-store |
+| `adapter` | all of `seam.rs` | chat-runtime |
+| `registration` | `ProviderRegistration`'s provider half: manifest, activation, qualified capabilities, account | chat-runtime |
+
+Stays in chat: the `ChatEvent` envelope, `ChatSessionId`, `ChatEventId`,
+`ChatDomain`, content and command types, `rooms.rs`, `SessionState`,
+`SessionGroup` and `SessionSummary` (the app's description of a session, per
+`seam.rs`), history IO (`HistoryCatalog`, `JsonlHistorySource` and the rest), and
+`ChatRuntime` with its archive. A registration's chat half (sessions, events)
+moves into `ChatRuntime`, keyed by `ProviderId`.
+
+Rulings made in grounding:
+- **Names are kept.** §4.3.5 maps both `RuntimeEvent` and `RuntimeUpdate` to
+  `Event`, which is not mechanical, so renames are designed in A2 with the event
+  tiers. A1b moves code; it does not rename it.
+- **`dpl-ai-host` waits for A1c**, where it gets real host work. A1b has none to
+  give it.
+- **`dpl-ai-grok`'s `seam` module is deleted**: no users (§4.3.5 already rules
+  `GrokRuntimeSeam` dead).
+- Fabric's barrel goes; fabric, shell, seam and ledger import from `dpl-ai-core`.
+- `dpl-ai-codex → dpl-chat-projects` stays the named exception in
+  `architecture.md`.
+- Disk and wire forms are kept exactly: the project chat archive (v1,
+  `deny_unknown_fields`), `Capability` slugs and `PermissionMode` strings stored
+  in Turso, and every `Display` text.
+
+The structure audit gains: `crates/ai/*` must not depend on `crates/chat/*`,
+except the named codex → projects edge.
 
 **A1c. Move the app's AI files.** presence, usage and backfill move from the app into
 `dpl-ai-host`. The app keeps wiring only. Grok's own host path joins the shared
@@ -69,7 +105,7 @@ under `crates/ai/`.
 ## 5. Wiring
 The app is the only crate that wires AI to chat. After A1, no `crates/chat/*` crate
 depends on a provider crate, and no `crates/ai/*` crate depends on a chat surface.
-The structure audit gains that rule in A1b, when it can hold: today `chat/window` still uses `dpl-ai-profiles` and `chat/testkit` uses the providers.
+The structure audit gains the ai ↛ chat rule in A1b. The chat ↛ provider direction follows once `chat/window` and `chat/testkit` stop using provider crates.
 
 ## 6. Proof (each PR)
 - Full `cargo green` locally and on both hosted lanes.

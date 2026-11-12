@@ -1482,6 +1482,7 @@ fn structure_audit() -> Result<(), String> {
         ("dpl-tools-deps", &["serde", "serde_json", "sha2"]),
         ("dpl-roots", &["serde", "serde_json", "toml"]),
         ("dpl-chat-projects", &["serde", "serde_json"]),
+        ("dpl-ai-core", &["serde"]),
         ("dpl-landing", &["serde", "serde_json"]),
         ("dpl-estate", &["fjall", "moka", "serde", "serde_json"]),
         ("dpl-intent", &[]),
@@ -1511,6 +1512,7 @@ fn structure_audit() -> Result<(), String> {
         "dpl-lottie-render",
         "dpl-svg",
         "dpl-guide",
+        "dpl-ai-core",
         "dpl-chat-core",
         "dpl-chat-store",
         "dpl-ai-accounts",
@@ -1533,6 +1535,10 @@ fn structure_audit() -> Result<(), String> {
         "egui-pilot-ai-cli",
         "xtask",
     ];
+    // The AI boundary (architecture.md §1): no `crates/ai/*` crate depends on
+    // a `crates/chat/*` crate. The one named exception carries the leased
+    // candidate profile into every owned Codex child.
+    const AI_CHAT_ALLOWED: &[(&str, &str)] = &[("dpl-ai-codex", "dpl-chat-projects")];
     // The ONE FFI leaf (ADR-009): `-sys` links live here and nowhere else.
     const SYS_ALLOWED: &[&str] = &["dpl-lottie-render"];
     // Orphan crate folders outside the workspace, named and tolerated
@@ -1615,6 +1621,36 @@ fn structure_audit() -> Result<(), String> {
             if let Some(ffi) = deps.iter().find(|d| d.ends_with("-sys")) {
                 failures.push(format!(
                     "{name}: FFI link `{ffi}` outside the one leaf (ADR-009; allowed: {SYS_ALLOWED:?})"
+                ));
+            }
+        }
+    }
+
+    // AI ↛ chat: every dependency kind counts, so a test-only edge cannot
+    // carry chat vocabulary back into an AI crate.
+    let under = |package: &serde_json::Value, group: &str| {
+        package["manifest_path"]
+            .as_str()
+            .is_some_and(|path| path.replace('\\', "/").contains(group))
+    };
+    let chat_crates: HashSet<&str> = packages
+        .iter()
+        .filter(|package| under(package, "/crates/chat/"))
+        .filter_map(|package| package["name"].as_str())
+        .collect();
+    let mut ai_crates = 0usize;
+    for package in packages
+        .iter()
+        .filter(|package| under(package, "/crates/ai/"))
+    {
+        ai_crates += 1;
+        let name = package["name"].as_str().unwrap_or_default();
+        for dep in package["dependencies"].as_array().into_iter().flatten() {
+            let dep = dep["name"].as_str().unwrap_or_default();
+            if chat_crates.contains(dep) && !AI_CHAT_ALLOWED.contains(&(name, dep)) {
+                failures.push(format!(
+                    "{name}: AI crate depends on chat crate `{dep}` (architecture.md §1; \
+                     allowed: {AI_CHAT_ALLOWED:?})"
                 ));
             }
         }
@@ -1789,10 +1825,11 @@ fn structure_audit() -> Result<(), String> {
 
     if failures.is_empty() {
         println!(
-            "structure: {} ceilings · {} egui-free · {} members hygienic · {} flags in census \
-             · {} crates + {} binaries named",
+            "structure: {} ceilings · {} egui-free · {} ai crates ↛ chat · {} members hygienic \
+             · {} flags in census · {} crates + {} binaries named",
             CEILINGS.len(),
             EGUI_FREE.len(),
+            ai_crates,
             manifests.len(),
             parsed.len(),
             manifests.len(),

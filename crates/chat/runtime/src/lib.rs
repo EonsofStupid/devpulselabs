@@ -1,70 +1,29 @@
 //! Provider registry and provider-neutral Chat state.
 //!
 //! CH1 contained no process transport, and live provider ownership was
-//! blocked on the Chat provider-runtime ADR. [`seam`] is that seam: one
-//! provider-neutral runtime vocabulary every live provider implements, so the
-//! host drives them all through one path and emits ONE set of signals.
+//! blocked on the Chat provider-runtime ADR. The runtime adapter contract
+//! every live provider implements lives in `dpl_ai_core::adapter`; this crate
+//! holds each registered provider's conversations, keyed by its id.
 
+use dpl_ai_core::activation::{AccountSummary, ActivationState};
+use dpl_ai_core::capability::Capability;
+use dpl_ai_core::event::ChatEventContent;
+use dpl_ai_core::provider::ProviderId;
+use dpl_ai_core::registration::ProviderRegistration;
+use dpl_ai_core::turn::TurnId;
 use dpl_chat_core::{
-    AccountSummary, ActivationState, Capability, ChatEvent, ChatEventContent, ChatEventId,
-    ChatSessionId, ProviderId, ProviderManifest, RecoveryAction, RecoveryActionKind, SessionGroup,
-    SessionState, SessionSummary, TurnId,
+    ChatEvent, ChatEventId, ChatSessionId, SessionGroup, SessionState, SessionSummary,
 };
 mod archive;
-pub mod seam;
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
-
-#[derive(Debug, Clone)]
-pub struct ProviderRegistration {
-    pub manifest: ProviderManifest,
-    pub activation: ActivationState,
-    pub qualified_capabilities: BTreeSet<Capability>,
-    pub account: Option<AccountSummary>,
-    pub sessions: Vec<SessionSummary>,
-    pub events: Vec<ChatEvent>,
-}
-
-impl ProviderRegistration {
-    pub fn planned(manifest: ProviderManifest) -> Self {
-        Self {
-            activation: ActivationState::Blocked {
-                reason: format!(
-                    "{} has a reviewed integration boundary but no qualified live adapter.",
-                    manifest.descriptor.label
-                ),
-                recovery: vec![RecoveryAction::new(
-                    RecoveryActionKind::OpenDiagnostics,
-                    format!(
-                        "Complete {} and its conformance gate.",
-                        manifest.delivery_slice
-                    ),
-                )],
-            },
-            manifest,
-            qualified_capabilities: BTreeSet::new(),
-            account: None,
-            sessions: Vec::new(),
-            events: Vec::new(),
-        }
-    }
-
-    pub fn has_capability(&self, capability: Capability) -> bool {
-        self.qualified_capabilities.contains(&capability)
-    }
-
-    pub fn can_send(&self) -> bool {
-        self.activation.is_activated()
-            && self.has_capability(Capability::StreamTurns)
-            && (self.has_capability(Capability::StartSession)
-                || self.has_capability(Capability::ResumeSession))
-    }
-}
 
 #[derive(Debug, Clone)]
 struct ProviderEntry {
     registration: ProviderRegistration,
+    sessions: Vec<SessionSummary>,
+    events: Vec<ChatEvent>,
     active_session: Option<ChatSessionId>,
     drafts: BTreeMap<Option<ChatSessionId>, String>,
 }
@@ -72,6 +31,8 @@ struct ProviderEntry {
 #[derive(Debug, Clone)]
 pub struct ProviderView {
     pub registration: ProviderRegistration,
+    pub sessions: Vec<SessionSummary>,
+    pub events: Vec<ChatEvent>,
     pub active_session: Option<ChatSessionId>,
     pub draft: String,
 }
@@ -135,10 +96,11 @@ impl ChatRuntime {
             if !seen.insert(provider_id) {
                 return Err(RegistryError::DuplicateProvider(provider_id));
             }
-            let active_session = registration.sessions.first().map(|session| session.id);
             providers.push(ProviderEntry {
                 registration,
-                active_session,
+                sessions: Vec::new(),
+                events: Vec::new(),
+                active_session: None,
                 drafts: BTreeMap::new(),
             });
         }
@@ -158,6 +120,8 @@ impl ChatRuntime {
             .iter()
             .map(|entry| ProviderView {
                 registration: entry.registration.clone(),
+                sessions: entry.sessions.clone(),
+                events: entry.events.clone(),
                 active_session: entry.active_session,
                 draft: entry
                     .drafts
@@ -211,7 +175,6 @@ impl ChatRuntime {
             .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
             .ok_or(RegistryError::UnknownProvider(provider_id))?;
         let session = entry
-            .registration
             .sessions
             .iter_mut()
             .find(|session| session.id == session_id)
@@ -240,17 +203,16 @@ impl ChatRuntime {
         }
         let entry = self.entry_mut(provider_id)?;
         if let Some(existing) = entry
-            .registration
             .sessions
             .iter_mut()
             .find(|existing| existing.id == session.id)
         {
             *existing = session;
         } else {
-            entry.registration.sessions.push(session);
+            entry.sessions.push(session);
         }
         if entry.active_session.is_none() {
-            entry.active_session = entry.registration.sessions.first().map(|item| item.id);
+            entry.active_session = entry.sessions.first().map(|item| item.id);
         }
         Ok(())
     }
@@ -263,7 +225,6 @@ impl ChatRuntime {
     ) -> Result<(), RegistryError> {
         let entry = self.entry_mut(provider_id)?;
         let session = entry
-            .registration
             .sessions
             .iter_mut()
             .find(|session| session.id == session_id)
@@ -296,7 +257,7 @@ impl ChatRuntime {
         let entry = next
             .entry_mut(provider_id)
             .map_err(|error| error.to_string())?;
-        if entry.registration.sessions.iter().any(|old| {
+        if entry.sessions.iter().any(|old| {
             (old.id == session.id && old.provider_session_id != session.provider_session_id)
                 || (old.id != session.id
                     && session.provider_session_id.is_some()
@@ -312,11 +273,8 @@ impl ChatRuntime {
         let entry = next
             .entry_mut(provider_id)
             .map_err(|error| error.to_string())?;
-        entry
-            .registration
-            .events
-            .retain(|event| event.session_id != id);
-        entry.registration.events.extend(events);
+        entry.events.retain(|event| event.session_id != id);
+        entry.events.extend(events);
         entry.active_session = Some(id);
         next.selected_provider = Some(provider_id);
         // The same bounds, duplicate-ID checks and content validation as a
@@ -339,7 +297,6 @@ impl ChatRuntime {
         }
         let entry = self.entry_mut(provider_id)?;
         if !entry
-            .registration
             .sessions
             .iter()
             .any(|session| session.id == event.session_id)
@@ -349,7 +306,7 @@ impl ChatRuntime {
                 session: event.session_id,
             });
         }
-        entry.registration.events.push(event);
+        entry.events.push(event);
         Ok(())
     }
 
@@ -363,7 +320,6 @@ impl ChatRuntime {
     ) -> Result<(), RegistryError> {
         let entry = self.entry_mut(provider_id)?;
         if !entry
-            .registration
             .sessions
             .iter()
             .any(|session| session.id == session_id)
@@ -373,7 +329,7 @@ impl ChatRuntime {
                 session: session_id,
             });
         }
-        if let Some(last) = entry.registration.events.last_mut() {
+        if let Some(last) = entry.events.last_mut() {
             if last.session_id == session_id && last.turn_id.as_ref() == Some(&turn_id) {
                 if let ChatEventContent::AssistantMessage(body) = &mut last.content {
                     body.push_str(chunk);
@@ -381,7 +337,7 @@ impl ChatRuntime {
                 }
             }
         }
-        entry.registration.events.push(ChatEvent {
+        entry.events.push(ChatEvent {
             id: event_id,
             provider_id,
             session_id,
@@ -402,7 +358,6 @@ impl ChatRuntime {
         const MAX_ACTIVITY_BYTES: usize = 16 * 1_024;
         let entry = self.entry_mut(provider_id)?;
         if !entry
-            .registration
             .sessions
             .iter()
             .any(|session| session.id == session_id)
@@ -412,7 +367,7 @@ impl ChatRuntime {
                 session: session_id,
             });
         }
-        if let Some(last) = entry.registration.events.last_mut() {
+        if let Some(last) = entry.events.last_mut() {
             if last.session_id == session_id && last.turn_id.as_ref() == Some(&turn_id) {
                 if let ChatEventContent::StatusUpdated(body) = &mut last.content {
                     let remaining = MAX_ACTIVITY_BYTES.saturating_sub(body.len());
@@ -431,7 +386,7 @@ impl ChatRuntime {
         while !chunk.is_char_boundary(boundary) {
             boundary -= 1;
         }
-        entry.registration.events.push(ChatEvent {
+        entry.events.push(ChatEvent {
             id: event_id,
             provider_id,
             session_id,
@@ -454,13 +409,9 @@ impl ChatRuntime {
         let valid_active = entry
             .active_session
             .is_some_and(|active| sessions.iter().any(|session| session.id == active));
-        entry.registration.sessions = sessions;
+        entry.sessions = sessions;
         if !valid_active {
-            entry.active_session = entry
-                .registration
-                .sessions
-                .first()
-                .map(|session| session.id);
+            entry.active_session = entry.sessions.first().map(|session| session.id);
         }
         Ok(())
     }
@@ -566,6 +517,8 @@ impl ChatRuntime {
     fn view(entry: &ProviderEntry) -> ProviderView {
         ProviderView {
             registration: entry.registration.clone(),
+            sessions: entry.sessions.clone(),
+            events: entry.events.clone(),
             active_session: entry.active_session,
             draft: entry
                 .drafts
@@ -579,9 +532,10 @@ impl ChatRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_core::{
-        Capability, ProviderAccent, ProviderDescriptor, ProviderProfileId, ProviderSessionId,
+    use dpl_ai_core::provider::{
+        ProviderAccent, ProviderDescriptor, ProviderManifest, ProviderProfileId,
     };
+    use dpl_ai_core::session::ProviderSessionId;
 
     const ID: ProviderId = ProviderId("test");
     const OTHER: ProviderId = ProviderId("other");
@@ -746,15 +700,14 @@ mod tests {
             },
             ..MANIFEST
         };
-        let mut other_registration = ProviderRegistration::planned(other);
-        other_registration
-            .sessions
-            .push(session(OTHER, 7, "Other session"));
         let mut runtime = ChatRuntime::try_from_registrations([
             ProviderRegistration::planned(MANIFEST),
-            other_registration,
+            ProviderRegistration::planned(other),
         ])
         .expect("valid registry");
+        runtime
+            .replace_sessions(OTHER, vec![session(OTHER, 7, "Other session")])
+            .expect("other provider sessions");
 
         runtime
             .select_session(OTHER, ChatSessionId(7))
@@ -769,22 +722,19 @@ mod tests {
             Some(ChatSessionId(7))
         );
         assert_eq!(
-            runtime
-                .selected_provider()
-                .expect("selected")
-                .registration
-                .sessions[0]
-                .group,
+            runtime.selected_provider().expect("selected").sessions[0].group,
             SessionGroup::Active
         );
     }
 
     #[test]
     fn streamed_assistant_chunks_coalesce_into_one_message() {
-        let mut registration = ProviderRegistration::planned(MANIFEST);
-        registration.sessions.push(session(ID, 1, "Live"));
         let mut runtime =
-            ChatRuntime::try_from_registrations([registration]).expect("valid registry");
+            ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)])
+                .expect("valid registry");
+        runtime
+            .replace_sessions(ID, vec![session(ID, 1, "Live")])
+            .expect("live session");
 
         runtime
             .append_assistant_chunk(
@@ -805,11 +755,7 @@ mod tests {
             )
             .expect("second chunk");
 
-        let events = runtime
-            .selected_provider()
-            .expect("provider")
-            .registration
-            .events;
+        let events = runtime.selected_provider().expect("provider").events;
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0].content,
@@ -819,10 +765,12 @@ mod tests {
 
     #[test]
     fn streamed_reasoning_chunks_coalesce_into_one_bounded_activity_event() {
-        let mut registration = ProviderRegistration::planned(MANIFEST);
-        registration.sessions.push(session(ID, 1, "Live"));
         let mut runtime =
-            ChatRuntime::try_from_registrations([registration]).expect("valid registry");
+            ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)])
+                .expect("valid registry");
+        runtime
+            .replace_sessions(ID, vec![session(ID, 1, "Live")])
+            .expect("live session");
 
         runtime
             .append_status_chunk(
@@ -843,11 +791,7 @@ mod tests {
             )
             .expect("second chunk");
 
-        let events = runtime
-            .selected_provider()
-            .expect("provider")
-            .registration
-            .events;
+        let events = runtime.selected_provider().expect("provider").events;
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0].content,
@@ -881,8 +825,8 @@ mod tests {
             .unwrap();
         let view = runtime.provider_view(ID).unwrap();
         assert_eq!(view.draft, "first draft");
-        assert_eq!(view.registration.events, vec![event.clone()]);
-        assert_eq!(view.registration.sessions[1].state, SessionState::Running);
+        assert_eq!(view.events, vec![event.clone()]);
+        assert_eq!(view.sessions[1].state, SessionState::Running);
         runtime.select_session(ID, ChatSessionId(2)).unwrap();
         assert_eq!(runtime.provider_view(ID).unwrap().draft, "second draft");
         let before = runtime.archive().unwrap();
@@ -907,7 +851,7 @@ mod tests {
             provider_session_id: Some(ProviderSessionId(format!("provider-{id}"))),
             title: title.into(),
             workspace: "C:\\workspace".into(),
-            group: dpl_chat_core::SessionGroup::Recent,
+            group: SessionGroup::Recent,
             state: SessionState::Idle,
         }
     }

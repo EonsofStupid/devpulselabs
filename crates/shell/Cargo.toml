@@ -9,6 +9,8 @@ egui.workspace = true
 dpl-hub.workspace = true
 dpl-coldlight.workspace = true
 dpl-fabric.workspace = true
+# The Providers control names a provider by its id.
+dpl-ai-core.workspace = true
 dpl-backdrop.workspace = true
 dpl-intent.workspace = true
 egui-pilot-ai.workspace = true

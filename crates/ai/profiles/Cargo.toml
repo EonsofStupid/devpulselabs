@@ -6,7 +6,7 @@ publish.workspace = true
 
 [dependencies]
 dpl-roots.workspace = true
-dpl-chat-core.workspace = true
+dpl-ai-core.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 turso.workspace = true
 

@@ -1,9 +1,12 @@
 //! Portable conversation state. Runtime authority is never restored from disk.
 
 use super::{ChatRuntime, ProviderEntry};
+use dpl_ai_core::event::{ChatEventContent, MAX_NATIVE_PAYLOAD_BYTES};
+use dpl_ai_core::provider::ProviderId;
+use dpl_ai_core::session::ProviderSessionId;
+use dpl_ai_core::turn::TurnId;
 use dpl_chat_core::{
-    ChatEvent, ChatEventContent, ChatEventId, ChatSessionId, ProviderId, ProviderSessionId,
-    SessionGroup, SessionState, SessionSummary, TurnId, MAX_NATIVE_PAYLOAD_BYTES,
+    ChatEvent, ChatEventId, ChatSessionId, SessionGroup, SessionState, SessionSummary,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -126,8 +129,8 @@ impl ChatRuntime {
                 .find(|entry| entry.registration.manifest.descriptor.id == saved.provider)
             {
                 entry.active_session = saved.active_session;
-                entry.registration.sessions = saved.sessions;
-                entry.registration.events = saved.events;
+                entry.sessions = saved.sessions;
+                entry.events = saved.events;
                 entry.drafts = saved.drafts;
             }
         }
@@ -142,8 +145,8 @@ impl ChatRuntime {
     pub fn clear_project_state(&mut self) {
         self.archived_unavailable_providers.clear();
         for entry in &mut self.providers {
-            entry.registration.sessions.clear();
-            entry.registration.events.clear();
+            entry.sessions.clear();
+            entry.events.clear();
             entry.drafts.clear();
             entry.active_session = None;
         }
@@ -209,7 +212,6 @@ impl ProviderArchive {
             provider: entry.registration.manifest.descriptor.id.0.to_owned(),
             active_session: entry.active_session.map(|id| id.0),
             sessions: entry
-                .registration
                 .sessions
                 .iter()
                 .map(|session| SavedSession {
@@ -222,7 +224,6 @@ impl ProviderArchive {
                 })
                 .collect(),
             events: entry
-                .registration
                 .events
                 .iter()
                 .map(|event| SavedEvent {
@@ -418,11 +419,14 @@ impl Write for LimitedSize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ProviderRegistration;
-    use dpl_chat_core::{
-        AccountSummary, ActivationState, BoundedNativePayload, Capability, ProviderAccent,
-        ProviderDescriptor, ProviderManifest, ProviderProfileId, TokenUsage,
+    use dpl_ai_core::activation::{AccountSummary, ActivationState};
+    use dpl_ai_core::capability::Capability;
+    use dpl_ai_core::event::BoundedNativePayload;
+    use dpl_ai_core::provider::{
+        ProviderAccent, ProviderDescriptor, ProviderManifest, ProviderProfileId,
     };
+    use dpl_ai_core::registration::ProviderRegistration;
+    use dpl_ai_core::usage::TokenUsage;
 
     const FIRST: ProviderId = ProviderId("first");
     const SECOND: ProviderId = ProviderId("second");
@@ -551,13 +555,8 @@ mod tests {
         for (before, after) in source.providers.iter().zip(&destination.providers) {
             assert_eq!(before.drafts, after.drafts);
             assert_eq!(before.active_session, after.active_session);
-            assert_eq!(before.registration.events, after.registration.events);
-            for (original, restored) in before
-                .registration
-                .sessions
-                .iter()
-                .zip(&after.registration.sessions)
-            {
+            assert_eq!(before.events, after.events);
+            for (original, restored) in before.sessions.iter().zip(&after.sessions) {
                 let mut expected = original.clone();
                 expected.state = SessionState::ReadOnly;
                 assert_eq!(&expected, restored);
@@ -629,8 +628,8 @@ mod tests {
             .qualified_capabilities
             .contains(&Capability::ReadSessions));
         for entry in &destination.providers {
-            assert!(entry.registration.sessions.is_empty());
-            assert!(entry.registration.events.is_empty());
+            assert!(entry.sessions.is_empty());
+            assert!(entry.events.is_empty());
             assert!(entry.drafts.is_empty());
             assert!(entry.active_session.is_none());
         }
@@ -653,7 +652,7 @@ mod tests {
         destination.restore_archive(&archive).unwrap();
         assert_eq!(destination.providers.len(), 2);
         assert_eq!(destination.selected_provider_id(), Some(FIRST));
-        assert_eq!(destination.providers[1].registration.sessions.len(), 2);
+        assert_eq!(destination.providers[1].sessions.len(), 2);
         assert_eq!(destination.archive().unwrap()["providers"][2], unavailable);
         destination.clear_project_state();
         assert_eq!(

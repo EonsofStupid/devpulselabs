@@ -16,7 +16,7 @@
 
 use dpl_ai_codex::runtime::CodexAppServerRuntime;
 use dpl_ai_codex::CodexRuntimeProfile;
-use dpl_chat_runtime::seam::{
+use dpl_ai_core::adapter::{
     ProviderRuntime, RuntimeCommand, RuntimeEvent, RuntimeSendError, RuntimeUpdate,
 };
 use std::time::{Duration, Instant};

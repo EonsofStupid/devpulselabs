@@ -5,9 +5,10 @@
 //! exact HTTPS URL through the operating system's default-browser service on
 //! a bounded worker. It cannot inspect, automate, or close the browser.
 
-use dpl_chat_core::{DeviceAuthorizationPrompt, ProviderId};
+use dpl_ai_core::activation::DeviceAuthorizationPrompt;
 #[cfg(test)]
-use dpl_chat_core::{GuidedValue, GuidedValueSensitivity};
+use dpl_ai_core::activation::{GuidedValue, GuidedValueSensitivity};
+use dpl_ai_core::provider::ProviderId;
 use std::fmt;
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::sync::Arc;

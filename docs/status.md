@@ -67,8 +67,10 @@ not fixed: see [`plans/coach-correctness.md`](plans/coach-correctness.md).
 **Landing the never-merged work (R300, R301).** Foundry lands as a module of
 `dpl-coach-pack`. The August chat branch is not a second chat: its pieces are
 mapped to the [chat plan](plans/chat-native-program.md)'s own passes. A1 (providers
-under `crates/ai/*`, [pass plan](plans/ai-boundary-a1.md)) is under way: A1a moves
-the provider, account, profile, sign-in and Imagine crates; A1b and A1c follow. The process-supervisor branch is not landing:
+under `crates/ai/*`, [pass plan](plans/ai-boundary-a1.md)) is under way: A1a (#322)
+moved the provider, account, profile, sign-in and Imagine crates; A1b creates
+`dpl-ai-core` and moves the provider vocabulary out of chat-core, chat-runtime and
+chat-store; A1c moves presence, usage and backfill out of the app. The process-supervisor branch is not landing:
 its own commit records it as a placebo that fails the gate. The originals are
 local tags under `retired/`. The old clone at `D:\localdev\devpulselabs` now
 holds only `main`.

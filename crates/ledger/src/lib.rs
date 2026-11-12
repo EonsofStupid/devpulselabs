@@ -1129,7 +1129,7 @@ mod tests {
         let call = fabric.mint_ai_call();
         fabric.publish_ai(AiEvent::CallStarted {
             call,
-            provider: dpl_fabric::ProviderId("claude"),
+            provider: dpl_ai_core::provider::ProviderId("claude"),
             model: "claude-opus-5".into(),
             origin: dpl_fabric::Origin {
                 route: None,

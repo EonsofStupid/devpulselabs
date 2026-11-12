@@ -1,4 +1,4 @@
-use dpl_chat_core::{ActivationState, RecoveryAction, RecoveryActionKind};
+use dpl_ai_core::activation::{ActivationState, RecoveryAction, RecoveryActionKind};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -1075,13 +1075,13 @@ mod tests {
         assert!(matches!(result, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
         assert!(crate::standalone::bound_command(
             &profile,
-            dpl_chat_core::PermissionMode::AskFirst
+            dpl_ai_core::approval::PermissionMode::AskFirst
         )
         .is_err());
         assert_eq!(
             crate::standalone::CodexStandalone::start(
                 &profile,
-                dpl_chat_core::PermissionMode::AskFirst
+                dpl_ai_core::approval::PermissionMode::AskFirst
             )
             .unwrap_err()
             .kind(),
@@ -1123,17 +1123,17 @@ mod tests {
         assert!(matches!(start, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
         for (mode, sandbox, approval) in [
             (
-                dpl_chat_core::PermissionMode::AskFirst,
+                dpl_ai_core::approval::PermissionMode::AskFirst,
                 "read-only",
                 "on-request",
             ),
             (
-                dpl_chat_core::PermissionMode::Workspace,
+                dpl_ai_core::approval::PermissionMode::Workspace,
                 "workspace-write",
                 "on-request",
             ),
             (
-                dpl_chat_core::PermissionMode::ReadOnly,
+                dpl_ai_core::approval::PermissionMode::ReadOnly,
                 "read-only",
                 "never",
             ),
@@ -1180,7 +1180,7 @@ mod tests {
         assert!(login_command(&profile).is_err());
         assert!(crate::standalone::bound_command(
             &profile,
-            dpl_chat_core::PermissionMode::AskFirst
+            dpl_ai_core::approval::PermissionMode::AskFirst
         )
         .is_err());
     }

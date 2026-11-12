@@ -2,7 +2,7 @@
 //! Capability publication is separate from transport support: only an exactly
 //! qualified project profile can enter this path in production.
 use super::*;
-use dpl_chat_runtime::seam::{RuntimeFailure, RuntimeHistoryItem, RuntimeSessionSummary};
+use dpl_ai_core::adapter::{RuntimeFailure, RuntimeHistoryItem, RuntimeSessionSummary};
 use dpl_chat_window::NativeSessionStatus;
 use std::time::Duration;
 
@@ -92,7 +92,7 @@ pub(super) fn stopped(state: &mut Shared, provider: ProviderId) {
     let sessions = state
         .window
         .provider_view(provider)
-        .map_or_else(Vec::new, |view| view.registration.sessions);
+        .map_or_else(Vec::new, |view| view.sessions);
     for session in sessions {
         if session.provider_session_id.is_some() {
             let _ = state.window.set_provider_session_state(
@@ -128,7 +128,7 @@ fn provider_idle(state: &Shared, provider: ProviderId) -> bool {
             .keys()
             .any(|(owner, _)| *owner == provider)
         && state.window.provider_view(provider).is_some_and(|view| {
-            view.registration.sessions.iter().all(|session| {
+            view.sessions.iter().all(|session| {
                 !matches!(
                     session.state,
                     SessionState::Running | SessionState::Attention
@@ -146,8 +146,7 @@ pub(super) fn request_load(state: &mut Shared, provider: ProviderId, session: Ch
         return;
     }
     let Some(summary) = state.window.provider_view(provider).and_then(|view| {
-        view.registration
-            .sessions
+        view.sessions
             .into_iter()
             .find(|saved| saved.id == session && saved.state == SessionState::ReadOnly)
     }) else {
@@ -235,7 +234,7 @@ pub(super) fn sessions_page(
     let existing = state
         .window
         .provider_view(provider)
-        .map_or_else(Vec::new, |view| view.registration.sessions);
+        .map_or_else(Vec::new, |view| view.sessions);
     let mut summaries = Vec::new();
     let mut next_id = state.next_chat_session_id;
     let mut seen = BTreeSet::new();
@@ -330,8 +329,7 @@ pub(super) fn session_loaded(
         .window
         .provider_view(provider)
         .map_or_else(Vec::new, |view| {
-            view.registration
-                .events
+            view.events
                 .into_iter()
                 .filter(|event| event.session_id == pending.session)
                 .collect()
@@ -344,7 +342,7 @@ pub(super) fn session_loaded(
         state.next_chat_event_id,
     );
     let result = projected.and_then(|(events, next)| {
-        let visible = |event: &ChatEvent| event.content.presentation() == dpl_chat_core::EventPresentation::Conversation;
+        let visible = |event: &ChatEvent| event.content.presentation() == dpl_ai_core::event::EventPresentation::Conversation;
         if existing.iter().any(visible) && !events.iter().any(visible) {
             return Err("The provider did not return this chat's saved conversation. The existing messages remain read-only.".into());
         }

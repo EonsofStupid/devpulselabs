@@ -3,22 +3,30 @@ pub(super) mod project;
 
 use dpl_ai_accounts::ActivationLedger;
 use dpl_ai_browser_auth::{BrowserAuthCoordinator, BrowserAuthError, BrowserAuthEvent};
+use dpl_ai_core::activation::{ActivationState, RecoveryAction, RecoveryActionKind};
+#[cfg(feature = "eguipilotai-devtools")]
+use dpl_ai_core::activation::{DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity};
+use dpl_ai_core::adapter::{
+    ProviderRuntime, RuntimeCommand, RuntimeEvent, RuntimeFailureKind, RuntimePermissionOptionKind,
+    RuntimeUpdate,
+};
+use dpl_ai_core::approval::PermissionMode;
+use dpl_ai_core::capability::{qualified_capabilities, Capability};
+use dpl_ai_core::event::{BoundedNativePayload, ChatEventContent};
+use dpl_ai_core::provider::ProviderId;
+use dpl_ai_core::session::ProviderSessionId;
+use dpl_ai_core::turn::TurnId;
+use dpl_ai_core::usage::TokenUsage;
 use dpl_ai_imagine::{ImagineCache, ImagineClient, ImaginePolicy, SystemImagineClient};
 use dpl_ai_profiles::{ProfileStore, ProviderProfileDraft};
-use dpl_chat_core::{
-    ActivationState, BoundedNativePayload, Capability, ChatEvent, ChatEventContent, ChatEventId,
-    ChatSessionId, ContentChapter, ContentEpisode, ContentEpisodeId, ContentSlide, ContentSpine,
-    ContentView, PermissionMode, ProviderId, ProviderSessionId, RecoveryAction, RecoveryActionKind,
-    SessionGroup, SessionState, SessionSummary, TokenUsage, TurnId,
-};
 #[cfg(feature = "eguipilotai-devtools")]
-use dpl_chat_core::{ChatDomain, DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity};
+use dpl_chat_core::ChatDomain;
+use dpl_chat_core::{
+    ChatEvent, ChatEventId, ChatSessionId, ContentChapter, ContentEpisode, ContentEpisodeId,
+    ContentSlide, ContentSpine, ContentView, SessionGroup, SessionState, SessionSummary,
+};
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionPlacement, InteractionRegistry,
-};
-use dpl_chat_runtime::seam::{
-    qualified_capabilities, ProviderRuntime, RuntimeCommand, RuntimeEvent, RuntimeFailureKind,
-    RuntimePermissionOptionKind, RuntimeUpdate,
 };
 use dpl_chat_runtime::ChatRuntime;
 use dpl_chat_social::SocialModel;
@@ -459,7 +467,7 @@ fn drain_presence(state: &mut Shared) {
 /// rest. Overwriting a live coordinator's state from a one-shot probe is how
 /// a working provider ends up reported as signed out mid-session.
 fn apply_presence(state: &mut Shared, found: &crate::presence::Presence) {
-    use dpl_chat_core::PresenceVerdict;
+    use dpl_ai_core::presence::PresenceVerdict;
 
     let already_activated = state
         .window
@@ -3538,7 +3546,7 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                 if state
                     .window
                     .provider_view(dpl_ai_grok::PROVIDER)
-                    .is_some_and(|view| view.registration.sessions.is_empty())
+                    .is_some_and(|view| view.sessions.is_empty())
                 {
                     send_grok_command(state, dpl_ai_grok::GrokRuntimeCommand::NewSession);
                 }
@@ -3741,7 +3749,7 @@ fn project_grok_sessions(
         state
             .window
             .provider_view(dpl_ai_grok::PROVIDER)
-            .map_or_else(Vec::new, |provider| provider.registration.sessions)
+            .map_or_else(Vec::new, |provider| provider.sessions)
     };
     for session in sessions {
         let projected_session = grok_session_summary(
@@ -3831,7 +3839,6 @@ fn provider_session_id(
     state
         .window
         .provider_view(provider)?
-        .registration
         .sessions
         .into_iter()
         .find(|candidate| candidate.id == session)?
@@ -3862,7 +3869,7 @@ struct AiCall {
 /// enforced in one readable place rather than scattered per provider.
 fn ai_call_started(
     state: &mut Shared,
-    provider: dpl_chat_core::ProviderId,
+    provider: dpl_ai_core::provider::ProviderId,
     provider_session_id: &str,
     model: &str,
 ) {
@@ -4285,7 +4292,7 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             } else if state
                 .window
                 .provider_view(provider)
-                .is_some_and(|view| view.registration.sessions.is_empty())
+                .is_some_and(|view| view.sessions.is_empty())
             {
                 send_seam_command(state, provider, RuntimeCommand::NewSession);
             }
@@ -4630,11 +4637,11 @@ fn send_seam_command(state: &mut Shared, provider: ProviderId, command: RuntimeC
     };
     match runtime.try_send(command) {
         Ok(()) => true,
-        Err(dpl_chat_runtime::seam::RuntimeSendError::Full) => {
+        Err(dpl_ai_core::adapter::RuntimeSendError::Full) => {
             tracing::warn!(%provider, "provider command queue is full; command dropped");
             false
         }
-        Err(dpl_chat_runtime::seam::RuntimeSendError::Closed) => {
+        Err(dpl_ai_core::adapter::RuntimeSendError::Closed) => {
             tracing::warn!(%provider, "provider runtime is closed");
             state.runtimes.remove(&provider);
             false
@@ -4910,7 +4917,7 @@ fn project_seam_permission(
     request_id: u64,
     provider_session_id: String,
     summary: String,
-    options: Vec<dpl_chat_runtime::seam::RuntimePermissionOption>,
+    options: Vec<dpl_ai_core::adapter::RuntimePermissionOption>,
 ) {
     let mode = state
         .permission_modes
@@ -5937,7 +5944,7 @@ mod clyffy_tests {
             provider_id: ProviderId(provider),
             session_id: ChatSessionId(1),
             turn_id: None,
-            content: dpl_chat_core::ChatEventContent::UserMessage(format!("m{id}")),
+            content: dpl_ai_core::event::ChatEventContent::UserMessage(format!("m{id}")),
         }
     }
 

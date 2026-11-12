@@ -1,6 +1,6 @@
 //! Exact 0.163.0 list/resume/turn-page contracts; no filesystem or credentials.
 use super::{Outbound, PermissionMode};
-use dpl_chat_runtime::seam::{
+use dpl_ai_core::adapter::{
     RuntimeEvent, RuntimeHistoryItem, RuntimeSessionSummary, RuntimeUpdate,
 };
 use serde_json::{json, Value};

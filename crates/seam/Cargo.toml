@@ -28,6 +28,8 @@ dpl-comp.workspace = true
 dpl-engine-media.workspace = true
 
 [dev-dependencies]
+# Test facts name providers and capabilities by their AI vocabulary.
+dpl-ai-core.workspace = true
 tower = { workspace = true, features = ["util"] }
 # Tests construct a real HubSpec (its tone rides ColdLight).
 dpl-coldlight.workspace = true

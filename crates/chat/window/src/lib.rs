@@ -4,16 +4,20 @@
 //! It does not create viewports, publish signals, navigate Main, scan stores,
 //! launch providers, or implement Social transport.
 
+use dpl_ai_core::activation::{AccountSummary, ActivationState, RecoveryActionKind};
+use dpl_ai_core::approval::PermissionMode;
+use dpl_ai_core::capability::Capability;
+use dpl_ai_core::event::{ChatEventContent, EventPresentation};
+use dpl_ai_core::provider::{ProviderAccent, ProviderId};
+use dpl_ai_core::turn::TurnId;
 use dpl_ai_profiles::{
     CatalogSupplement, CatalogSupplementAction, ProviderConfigurationKind, ProviderProfile,
     ProviderProfileDraft, SUPPLEMENTS,
 };
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
-    AccountSummary, ActivationState, Capability, ChatDomain, ChatEvent, ChatEventContent,
-    ChatEventId, ChatSessionId, ContentEpisode, ContentEpisodeId, ContentSpine, ContentView,
-    EventPresentation, PermissionMode, ProviderAccent, ProviderId, RecoveryActionKind,
-    SessionGroup, SessionState, SessionSummary, TurnId,
+    ChatDomain, ChatEvent, ChatEventId, ChatSessionId, ContentEpisode, ContentEpisodeId,
+    ContentSpine, ContentView, SessionGroup, SessionState, SessionSummary,
 };
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionLifecycle, InteractionPlacement,
@@ -2605,9 +2609,9 @@ impl ChatWindow {
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             ui.label(RichText::new("›").color(cl::ink::MUTED));
-                            if !provider.registration.sessions.is_empty() {
+                            if !provider.sessions.is_empty() {
                                 ui.label(
-                                    RichText::new(provider.registration.sessions.len().to_string())
+                                    RichText::new(provider.sessions.len().to_string())
                                         .monospace()
                                         .small()
                                         .color(Tone::Cyan.color()),
@@ -2678,7 +2682,7 @@ impl ChatWindow {
         let history = self.history_rows(providers);
         if providers
             .iter()
-            .all(|provider| provider.registration.sessions.is_empty())
+            .all(|provider| provider.sessions.is_empty())
             && history.is_empty()
         {
             micro_heading(ui, "SESSIONS");
@@ -2741,7 +2745,6 @@ impl ChatWindow {
                 .iter()
                 .flat_map(|provider| {
                     provider
-                        .registration
                         .sessions
                         .iter()
                         .filter(move |session| predicate.matches(session))
@@ -3194,13 +3197,10 @@ impl ChatWindow {
                 }
             });
         });
-        if let Some(session) = provider.active_session.and_then(|id| {
-            provider
-                .registration
-                .sessions
-                .iter()
-                .find(|item| item.id == id)
-        }) {
+        if let Some(session) = provider
+            .active_session
+            .and_then(|id| provider.sessions.iter().find(|item| item.id == id))
+        {
             ui.label(RichText::new(&session.title).small().color(cl::ink::MUTED));
         }
         ui.separator();
@@ -3231,7 +3231,6 @@ impl ChatWindow {
             if status.qualified {
                 if let Some(session) = provider.active_session.filter(|id| {
                     provider
-                        .registration
                         .sessions
                         .iter()
                         .any(|saved| saved.id == *id && saved.provider_session_id.is_some())
@@ -3268,7 +3267,6 @@ impl ChatWindow {
         }
 
         let events = provider
-            .registration
             .events
             .iter()
             .filter(|event| is_conversation_event(event, provider.active_session));
@@ -3691,7 +3689,6 @@ impl ChatWindow {
                             let running = selected.as_ref().and_then(|provider| {
                                 provider.active_session.and_then(|active| {
                                     provider
-                                        .registration
                                         .sessions
                                         .iter()
                                         .find(|session| session.id == active)
@@ -4442,8 +4439,8 @@ impl ChatWindow {
                         ui.label(
                             RichText::new(format!(
                                 "{} session{}",
-                                provider.registration.sessions.len(),
-                                if provider.registration.sessions.len() == 1 {
+                                provider.sessions.len(),
+                                if provider.sessions.len() == 1 {
                                     ""
                                 } else {
                                     "s"
@@ -4541,7 +4538,7 @@ impl ChatWindow {
                                     let active = providers
                                         .iter()
                                         .filter(|provider| {
-                                            provider.registration.sessions.iter().any(|session| {
+                                            provider.sessions.iter().any(|session| {
                                                 session.group == SessionGroup::Active
                                                     || session.state == SessionState::Running
                                             })
@@ -4562,8 +4559,8 @@ impl ChatWindow {
                                                     "{}  {} · {} session{}",
                                                     descriptor.glyph,
                                                     descriptor.label,
-                                                    provider.registration.sessions.len(),
-                                                    if provider.registration.sessions.len() == 1 {
+                                                    provider.sessions.len(),
+                                                    if provider.sessions.len() == 1 {
                                                         ""
                                                     } else {
                                                         "s"
@@ -5553,7 +5550,7 @@ enum SessionPredicate {
 fn active_session_count(providers: &[ProviderView]) -> usize {
     providers
         .iter()
-        .flat_map(|provider| &provider.registration.sessions)
+        .flat_map(|provider| &provider.sessions)
         .filter(|session| {
             session.group == SessionGroup::Active || session.state == SessionState::Running
         })
@@ -6272,7 +6269,7 @@ fn permission_selector(
 
 /// A provider's status as the operator reads it: "Ready · ChatGPT Plus" when
 /// its CLI reported the account a turn will spend, otherwise the state.
-fn provider_status(registration: &dpl_chat_runtime::ProviderRegistration) -> String {
+fn provider_status(registration: &dpl_ai_core::registration::ProviderRegistration) -> String {
     match (&registration.activation, &registration.account) {
         (ActivationState::Ready, Some(account)) => match &account.plan {
             Some(plan) => format!("Ready · {} {plan}", account.display_name),
@@ -6349,10 +6346,10 @@ fn paint_shell_backplate(painter: &egui::Painter, rect: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_core::{
-        Capability, ProviderDescriptor, ProviderManifest, ProviderProfileId, SessionSummary,
-    };
-    use dpl_chat_runtime::ProviderRegistration;
+    use dpl_ai_core::capability::Capability;
+    use dpl_ai_core::provider::{ProviderDescriptor, ProviderManifest, ProviderProfileId};
+    use dpl_ai_core::registration::ProviderRegistration;
+    use dpl_chat_core::SessionSummary;
     use dpl_hub::{HubId, SubId};
     use egui_kittest::Harness;
 
@@ -6402,8 +6399,10 @@ mod tests {
     };
 
     fn window() -> ChatWindow {
-        let mut registration = ProviderRegistration::planned(MANIFEST);
-        registration.sessions = vec![
+        let mut runtime =
+            ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)])
+                .expect("runtime");
+        let sessions = vec![
             SessionSummary {
                 id: ChatSessionId(1),
                 provider_id: PROVIDER,
@@ -6423,8 +6422,11 @@ mod tests {
                 state: SessionState::Running,
             },
         ];
+        runtime
+            .replace_sessions(PROVIDER, sessions)
+            .expect("fixture sessions");
         ChatWindow::new(
-            ChatRuntime::try_from_registrations([registration]).expect("runtime"),
+            runtime,
             ROUTE,
             &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
@@ -6526,16 +6528,12 @@ mod tests {
         window.validate_project_archive(&saved).unwrap();
         assert_eq!(window.project_archive().unwrap(), saved);
         window.clear_project_state();
-        assert!(window.project_provider_views()[0]
-            .registration
-            .sessions
-            .is_empty());
+        assert!(window.project_provider_views()[0].sessions.is_empty());
         window.restore_project_archive(&saved).unwrap();
         let view = &window.project_provider_views()[0];
         assert_eq!(view.draft, "unfinished project question");
-        assert_eq!(view.registration.sessions[0].title, "Pinned design review");
+        assert_eq!(view.sessions[0].title, "Pinned design review");
         assert!(view
-            .registration
             .sessions
             .iter()
             .all(|session| session.state == SessionState::ReadOnly));
@@ -6758,7 +6756,7 @@ mod tests {
     fn multi_provider_window() -> ChatWindow {
         let mut first = ProviderRegistration::planned(MANIFEST);
         first.activation = ActivationState::Ready;
-        first.sessions = vec![SessionSummary {
+        let first_sessions = vec![SessionSummary {
             id: ChatSessionId(1),
             provider_id: PROVIDER,
             provider_session_id: None,
@@ -6769,7 +6767,7 @@ mod tests {
         }];
         let mut second = ProviderRegistration::planned(SECOND_MANIFEST);
         second.activation = ActivationState::Ready;
-        second.sessions = vec![SessionSummary {
+        let second_sessions = vec![SessionSummary {
             id: ChatSessionId(20),
             provider_id: SECOND_PROVIDER,
             provider_session_id: None,
@@ -6779,6 +6777,12 @@ mod tests {
             state: SessionState::Running,
         }];
         let mut runtime = ChatRuntime::try_from_registrations([first, second]).expect("runtime");
+        runtime
+            .replace_sessions(PROVIDER, first_sessions)
+            .expect("first sessions");
+        runtime
+            .replace_sessions(SECOND_PROVIDER, second_sessions)
+            .expect("second sessions");
         runtime
             .qualify_capabilities(PROVIDER, CAPABILITIES.iter().copied())
             .expect("first capabilities");
@@ -6862,7 +6866,7 @@ mod tests {
     fn authored_session_groups_are_disjoint() {
         let window = window();
         let provider = window.runtime.selected_provider().expect("provider");
-        for session in &provider.registration.sessions {
+        for session in &provider.sessions {
             let matches = [
                 SessionPredicate::Pinned,
                 SessionPredicate::Active,
@@ -7198,10 +7202,12 @@ mod tests {
                 provider_id: PROVIDER,
                 session_id: session,
                 turn_id: None,
-                content: ChatEventContent::Unknown(dpl_chat_core::BoundedNativePayload::redacted(
-                    "acp.available-commands",
-                    "AvailableCommandsUpdate(...)",
-                )),
+                content: ChatEventContent::Unknown(
+                    dpl_ai_core::event::BoundedNativePayload::redacted(
+                        "acp.available-commands",
+                        "AvailableCommandsUpdate(...)",
+                    ),
+                ),
             },
             ChatEvent {
                 id: ChatEventId(3),
@@ -7429,7 +7435,7 @@ mod tests {
     fn brainstorm_intents_cross_to_the_host_verbatim() {
         let fixture = dpl_chat_testkit::authored_chat();
         let mut window = ChatWindow::with_models(
-            ChatRuntime::try_from_registrations(fixture.providers).expect("runtime"),
+            fixture.runtime().expect("runtime"),
             ROUTE,
             &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
@@ -7461,7 +7467,7 @@ mod tests {
     fn observe_brainstorm_projects_the_board_verbatim() {
         let fixture = dpl_chat_testkit::authored_chat();
         let mut window = ChatWindow::with_models(
-            ChatRuntime::try_from_registrations(fixture.providers).expect("runtime"),
+            fixture.runtime().expect("runtime"),
             ROUTE,
             &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
@@ -7485,7 +7491,7 @@ mod tests {
     fn dismissing_an_approval_queues_its_real_focus_origin() {
         let fixture = dpl_chat_testkit::authored_chat();
         let mut window = ChatWindow::with_models(
-            ChatRuntime::try_from_registrations(fixture.providers).expect("runtime"),
+            fixture.runtime().expect("runtime"),
             ROUTE,
             &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
@@ -7511,7 +7517,7 @@ mod tests {
     fn queued_focus_return_targets_the_current_origin_response() {
         let fixture = dpl_chat_testkit::authored_chat();
         let mut window = ChatWindow::with_models(
-            ChatRuntime::try_from_registrations(fixture.providers).expect("runtime"),
+            fixture.runtime().expect("runtime"),
             ROUTE,
             &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],
@@ -7634,7 +7640,7 @@ mod tests {
 
     struct FixtureHistoryDecoder;
 
-    impl dpl_chat_store::HistoryDecoder for FixtureHistoryDecoder {
+    impl dpl_ai_core::history::HistoryDecoder for FixtureHistoryDecoder {
         fn provider_id(&self) -> ProviderId {
             PROVIDER
         }
@@ -7643,18 +7649,18 @@ mod tests {
             &self,
             path: &std::path::Path,
             _prefix: &str,
-        ) -> Option<dpl_chat_store::HistoryIndexMetadata> {
+        ) -> Option<dpl_ai_core::history::HistoryIndexMetadata> {
             let stem = path.file_stem()?.to_string_lossy().into_owned();
-            Some(dpl_chat_store::HistoryIndexMetadata {
-                native_id: dpl_chat_core::ProviderSessionId(stem.clone()),
+            Some(dpl_ai_core::history::HistoryIndexMetadata {
+                native_id: dpl_ai_core::session::ProviderSessionId(stem.clone()),
                 title: format!("Transcript {stem}"),
                 workspace: "DevPULSE".to_owned(),
                 started_at: "2026-07-30T00:00:00Z".to_owned(),
             })
         }
 
-        fn decode_line(&self, line: &str) -> dpl_chat_store::DecodeOutcome {
-            dpl_chat_store::DecodeOutcome::Event(dpl_chat_store::DecodedHistoryEvent {
+        fn decode_line(&self, line: &str) -> dpl_ai_core::history::DecodeOutcome {
+            dpl_ai_core::history::DecodeOutcome::Event(dpl_ai_core::history::DecodedHistoryEvent {
                 turn_id: None,
                 content: ChatEventContent::AssistantMessage(line.to_owned()),
             })
@@ -7698,7 +7704,7 @@ mod tests {
         assert!(
             providers
                 .iter()
-                .all(|provider| provider.registration.sessions.is_empty()),
+                .all(|provider| provider.sessions.is_empty()),
             "the fixture provider has no LIVE sessions — that is the point"
         );
         let rows = window.history_rows(&providers);
@@ -7893,7 +7899,7 @@ mod tests {
     fn a_refused_enter_paints_its_reason() {
         let fixture = dpl_chat_testkit::authored_chat();
         let window = ChatWindow::with_models(
-            ChatRuntime::try_from_registrations(fixture.providers).expect("runtime"),
+            fixture.runtime().expect("runtime"),
             ROUTE,
             &HistoryCatalog::default(),
             vec![("Library".into(), ROUTE)],

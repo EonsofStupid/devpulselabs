@@ -1,10 +1,10 @@
-//! THE PROVIDER RUNTIME SEAM — one shape every live provider speaks.
+//! THE PROVIDER RUNTIME ADAPTER CONTRACT — one shape every live provider
+//! speaks.
 //!
-//! This crate's header carried an open question from CH1: *"CH1 contains no
-//! process transport. Live provider ownership is blocked on the Chat
-//! provider-runtime ADR."* This module is the answer.
+//! CH1 contained no process transport, and live provider ownership was
+//! blocked on the Chat provider-runtime ADR. This module is the answer.
 //!
-//! ## Why a seam and not a second Grok
+//! ## Why one contract and not a second Grok
 //!
 //! Grok grew a working runtime (`GrokAcpRuntime`) and Codex did not, so the
 //! app ended up with a provider you can talk to and a provider that only
@@ -28,7 +28,9 @@
 //! out, and the caller polls. Nothing here may block the UI thread, because
 //! every implementation is driven from a frame.
 
-use crate::ProviderId;
+use crate::activation::AccountSummary;
+use crate::approval::PermissionMode;
+use crate::provider::ProviderId;
 use std::fmt;
 use std::path::PathBuf;
 
@@ -47,7 +49,7 @@ pub struct RuntimeCapabilities {
 
 /// One session as the PROVIDER describes it.
 ///
-/// Distinct from [`crate::SessionSummary`], which is how the APP describes a
+/// Distinct from chat's `SessionSummary`, which is how the APP describes a
 /// session. The host translates; conflating them is how a provider's id
 /// vocabulary leaks into the UI.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,7 +179,7 @@ pub enum RuntimeCommand {
     },
     /// What the provider may do from now on (applies from the next turn).
     SetPermissionMode {
-        mode: dpl_chat_core::PermissionMode,
+        mode: PermissionMode,
     },
     Shutdown,
 }
@@ -223,7 +225,7 @@ pub enum RuntimeEvent {
     /// The account the provider's own CLI is signed in with, as the CLI
     /// reports it. `None` means signed out: nothing can be sent until the
     /// operator signs in, however healthy the process looks.
-    Account(Option<dpl_chat_core::AccountSummary>),
+    Account(Option<AccountSummary>),
     Failure(RuntimeFailure),
     Stopped,
 }
@@ -271,58 +273,9 @@ pub trait ProviderRuntime: Send {
     fn capabilities(&self) -> Option<RuntimeCapabilities>;
 }
 
-/// Which chat capabilities a connected runtime has EARNED.
-///
-/// One definition, so Codex and Grok cannot drift into advertising different
-/// things for the same protocol facts. This is what makes `can_send()` true —
-/// and it is derived from what the provider said, never from a hard-coded
-/// list in the app's boot path.
-pub fn qualified_capabilities(capabilities: RuntimeCapabilities) -> Vec<crate::Capability> {
-    use crate::Capability;
-    // A connected runtime can always start a session and stream a turn —
-    // that IS the protocol. Everything else is advertised.
-    let mut qualified = vec![
-        Capability::StartSession,
-        Capability::StreamTurns,
-        Capability::InterruptTurn,
-    ];
-    if capabilities.load_session {
-        qualified.push(Capability::ResumeSession);
-    }
-    if capabilities.list_sessions {
-        qualified.push(Capability::ReadSessions);
-    }
-    qualified
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Capability;
-
-    #[test]
-    fn a_connected_runtime_can_always_start_and_stream() {
-        let qualified = qualified_capabilities(RuntimeCapabilities::default());
-        assert!(qualified.contains(&Capability::StartSession));
-        assert!(qualified.contains(&Capability::StreamTurns));
-    }
-
-    /// Advertised capability is EARNED, never assumed: a provider that never
-    /// said it can list sessions must not have the surface offer it.
-    #[test]
-    fn unadvertised_capability_is_never_qualified() {
-        let qualified = qualified_capabilities(RuntimeCapabilities::default());
-        assert!(!qualified.contains(&Capability::ReadSessions));
-        assert!(!qualified.contains(&Capability::ResumeSession));
-
-        let full = qualified_capabilities(RuntimeCapabilities {
-            load_session: true,
-            list_sessions: true,
-            permission_modes: true,
-        });
-        assert!(full.contains(&Capability::ReadSessions));
-        assert!(full.contains(&Capability::ResumeSession));
-    }
 
     #[test]
     fn a_full_queue_is_transient_and_a_closed_runtime_is_not() {

@@ -34,13 +34,17 @@ side rails         dpl-fabric (signals) · dpl-seam (agent HTTP) ·
                    egui-pilot-ai-* (semantic harness) · xtask (automation)
 ```
 
-`ai/*` owns every provider and subscription concern (chat plan §4.3, R301):
-the provider crates `dpl-ai-<vendor>` under `crates/ai/providers/`, plus
-`dpl-ai-accounts`, `dpl-ai-profiles`, `dpl-ai-browser-auth` and
-`dpl-ai-imagine`; all are engines. `chat/*` owns chat: `dpl-chat-core` is the
-pure document/domain layer and window/windows/renderers are surfaces. A1b moves
-the provider vocabulary still held in chat-core, chat-runtime and chat-store
-into `ai/*`.
+`ai/*` owns every provider and subscription concern (chat plan §4.3, R301).
+`dpl-ai-core` (`crates/ai/core`) is the provider vocabulary: identities,
+capabilities, presence, activation, approval, usage, events, history
+decoding, the runtime adapter contract and the provider registration. It is
+engine-free pure data (its exact deps are in §2). The provider crates
+`dpl-ai-<vendor>` under `crates/ai/providers/`, plus `dpl-ai-accounts`,
+`dpl-ai-profiles`, `dpl-ai-browser-auth` and `dpl-ai-imagine`, are engines.
+`chat/*` owns chat: `dpl-chat-core` is the pure document/domain layer and
+window/windows/renderers are surfaces. Chat depends on `dpl-ai-core`; no
+`crates/ai/*` crate depends on a `crates/chat/*` crate (gate-enforced), with
+the one named exception below.
 
 `dpl-ai-codex → dpl-chat-projects` carries an explicitly leased candidate
 profile into every owned provider child. The project owner validates paths,
@@ -73,6 +77,7 @@ brainstorm board document and emits its typed ops; the host owns all IO.
 | dpl-tools-deps | serde, serde_json, sha2 | the depot resolver trusts nothing else |
 | dpl-roots | serde, serde_json, toml | portable library configuration, identity and layout; no capture, egui, volume FFI or process dependencies |
 | dpl-chat-projects | serde, serde_json | project identities, archives and owned candidate profile links/leases; no egui, provider process, credential inspection or ambient workspace discovery |
+| dpl-ai-core | serde | the provider vocabulary stays pure data: no IO, egui, engine, process or chat dependency; chat depends on it, never the reverse |
 | dpl-landing | serde, serde_json | the landing policy is shared pure data |
 | dpl-estate | fjall, moka, serde, serde_json | Ring-0 persistence, no app types |
 | dpl-intent | ∅ | the operator-intent proof must never learn to serialize, clone, or arrive over a wire (signal-ledger plan §9.3) |
@@ -88,7 +93,7 @@ the audit, same commit, with the reason.
   never paints. (Pulling the token IDS into a paint-free crate would
   remove this edge — a ratified later pass, not a drive-by.)
 - **dpl-seam → dpl-coldlight**: the envelope serializes tone/token ids.
-- **dpl-fabric → dpl-hub + dpl-chat-core + dpl-intent**: facts carry Route,
+- **dpl-fabric → dpl-hub + dpl-ai-core + dpl-intent**: facts carry Route,
   provider types, and the intent gate's mode/cause/channel. The fabric is a
   side rail, not a layer violation; reusing the gate's types avoids a
   mirrored vocabulary.
@@ -213,7 +218,9 @@ the audit, same commit, with the reason.
 
 `cargo xtask structure` (runs inside `cargo green` after the spawn
 audit): ceiling exact-sets (§2) · egui-free census · no lateral hub deps ·
-`-sys` only in dpl-lottie-render · manifest hygiene (lints + publish) ·
+`-sys` only in dpl-lottie-render · no `crates/ai/*` crate depends on a
+`crates/chat/*` crate, except `dpl-ai-codex → dpl-chat-projects` (§1) ·
+manifest hygiene (lints + publish) ·
 no orphan crate folders (allowlist §3) · harness-flag census (flags
 parsed in `crates/app/src/main.rs` + `--content-root` ⇔ CLAUDE.md's
 list, both directions) · the naming law (crate = `dpl-` + folder · kebab

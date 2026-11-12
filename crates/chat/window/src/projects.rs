@@ -98,7 +98,7 @@ impl ChatWindow {
 
     pub(super) fn project_session_read_only(&self) -> bool {
         self.runtime.selected_provider().is_some_and(|provider| {
-            provider.registration.sessions.iter().any(|session| {
+            provider.sessions.iter().any(|session| {
                 Some(session.id) == provider.active_session
                     && session.state == SessionState::ReadOnly
             })

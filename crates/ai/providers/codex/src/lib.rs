@@ -18,14 +18,15 @@ pub use activation::{
     CodexStatusRequest, CodexVersion, SETUP_URL,
 };
 
-use dpl_chat_core::{
-    BoundedNativePayload, Capability, ChatEventContent, ProviderAccent, ProviderDescriptor,
-    ProviderId, ProviderManifest, ProviderProfileId, TokenUsage,
+use dpl_ai_core::capability::Capability;
+use dpl_ai_core::event::{BoundedNativePayload, ChatEventContent};
+use dpl_ai_core::history::{
+    DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata,
 };
-use dpl_chat_store::{
-    DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata, ProviderUsage,
-    UsageReporting,
+use dpl_ai_core::provider::{
+    ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
 };
+use dpl_ai_core::usage::{ProviderUsage, TokenUsage, UsageReporting};
 use serde_json::Value;
 use std::path::Path;
 
@@ -110,7 +111,7 @@ impl HistoryDecoder for CodexHistoryDecoder {
         }
         let fallback = history_title_fallback("Codex", &workspace, &started_at, &native_id);
         Some(HistoryIndexMetadata {
-            native_id: dpl_chat_core::ProviderSessionId(native_id),
+            native_id: dpl_ai_core::session::ProviderSessionId(native_id),
             title: one_line_title(&title, &fallback),
             workspace,
             started_at,

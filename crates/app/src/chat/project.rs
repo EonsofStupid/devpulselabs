@@ -246,7 +246,7 @@ fn idle(state: &Shared) -> bool {
                     ActivationState::SigningIn
                         | ActivationState::AwaitingAuthorization(_)
                         | ActivationState::Verifying
-                ) && provider.registration.sessions.iter().all(|session| {
+                ) && provider.sessions.iter().all(|session| {
                     !matches!(
                         session.state,
                         SessionState::Running | SessionState::Attention
@@ -497,10 +497,10 @@ fn activate(state: &mut Shared, registry: Registry, prepared: Prepared, choices:
 
 fn restore_counters(state: &mut Shared) {
     for provider in state.window.project_provider_views() {
-        for session in provider.registration.sessions {
+        for session in provider.sessions {
             state.next_chat_session_id = state.next_chat_session_id.max(session.id.0 + 1);
         }
-        for event in provider.registration.events {
+        for event in provider.events {
             state.next_chat_event_id = state.next_chat_event_id.max(event.id.0 + 1);
             if let Some(turn) = event.turn_id.and_then(|turn| {
                 turn.0
@@ -723,7 +723,7 @@ pub(super) fn live_session(state: &Shared, provider: ProviderId, session: ChatSe
         return false;
     }
     let writable = state.window.provider_view(provider).is_some_and(|view| {
-        view.registration.sessions.iter().any(|saved| {
+        view.sessions.iter().any(|saved| {
             saved.id == session && matches!(saved.state, SessionState::Idle | SessionState::Failed)
         })
     });
@@ -812,7 +812,7 @@ pub(crate) fn unconfigured_grok() -> dpl_ai_grok::GrokActivationCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_runtime::seam::{
+    use dpl_ai_core::adapter::{
         RuntimeCapabilities, RuntimeFailure, RuntimeHistoryItem, RuntimeSendError,
         RuntimeSessionSummary,
     };
@@ -969,12 +969,11 @@ mod tests {
         let view = state.window.provider_view(dpl_ai_codex::PROVIDER).unwrap();
         assert_eq!(view.active_session, Some(ChatSessionId(11)));
         assert_eq!(view.draft, "draft-11");
-        assert_eq!(view.registration.events.len(), 4);
+        assert_eq!(view.events.len(), 4);
         assert!(
-            matches!(&view.registration.events[0].content, ChatEventContent::UserMessage(text) if text == "Original question")
+            matches!(&view.events[0].content, ChatEventContent::UserMessage(text) if text == "Original question")
         );
         assert!(view
-            .registration
             .events
             .iter()
             .all(|event| event.turn_id == Some(TurnId("native-turn".into()))));
@@ -1107,26 +1106,13 @@ mod tests {
         let provider = dpl_ai_codex::PROVIDER;
         native::request_load(&mut state, provider, ChatSessionId(11));
         project_seam_event(&mut state, provider, loaded(&workspace));
-        let first = state
-            .window
-            .provider_view(provider)
-            .unwrap()
-            .registration
-            .events;
+        let first = state.window.provider_view(provider).unwrap().events;
         native::stopped(&mut state, provider);
         assert!(!live_session(&state, provider, ChatSessionId(11)));
         native::qualify_fixture(&mut state, provider);
         native::request_load(&mut state, provider, ChatSessionId(11));
         project_seam_event(&mut state, provider, loaded(&workspace));
-        assert_eq!(
-            state
-                .window
-                .provider_view(provider)
-                .unwrap()
-                .registration
-                .events,
-            first
-        );
+        assert_eq!(state.window.provider_view(provider).unwrap().events, first);
         assert_eq!(
             state.window.provider_view(provider).unwrap().active_session,
             Some(ChatSessionId(11))
@@ -1140,12 +1126,7 @@ mod tests {
     fn native_listing_merges_without_erasing_archives_and_stops_repeated_cursors() {
         let (mut state, _, workspace, commands) = native_fixture("native-list");
         let provider = dpl_ai_codex::PROVIDER;
-        let original_events = state
-            .window
-            .provider_view(provider)
-            .unwrap()
-            .registration
-            .events;
+        let original_events = state.window.provider_view(provider).unwrap().events;
         native::request_list(&mut state, provider);
         let summary = |native: &str, working_directory: PathBuf| RuntimeSessionSummary {
             provider_session_id: native.into(),
@@ -1167,8 +1148,8 @@ mod tests {
             },
         );
         let view = state.window.provider_view(provider).unwrap();
-        assert_eq!(view.registration.sessions.len(), 3);
-        assert_eq!(view.registration.events, original_events);
+        assert_eq!(view.sessions.len(), 3);
+        assert_eq!(view.events, original_events);
         assert_eq!(view.draft, "draft-11");
         project_seam_event(
             &mut state,
@@ -1182,13 +1163,7 @@ mod tests {
         assert!(!native::busy(&state));
         assert_eq!(lock(&commands).len(), 2);
         assert_eq!(
-            state
-                .window
-                .provider_view(provider)
-                .unwrap()
-                .registration
-                .sessions
-                .len(),
+            state.window.provider_view(provider).unwrap().sessions.len(),
             3
         );
     }
@@ -1227,8 +1202,8 @@ mod tests {
     fn host(base: &Path) -> Shared {
         let fabric = Fabric::new();
         let runtime = ChatRuntime::try_from_registrations([
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_codex::MANIFEST),
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_grok::MANIFEST),
+            dpl_ai_core::registration::ProviderRegistration::planned(dpl_ai_codex::MANIFEST),
+            dpl_ai_core::registration::ProviderRegistration::planned(dpl_ai_grok::MANIFEST),
         ])
         .unwrap();
         let coordinator = ChatWindowCoordinator::new(
@@ -1652,13 +1627,7 @@ mod tests {
         assert!(state.next_chat_event_id > 8_000_000);
         assert!(state.next_turn_id > 7_000_000);
         assert_eq!(
-            state
-                .window
-                .provider_view(provider)
-                .unwrap()
-                .registration
-                .sessions[0]
-                .state,
+            state.window.provider_view(provider).unwrap().sessions[0].state,
             SessionState::ReadOnly
         );
         assert!(state.seam_sessions.is_empty());

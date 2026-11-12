@@ -1,6 +1,6 @@
 //! Registry-driven normalized Chat event rendering.
 
-use dpl_chat_core::{ChatEventContent, ChatEventKind};
+use dpl_ai_core::event::{ChatEventContent, ChatEventKind};
 use dpl_coldlight::{self as cl, Tone};
 use egui::{Align, Layout, RichText};
 use std::collections::BTreeSet;
@@ -360,7 +360,7 @@ fn preview(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dpl_chat_core::BoundedNativePayload;
+    use dpl_ai_core::event::BoundedNativePayload;
 
     #[test]
     fn built_in_registry_covers_every_kind_once() {
@@ -384,7 +384,7 @@ mod tests {
             ChatEventContent::ApprovalResolved { accepted: true },
             ChatEventContent::UsageUpdated {
                 summary: "u".into(),
-                usage: dpl_chat_core::TokenUsage::default(),
+                usage: dpl_ai_core::usage::TokenUsage::default(),
             },
             ChatEventContent::ModelSelected { model: "m".into() },
             ChatEventContent::TurnCompleted,

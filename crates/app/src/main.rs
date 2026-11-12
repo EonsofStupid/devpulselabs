@@ -1316,9 +1316,15 @@ impl App {
                         codex_activation.activation().clone(),
                         codex_activation.activation_capability_qualified(),
                     ),
-                    dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_claude::MANIFEST),
-                    dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_cursor::MANIFEST),
-                    dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_gemini::MANIFEST),
+                    dpl_ai_core::registration::ProviderRegistration::planned(
+                        dpl_ai_claude::MANIFEST,
+                    ),
+                    dpl_ai_core::registration::ProviderRegistration::planned(
+                        dpl_ai_cursor::MANIFEST,
+                    ),
+                    dpl_ai_core::registration::ProviderRegistration::planned(
+                        dpl_ai_gemini::MANIFEST,
+                    ),
                     activation_registration(
                         dpl_ai_grok::MANIFEST,
                         grok_activation.activation().clone(),
@@ -1332,15 +1338,15 @@ impl App {
             |fixture| fixture.providers.clone(),
         );
         #[cfg(not(feature = "eguipilotai-devtools"))]
-        let chat_registrations: Vec<dpl_chat_runtime::ProviderRegistration> = vec![
+        let chat_registrations: Vec<dpl_ai_core::registration::ProviderRegistration> = vec![
             activation_registration(
                 dpl_ai_codex::MANIFEST,
                 codex_activation.activation().clone(),
                 codex_activation.activation_capability_qualified(),
             ),
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_claude::MANIFEST),
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_cursor::MANIFEST),
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_gemini::MANIFEST),
+            dpl_ai_core::registration::ProviderRegistration::planned(dpl_ai_claude::MANIFEST),
+            dpl_ai_core::registration::ProviderRegistration::planned(dpl_ai_cursor::MANIFEST),
+            dpl_ai_core::registration::ProviderRegistration::planned(dpl_ai_gemini::MANIFEST),
             activation_registration(
                 dpl_ai_grok::MANIFEST,
                 grok_activation.activation().clone(),
@@ -1354,7 +1360,7 @@ impl App {
         // the coach catalog names them so an agent can wait for one provider's
         // activation rather than any provider's.
         #[cfg(feature = "eguipilotai-devtools")]
-        let coach_providers: Vec<dpl_chat_core::ProviderId> = chat_registrations
+        let coach_providers: Vec<dpl_ai_core::provider::ProviderId> = chat_registrations
             .iter()
             .map(|registration| registration.manifest.descriptor.id)
             .collect();
@@ -1364,6 +1370,18 @@ impl App {
                     tracing::error!(%error, "chat provider registry rejected");
                     dpl_chat_runtime::ChatRuntime::default()
                 });
+        // The authored fixture's conversations are chat's half of its
+        // registrations; they join the runtime once it holds the providers.
+        #[cfg(feature = "eguipilotai-devtools")]
+        let chat_runtime = {
+            let mut chat_runtime = chat_runtime;
+            if let Some(fixture) = authored_chat.as_ref() {
+                if let Err(error) = fixture.seed(&mut chat_runtime) {
+                    tracing::error!(%error, "authored chat fixture rejected");
+                }
+            }
+            chat_runtime
+        };
         // The registry — a new hub is ONE line here and nothing else.
         let hubs: Vec<Box<dyn Hub>> = vec![
             Box::new(dpl_hub_home::HomeHub),
@@ -1817,16 +1835,16 @@ impl App {
 }
 
 fn activation_registration(
-    manifest: dpl_chat_core::ProviderManifest,
-    activation: dpl_chat_core::ActivationState,
+    manifest: dpl_ai_core::provider::ProviderManifest,
+    activation: dpl_ai_core::activation::ActivationState,
     subscription_auth_qualified: bool,
-) -> dpl_chat_runtime::ProviderRegistration {
-    let mut registration = dpl_chat_runtime::ProviderRegistration::planned(manifest);
+) -> dpl_ai_core::registration::ProviderRegistration {
+    let mut registration = dpl_ai_core::registration::ProviderRegistration::planned(manifest);
     registration.activation = activation;
     if subscription_auth_qualified {
         registration
             .qualified_capabilities
-            .insert(dpl_chat_core::Capability::SubscriptionAuth);
+            .insert(dpl_ai_core::capability::Capability::SubscriptionAuth);
     }
     registration
 }
@@ -1842,20 +1860,20 @@ fn activation_registration(
 /// provider that already activated LIVE keeps its own state and merely gains
 /// the two history capabilities it genuinely has.
 fn with_local_history(
-    mut registration: dpl_chat_runtime::ProviderRegistration,
+    mut registration: dpl_ai_core::registration::ProviderRegistration,
     catalog: &dpl_chat_store::HistoryCatalog,
-) -> dpl_chat_runtime::ProviderRegistration {
+) -> dpl_ai_core::registration::ProviderRegistration {
     if !catalog.has_source(registration.manifest.descriptor.id) {
         return registration;
     }
     registration
         .qualified_capabilities
-        .insert(dpl_chat_core::Capability::ReadSessions);
+        .insert(dpl_ai_core::capability::Capability::ReadSessions);
     registration
         .qualified_capabilities
-        .insert(dpl_chat_core::Capability::PageHistory);
+        .insert(dpl_ai_core::capability::Capability::PageHistory);
     if !registration.activation.is_activated() {
-        registration.activation = dpl_chat_core::ActivationState::Experimental {
+        registration.activation = dpl_ai_core::activation::ActivationState::Experimental {
             reason: "Local transcripts only — live turns are not qualified yet.".to_owned(),
             // No recovery action: nothing is broken and there is nothing for
             // the operator to fix. The live adapter simply is not built yet.
@@ -2427,8 +2445,9 @@ impl eframe::App for App {
 #[cfg(test)]
 mod tests {
     use super::with_local_history;
-    use dpl_chat_core::{ActivationState, Capability};
-    use dpl_chat_runtime::ProviderRegistration;
+    use dpl_ai_core::activation::ActivationState;
+    use dpl_ai_core::capability::Capability;
+    use dpl_ai_core::registration::ProviderRegistration;
     use dpl_chat_store::{HistoryCatalog, HistoryLimits, JsonlHistorySource};
 
     #[test]
