@@ -5,6 +5,9 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Sessions and events name providers, turns and event content in the AI
+# vocabulary; chat owns only its envelope around them.
+dpl-ai-core.workspace = true
 # Rooms and roles are authored JSON documents (dpl.role/1, dpl.room/1).
 serde.workspace = true
 serde_json.workspace = true

@@ -1238,7 +1238,7 @@ mod envelope_tests {
             ms: 5000,
             ev: AiEvent::CallStarted {
                 call: dpl_fabric::CallId(39),
-                provider: dpl_fabric::ProviderId("claude"),
+                provider: dpl_ai_core::provider::ProviderId("claude"),
                 model: "claude-opus-5".into(),
                 origin: dpl_fabric::Origin {
                     route: Some(Route {
@@ -1341,7 +1341,7 @@ mod envelope_tests {
             seq: 14,
             ms: 2200,
             ev: ProviderEvent::DeviceCodeReceived {
-                provider: dpl_fabric::ProviderId("grok"),
+                provider: dpl_ai_core::provider::ProviderId("grok"),
                 attempt: dpl_fabric::ActivationAttemptId(12),
                 code_len: 9,
             },
@@ -1594,13 +1594,13 @@ mod tests {
         assert_eq!(body_json(resp).await["registry"]["providers"], json!([]));
 
         fabric.publish_provider_roster(vec![dpl_fabric::ProviderCapability {
-            id: dpl_fabric::ProviderId("claude"),
+            id: dpl_ai_core::provider::ProviderId("claude"),
             label: "Claude Code".into(),
             activated: true,
             note: Some("local transcripts only".into()),
             capabilities: std::collections::BTreeSet::from([
-                dpl_fabric::Capability::ReadSessions,
-                dpl_fabric::Capability::PageHistory,
+                dpl_ai_core::capability::Capability::ReadSessions,
+                dpl_ai_core::capability::Capability::PageHistory,
             ]),
             summary: String::new(),
             since: "2021-01-28".into(),

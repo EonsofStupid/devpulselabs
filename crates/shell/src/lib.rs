@@ -945,7 +945,7 @@ pub struct Shell {
     /// surface where finished jobs are seen and cleared.)
     jobs_open: bool,
     /// Which provider's summary modal is open (V3), if any.
-    provider_modal: Option<dpl_fabric::ProviderId>,
+    provider_modal: Option<dpl_ai_core::provider::ProviderId>,
     /// The accordion's ONE open house (doctrine §5.2) — its subroutes
     /// unfold beneath its rail row; `None` = fully folded, icon-compact.
     open_house: Option<HubId>,
@@ -3066,11 +3066,13 @@ mod tests {
         note: Option<&str>,
     ) -> dpl_fabric::ProviderCapability {
         dpl_fabric::ProviderCapability {
-            id: dpl_fabric::ProviderId(id),
+            id: dpl_ai_core::provider::ProviderId(id),
             label: label.to_owned(),
             activated,
             note: note.map(str::to_owned),
-            capabilities: std::collections::BTreeSet::from([dpl_fabric::Capability::PageHistory]),
+            capabilities: std::collections::BTreeSet::from([
+                dpl_ai_core::capability::Capability::PageHistory,
+            ]),
             summary: String::new(),
             since: "2021-01-28".into(),
             presence: if activated {

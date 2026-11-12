@@ -1,11 +1,17 @@
 //! Deterministic Chat fixtures. Production crates do not depend on this crate.
 
-use dpl_chat_core::{
-    ActivationState, Capability, ChatEvent, ChatEventContent, ChatEventId, ChatSessionId,
+use dpl_ai_core::activation::{ActivationState, RecoveryAction, RecoveryActionKind};
+use dpl_ai_core::capability::Capability;
+use dpl_ai_core::event::ChatEventContent;
+use dpl_ai_core::provider::{
     ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
-    RecoveryAction, RecoveryActionKind, SessionGroup, SessionState, SessionSummary, TurnId,
 };
-use dpl_chat_runtime::ProviderRegistration;
+use dpl_ai_core::registration::ProviderRegistration;
+use dpl_ai_core::turn::TurnId;
+use dpl_chat_core::{
+    ChatEvent, ChatEventId, ChatSessionId, SessionGroup, SessionState, SessionSummary,
+};
+use dpl_chat_runtime::{ChatRuntime, RegistryError};
 use dpl_chat_social::{
     Person, PersonId, Presence, Project, ProjectId, SocialConversation, SocialConversationId,
     SocialMessage, SocialMessageId, SocialModel, SocialThreadKind,
@@ -52,13 +58,20 @@ pub const FIXTURE_MANIFEST: ProviderManifest = ProviderManifest {
 };
 
 pub fn ready_provider() -> ProviderRegistration {
-    let session_id = ChatSessionId(1);
     ProviderRegistration {
         manifest: FIXTURE_MANIFEST,
         activation: ActivationState::Ready,
         qualified_capabilities: CAPABILITIES.iter().copied().collect::<BTreeSet<_>>(),
         account: None,
-        sessions: vec![SessionSummary {
+    }
+}
+
+/// The ready provider's conversation: chat's half of its registration,
+/// keyed by [`FIXTURE_PROVIDER`].
+pub fn ready_conversation() -> (Vec<SessionSummary>, Vec<ChatEvent>) {
+    let session_id = ChatSessionId(1);
+    (
+        vec![SessionSummary {
             id: session_id,
             provider_id: FIXTURE_PROVIDER,
             provider_session_id: None,
@@ -67,7 +80,7 @@ pub fn ready_provider() -> ProviderRegistration {
             group: SessionGroup::Active,
             state: SessionState::Idle,
         }],
-        events: vec![
+        vec![
             ChatEvent {
                 id: ChatEventId(1),
                 provider_id: FIXTURE_PROVIDER,
@@ -87,14 +100,46 @@ pub fn ready_provider() -> ProviderRegistration {
                 ),
             },
         ],
-    }
+    )
 }
 
 #[derive(Debug, Clone)]
 pub struct AuthoredChatFixture {
     pub providers: Vec<ProviderRegistration>,
+    /// Chat's half of the registrations: every session and event, each keyed
+    /// by its provider's id.
+    pub sessions: Vec<SessionSummary>,
+    pub events: Vec<ChatEvent>,
     pub social: SocialModel,
     pub interactions: dpl_chat_interactions::InteractionRegistry,
+}
+
+impl AuthoredChatFixture {
+    /// Give a runtime built from [`Self::providers`] the authored
+    /// conversations. Each provider's first session becomes its active one.
+    pub fn seed(&self, runtime: &mut ChatRuntime) -> Result<(), RegistryError> {
+        for provider in &self.providers {
+            let id = provider.manifest.descriptor.id;
+            let sessions = self
+                .sessions
+                .iter()
+                .filter(|session| session.provider_id == id)
+                .cloned()
+                .collect();
+            runtime.replace_sessions(id, sessions)?;
+        }
+        for event in &self.events {
+            runtime.append_event(event.provider_id, event.clone())?;
+        }
+        Ok(())
+    }
+
+    /// The authored providers registered, with their conversations seeded.
+    pub fn runtime(&self) -> Result<ChatRuntime, RegistryError> {
+        let mut runtime = ChatRuntime::try_from_registrations(self.providers.clone())?;
+        self.seed(&mut runtime)?;
+        Ok(runtime)
+    }
 }
 
 /// Complete deterministic visual fixture for the independent Chat peer.
@@ -102,15 +147,22 @@ pub struct AuthoredChatFixture {
 /// Nothing in this fixture claims a live provider or Social transport. The
 /// app can only register it behind its test/devtools feature.
 pub fn authored_chat() -> AuthoredChatFixture {
+    let (providers, sessions, events) = authored_providers();
     AuthoredChatFixture {
-        providers: authored_providers(),
+        providers,
+        sessions,
+        events,
         social: authored_social(),
         interactions: authored_interactions(),
     }
 }
 
-fn authored_providers() -> Vec<ProviderRegistration> {
-    let mut codex = authored_provider(
+fn authored_providers() -> (
+    Vec<ProviderRegistration>,
+    Vec<SessionSummary>,
+    Vec<ChatEvent>,
+) {
+    let (mut codex, mut codex_sessions, codex_events) = authored_provider(
         dpl_ai_codex::MANIFEST,
         ChatSessionId(101),
         "Choice poll redesign",
@@ -139,8 +191,8 @@ fn authored_providers() -> Vec<ProviderRegistration> {
     );
     codex.activation = ActivationState::Ready;
     codex.qualified_capabilities = CAPABILITIES.iter().copied().collect();
-    codex.sessions[0].group = SessionGroup::Active;
-    codex.sessions.push(SessionSummary {
+    codex_sessions[0].group = SessionGroup::Active;
+    codex_sessions.push(SessionSummary {
         id: ChatSessionId(100),
         provider_id: dpl_ai_codex::MANIFEST.descriptor.id,
         provider_session_id: None,
@@ -149,7 +201,7 @@ fn authored_providers() -> Vec<ProviderRegistration> {
         group: SessionGroup::Pinned,
         state: SessionState::Idle,
     });
-    codex.sessions.push(SessionSummary {
+    codex_sessions.push(SessionSummary {
         id: ChatSessionId(102),
         provider_id: dpl_ai_codex::MANIFEST.descriptor.id,
         provider_session_id: None,
@@ -158,7 +210,7 @@ fn authored_providers() -> Vec<ProviderRegistration> {
         group: SessionGroup::Active,
         state: SessionState::Attention,
     });
-    let mut claude = authored_provider(
+    let (mut claude, mut claude_sessions, mut claude_events) = authored_provider(
         dpl_ai_claude::MANIFEST,
         ChatSessionId(201),
         "Architecture critique",
@@ -171,10 +223,10 @@ fn authored_providers() -> Vec<ProviderRegistration> {
         reason: "Claude subscription adapter is not qualified.".into(),
         recovery: Vec::new(),
     };
-    claude.sessions.clear();
-    claude.events.clear();
+    claude_sessions.clear();
+    claude_events.clear();
 
-    let mut gemini = authored_provider(
+    let (mut gemini, gemini_sessions, gemini_events) = authored_provider(
         dpl_ai_gemini::MANIFEST,
         ChatSessionId(301),
         "Multimodal research",
@@ -188,7 +240,7 @@ fn authored_providers() -> Vec<ProviderRegistration> {
         recovery: Vec::new(),
     };
 
-    let mut grok = authored_provider(
+    let (mut grok, grok_sessions, grok_events) = authored_provider(
         dpl_ai_grok::MANIFEST,
         ChatSessionId(401),
         "Social signal review",
@@ -203,7 +255,17 @@ fn authored_providers() -> Vec<ProviderRegistration> {
         )],
     };
 
-    vec![codex, claude, gemini, grok]
+    (
+        vec![codex, claude, gemini, grok],
+        [
+            codex_sessions,
+            claude_sessions,
+            gemini_sessions,
+            grok_sessions,
+        ]
+        .concat(),
+        [codex_events, claude_events, gemini_events, grok_events].concat(),
+    )
 }
 
 fn authored_provider(
@@ -212,9 +274,9 @@ fn authored_provider(
     title: &str,
     state: SessionState,
     content: Vec<ChatEventContent>,
-) -> ProviderRegistration {
+) -> (ProviderRegistration, Vec<SessionSummary>, Vec<ChatEvent>) {
     let provider_id = manifest.descriptor.id;
-    ProviderRegistration {
+    let registration = ProviderRegistration {
         manifest,
         activation: ActivationState::Blocked {
             reason: "Authored fixture only.".into(),
@@ -224,7 +286,10 @@ fn authored_provider(
             .into_iter()
             .collect(),
         account: None,
-        sessions: vec![SessionSummary {
+    };
+    (
+        registration,
+        vec![SessionSummary {
             id: session_id,
             provider_id,
             provider_session_id: None,
@@ -233,7 +298,7 @@ fn authored_provider(
             group: SessionGroup::Recent,
             state,
         }],
-        events: content
+        content
             .into_iter()
             .enumerate()
             .map(|(index, content)| ChatEvent {
@@ -244,7 +309,7 @@ fn authored_provider(
                 content,
             })
             .collect(),
-    }
+    )
 }
 
 fn authored_social() -> SocialModel {
@@ -464,8 +529,9 @@ mod tests {
     fn fixture_is_ready_but_never_registered_by_production() {
         let fixture = ready_provider();
         assert!(fixture.can_send());
-        assert_eq!(fixture.sessions.len(), 1);
-        assert_eq!(fixture.events.len(), 2);
+        let (sessions, events) = ready_conversation();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(events.len(), 2);
     }
 
     #[test]

@@ -3,7 +3,9 @@
 //! Content is declarative. Providers cannot supply egui callbacks, geometry,
 //! colors, z-order, filesystem paths, shell handles, or arbitrary actions.
 
-use dpl_chat_core::{Capability, ChatEventId, ChatSessionId, ProviderId};
+use dpl_ai_core::capability::Capability;
+use dpl_ai_core::provider::ProviderId;
+use dpl_chat_core::{ChatEventId, ChatSessionId};
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 

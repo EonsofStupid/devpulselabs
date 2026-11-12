@@ -183,7 +183,7 @@ pub struct ProvidersPopup<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PopupAction {
     /// Open this provider's full summary — V3's modal.
-    Inspect(dpl_fabric::ProviderId),
+    Inspect(dpl_ai_core::provider::ProviderId),
 }
 
 /// The dot colour for each state. Green/amber/grey is the same vocabulary the
@@ -523,11 +523,13 @@ mod tests {
         activated: bool,
     ) -> dpl_fabric::ProviderCapability {
         dpl_fabric::ProviderCapability {
-            id: dpl_fabric::ProviderId(id),
+            id: dpl_ai_core::provider::ProviderId(id),
             label: id.to_owned(),
             activated,
             note: None,
-            capabilities: std::collections::BTreeSet::from([dpl_fabric::Capability::PageHistory]),
+            capabilities: std::collections::BTreeSet::from([
+                dpl_ai_core::capability::Capability::PageHistory,
+            ]),
             summary: String::new(),
             since: "2021-01-28".into(),
             presence,

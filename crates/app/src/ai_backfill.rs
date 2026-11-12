@@ -19,8 +19,9 @@
 //! transports (Grok's ACP) have nothing on disk and are excluded by
 //! construction, not by a special case here.
 
-use dpl_chat_core::ProviderId;
-use dpl_chat_store::{HistorySource, JsonlHistorySource, ProviderUsage, SessionUsage};
+use dpl_ai_core::provider::ProviderId;
+use dpl_ai_core::usage::{ProviderUsage, SessionUsage};
+use dpl_chat_store::{HistorySource, JsonlHistorySource};
 use dpl_fabric::{AiEvent, AiOutcome, Fabric, Observation, Origin};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -228,7 +229,7 @@ pub fn run(
 mod tests {
     use super::*;
     use crate::ai_usage;
-    use dpl_chat_core::TokenUsage;
+    use dpl_ai_core::usage::TokenUsage;
     use dpl_chat_store::HistoryLimits;
     use std::fs;
 

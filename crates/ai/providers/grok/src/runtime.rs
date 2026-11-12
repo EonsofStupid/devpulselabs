@@ -18,8 +18,8 @@ use agent_client_protocol::{
 };
 use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use async_process::Child;
-use dpl_chat_core::{ProviderId, TokenUsage};
-use dpl_chat_store::{ProviderUsage, UsageReporting};
+use dpl_ai_core::provider::ProviderId;
+use dpl_ai_core::usage::{ProviderUsage, TokenUsage, UsageReporting};
 use futures_lite::future;
 use std::{
     collections::{BTreeMap, BTreeSet},

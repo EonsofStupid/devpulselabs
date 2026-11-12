@@ -6,7 +6,7 @@ publish.workspace = true
 
 [dependencies]
 egui.workspace = true
-dpl-chat-core.workspace = true
+dpl-ai-core.workspace = true
 dpl-coldlight.workspace = true
 
 [lints]

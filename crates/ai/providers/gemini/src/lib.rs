@@ -3,11 +3,12 @@
 //! Live ACP integration is CH6, requires explicit installation, and remains
 //! blocked on the provider runtime ADR.
 
-use dpl_chat_core::{
-    Capability, PresenceSpec, ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest,
-    ProviderProfileId, TokenUsage,
+use dpl_ai_core::capability::Capability;
+use dpl_ai_core::presence::PresenceSpec;
+use dpl_ai_core::provider::{
+    ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
 };
-use dpl_chat_store::{ProviderUsage, UsageReporting};
+use dpl_ai_core::usage::{ProviderUsage, TokenUsage, UsageReporting};
 
 pub const PROVIDER: ProviderId = ProviderId("gemini");
 pub const DEFAULT_PROFILE: ProviderProfileId = ProviderProfileId("gemini-default");

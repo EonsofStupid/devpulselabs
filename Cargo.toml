@@ -8,6 +8,7 @@ members = [
     "crates/egui-pilot-ai-runner",
     "crates/egui-pilot-ai-cli",
     "crates/egui-pilot-ai-lab",
+    "crates/ai/core",
     "crates/ai/accounts",
     "crates/ai/browser-auth",
     "crates/ai/imagine",
@@ -165,6 +166,7 @@ egui-pilot-ai-runtime = { path = "crates/egui-pilot-ai-runtime" }
 egui-pilot-ai-runner = { path = "crates/egui-pilot-ai-runner" }
 egui-pilot-ai-lab = { path = "crates/egui-pilot-ai-lab" }
 
+dpl-ai-core = { path = "crates/ai/core" }
 dpl-ai-accounts = { path = "crates/ai/accounts" }
 dpl-ai-browser-auth = { path = "crates/ai/browser-auth" }
 dpl-ai-imagine = { path = "crates/ai/imagine" }

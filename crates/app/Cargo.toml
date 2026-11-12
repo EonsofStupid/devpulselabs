@@ -42,6 +42,7 @@ dpl-video.workspace = true
 dpl-composer.workspace = true
 dpl-guide.workspace = true
 dpl-workflows.workspace = true
+dpl-ai-core.workspace = true
 dpl-chat-core.workspace = true
 dpl-ai-accounts.workspace = true
 dpl-ai-browser-auth.workspace = true

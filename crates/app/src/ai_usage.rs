@@ -10,8 +10,8 @@
 //! `every_provider_has_a_usage_adapter` fails — the "grow as the releases
 //! come out" property is a test, not a hope.
 
-use dpl_chat_core::{ProviderId, ProviderManifest};
-use dpl_chat_store::{ProviderUsage, UsageReporting};
+use dpl_ai_core::provider::{ProviderId, ProviderManifest};
+use dpl_ai_core::usage::{ProviderUsage, UsageReporting};
 
 /// Every provider manifest the app ships. The census pins the usage
 /// registry against THIS list, so a new provider cannot arrive with its
@@ -116,7 +116,7 @@ pub fn log_census() {
 /// nothing for a whole call has almost certainly changed its payload
 /// shape in a release. That is exactly the drift this seam exists to
 /// catch — surfaced as a warning instead of a silent zero.
-pub fn note_usage_drift(provider: ProviderId, usage: dpl_chat_core::TokenUsage) {
+pub fn note_usage_drift(provider: ProviderId, usage: dpl_ai_core::usage::TokenUsage) {
     let Some(adapter) = usage_for(provider) else {
         return;
     };
@@ -291,6 +291,6 @@ mod tests {
         // cost computed from a guessed zero would be a lie.
         let empty = r#"{"type":"event_msg","payload":{"type":"token_count","info":{}}}"#;
         assert_eq!(codex.usage_from_line(empty), None);
-        assert!(dpl_chat_core::TokenUsage::default().is_empty());
+        assert!(dpl_ai_core::usage::TokenUsage::default().is_empty());
     }
 }

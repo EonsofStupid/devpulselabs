@@ -17,5 +17,9 @@ arrow-array = "60"
 # construction with a type mismatch (dependabot #197/#198 left this at 55).
 arrow-schema = "60"
 
+[dev-dependencies]
+# Test facts name a provider by its id.
+dpl-ai-core.workspace = true
+
 [lints]
 workspace = true

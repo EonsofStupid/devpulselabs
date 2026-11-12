@@ -1,6 +1,6 @@
 //! Named terminal entry, separate from the native Chat window.
 use dpl_ai_codex::standalone;
-use dpl_chat_core::PermissionMode;
+use dpl_ai_core::approval::PermissionMode;
 use dpl_chat_projects::{ProfileGeneration, ProjectId};
 use std::ffi::OsString;
 use std::path::PathBuf;

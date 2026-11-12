@@ -88,7 +88,7 @@ route to them.
 
 **Consequence for the type.** A boolean pair cannot serve rows 2–4. The
 registry carries a **capability SET** per provider (the existing
-`dpl_chat_core::Capability` vocabulary — `ReadSessions`, `PageHistory`,
+`dpl_ai_core::capability::Capability` vocabulary — `ReadSessions`, `PageHistory`,
 `StreamTurns`, `Tools`, `Images`, `Video`, `Plans`, …), plus identity, a
 truthful limitation note, and the activation state. Booleans like
 `can_send` become derived helpers, never the stored form.

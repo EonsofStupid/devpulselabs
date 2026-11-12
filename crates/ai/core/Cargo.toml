@@ -1,0 +1,13 @@
+[package]
+name = "dpl-ai-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Pure provider vocabulary. Provider events and token usage ride the project
+# chat archive as serde values; nothing here does IO.
+serde.workspace = true
+
+[lints]
+workspace = true
