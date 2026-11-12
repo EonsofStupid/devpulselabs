@@ -228,7 +228,6 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai_usage;
     use dpl_ai_core::usage::TokenUsage;
     use dpl_chat_store::HistoryLimits;
     use std::fs;
@@ -301,7 +300,7 @@ mod tests {
             HistoryLimits::default(),
         )
         .expect("source");
-        let usage = ai_usage::usage_for(dpl_ai_codex::PROVIDER).expect("codex adapter");
+        let usage = dpl_ai_host::usage::usage_for(dpl_ai_codex::PROVIDER).expect("codex adapter");
 
         let fabric = Fabric::new();
         let mut rx = fabric.subscribe_ai();
@@ -370,7 +369,7 @@ mod tests {
             HistoryLimits::default(),
         )
         .expect("source");
-        let usage = ai_usage::usage_for(dpl_ai_codex::PROVIDER).expect("codex");
+        let usage = dpl_ai_host::usage::usage_for(dpl_ai_codex::PROVIDER).expect("codex");
         let fabric = Fabric::new();
         let mut rx = fabric.subscribe_ai();
         let mut manifest = BackfillManifest::default();
@@ -400,7 +399,7 @@ mod tests {
             HistoryLimits::default(),
         )
         .expect("source");
-        let grok = ai_usage::usage_for(dpl_ai_grok::PROVIDER).expect("grok");
+        let grok = dpl_ai_host::usage::usage_for(dpl_ai_grok::PROVIDER).expect("grok");
         let fabric = Fabric::new();
 
         // `run` filters on the declaration, so Grok is skipped even when
@@ -431,7 +430,7 @@ mod tests {
             HistoryLimits::default(),
         )
         .expect("source");
-        let usage = ai_usage::usage_for(dpl_ai_claude::PROVIDER).expect("claude");
+        let usage = dpl_ai_host::usage::usage_for(dpl_ai_claude::PROVIDER).expect("claude");
         let fabric = Fabric::new();
         let mut rx = fabric.subscribe_ai();
         let mut manifest = BackfillManifest::default();
@@ -473,7 +472,7 @@ mod tests {
             HistoryLimits::default(),
         )
         .unwrap();
-        let usage = ai_usage::usage_for(dpl_ai_claude::PROVIDER).unwrap();
+        let usage = dpl_ai_host::usage::usage_for(dpl_ai_claude::PROVIDER).unwrap();
         let index = source.list(None).unwrap();
         let scanned = source.scan_usage(index.sessions[0].locator, usage).unwrap();
         assert_eq!(
@@ -503,7 +502,7 @@ mod tests {
             HistoryLimits::default(),
         )
         .unwrap();
-        let usage = ai_usage::usage_for(dpl_ai_codex::PROVIDER).unwrap();
+        let usage = dpl_ai_host::usage::usage_for(dpl_ai_codex::PROVIDER).unwrap();
         let index = source.list(None).unwrap();
         let scanned = source.scan_usage(index.sessions[0].locator, usage).unwrap();
         assert_eq!(

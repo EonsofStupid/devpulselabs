@@ -44,6 +44,12 @@ one source, no regression.
   change. No shortcuts: no aliases, no barrel re-exports, nothing kept as
   "legacy".
 - The order from here: A1, then the pieces above in the §4.4 order.
+- **A1 landed** in #322 (crates moved to `crates/ai/*`), #323 (`dpl-ai-core`) and
+  the A1c PR (`dpl-ai-host`: presence and the usage census). Names were kept;
+  the §4.3.5 renames are designed in A2 with the event tiers, because that map
+  sends both `RuntimeEvent` and `RuntimeUpdate` to `Event`. Grok's separate
+  path joins the shared registry in A7 (a behaviour change, so not in A1).
+  `ai_backfill` stays in the app as wiring: it reads chat history.
 
 **Amended 2026-10-11 (operator: *"update the existing if wrong and ensure
 you plan against the existing code to implement canonical consistent naming

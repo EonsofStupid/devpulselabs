@@ -8,13 +8,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ai_backfill;
-mod ai_usage;
 mod chat;
 #[cfg(feature = "eguipilotai-devtools")]
 mod coach_fabric;
 #[cfg(feature = "eguipilotai-devtools")]
 mod coach_signals;
-mod presence;
 mod screenshot;
 mod storage_startup;
 
@@ -55,12 +53,12 @@ fn run_ai_backfill(fabric: &dpl_fabric::Fabric, analytics_root: &std::path::Path
         )
     });
     if let Some(Ok(source)) = codex.as_ref() {
-        if let Some(usage) = ai_usage::usage_for(dpl_ai_codex::PROVIDER) {
+        if let Some(usage) = dpl_ai_host::usage::usage_for(dpl_ai_codex::PROVIDER) {
             sources.push((source, usage));
         }
     }
     if let Some(Ok(source)) = claude.as_ref() {
-        if let Some(usage) = ai_usage::usage_for(dpl_ai_claude::PROVIDER) {
+        if let Some(usage) = dpl_ai_host::usage::usage_for(dpl_ai_claude::PROVIDER) {
             sources.push((source, usage));
         }
     }
@@ -129,7 +127,7 @@ fn main() -> eframe::Result {
     // Same honesty law, applied to AI accounting: name which providers
     // report usage and which do not, so an empty cost column is explained
     // rather than mysterious.
-    crate::ai_usage::log_census();
+    dpl_ai_host::usage::log_census();
     // Managed ffmpeg (the original's tools.rs law, ported): resolve ONE
     // absolute binary at boot and inject it into every engine seam, so a
     // double-clicked exe with a stale Explorer PATH still previews,

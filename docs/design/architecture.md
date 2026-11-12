@@ -41,6 +41,11 @@ decoding, the runtime adapter contract and the provider registration. It is
 engine-free pure data (its exact deps are in §2). The provider crates
 `dpl-ai-<vendor>` under `crates/ai/providers/`, plus `dpl-ai-accounts`,
 `dpl-ai-profiles`, `dpl-ai-browser-auth` and `dpl-ai-imagine`, are engines.
+`dpl-ai-host` (`crates/ai/host`) holds host work that spans providers:
+`presence` (asking each vendor's tool whether the operator is signed in) and
+`usage` (the census of provider usage adapters). The app wires AI to chat;
+`ai_backfill`, which reads chat history to publish usage facts, is that wiring
+and stays in the app.
 `chat/*` owns chat: `dpl-chat-core` is the pure document/domain layer and
 window/windows/renderers are surfaces. Chat depends on `dpl-ai-core`; no
 `crates/ai/*` crate depends on a `crates/chat/*` crate (gate-enforced), with

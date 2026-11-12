@@ -192,7 +192,7 @@ struct Shared {
     /// The one-shot presence sweep: each vendor's own tool answering whether
     /// the operator is already signed in. Polled from the frame loop and
     /// dropped once it lands.
-    presence: Option<std::sync::mpsc::Receiver<Vec<crate::presence::Presence>>>,
+    presence: Option<std::sync::mpsc::Receiver<Vec<dpl_ai_host::presence::Presence>>>,
     /// Where the roster is remembered between launches (ADR-017 §2). `None`
     /// when the estate failed to open; the roster is derived, so the only
     /// cost is that the platform starts empty instead of remembered.
@@ -466,7 +466,7 @@ fn drain_presence(state: &mut Shared) {
 /// has spoken for, and to state honestly what the machine says about the
 /// rest. Overwriting a live coordinator's state from a one-shot probe is how
 /// a working provider ends up reported as signed out mid-session.
-fn apply_presence(state: &mut Shared, found: &crate::presence::Presence) {
+fn apply_presence(state: &mut Shared, found: &dpl_ai_host::presence::Presence) {
     use dpl_ai_core::presence::PresenceVerdict;
 
     let already_activated = state
@@ -1031,7 +1031,7 @@ impl ChatWindowCoordinator {
             route_table,
             clyffy: None,
             presence: provider_runtime_enabled
-                .then(|| crate::presence::probe_all(crate::presence::specs())),
+                .then(|| dpl_ai_host::presence::probe_all(dpl_ai_host::presence::specs())),
             estate,
             determinism: dpl_intent::DeterminismGate::default(),
             brainstorm: None,
@@ -2181,7 +2181,7 @@ fn activate_provider(shared: &Arc<Mutex<Shared>>, provider: ProviderId) {
             }
         }
         state.grok_activation.activation().clone()
-    } else if let Some((_, spec)) = crate::presence::specs()
+    } else if let Some((_, spec)) = dpl_ai_host::presence::specs()
         .into_iter()
         .find(|(id, _)| *id == provider)
     {
@@ -2189,7 +2189,7 @@ fn activate_provider(shared: &Arc<Mutex<Shared>>, provider: ProviderId) {
         // through a presence probe rather than a bespoke coordinator. The
         // vendor's own CLI opens the operator's DEFAULT browser and runs the
         // real flow; we watch until the probe confirms it took.
-        match crate::presence::begin_sign_in(provider, spec) {
+        match dpl_ai_host::presence::begin_sign_in(provider, spec) {
             Ok(receiver) => {
                 state.presence = Some(receiver);
                 let attempt = state.fabric.mint_provider_attempt();
@@ -3924,7 +3924,7 @@ fn ai_call_finished(state: &mut Shared, provider_session_id: &str, outcome: AiOu
     // A provider that DECLARED it reports usage and then delivered none
     // for a whole call has likely changed its payload shape — surface the
     // drift instead of recording a silent zero.
-    crate::ai_usage::note_usage_drift(entry.provider, usage);
+    dpl_ai_host::usage::note_usage_drift(entry.provider, usage);
     state.fabric.publish_ai(AiEvent::CallFinished {
         call: entry.call,
         tokens_in: usage.input_tokens,
