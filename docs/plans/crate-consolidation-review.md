@@ -82,10 +82,10 @@ are not in the census list at all.
 
 ### 2.2 Four crates are missing from the egui-free census
 
-`dpl-chat-cursor` · `dpl-chat-context` · `dpl-chat-extensions` ·
+`dpl-ai-cursor` · `dpl-chat-context` · `dpl-chat-extensions` ·
 `dpl-chat-windows` are egui-free by direct deps but unregistered
 (`crates/xtask/src/main.rs:678`), so nothing stops any of them growing a UI
-dependency tomorrow. `dpl-chat-cursor` was noted as a gap once already and
+dependency tomorrow. `dpl-ai-cursor` was noted as a gap once already and
 is still unregistered.
 
 ### 2.3 `architecture.md` misstates one crate

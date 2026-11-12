@@ -14,8 +14,8 @@
 //! cargo run -p dpl-chat-codex --example codex_turn -- "your prompt"
 //! ```
 
-use dpl_chat_codex::runtime::CodexAppServerRuntime;
-use dpl_chat_codex::CodexRuntimeProfile;
+use dpl_ai_codex::runtime::CodexAppServerRuntime;
+use dpl_ai_codex::CodexRuntimeProfile;
 use dpl_chat_runtime::seam::{
     ProviderRuntime, RuntimeCommand, RuntimeEvent, RuntimeSendError, RuntimeUpdate,
 };

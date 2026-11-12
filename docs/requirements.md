@@ -2404,4 +2404,6 @@ R301 amendment.
 
 **Operator rulings 2026-11-11:**
 - **One source for chat:** "Run A1 next". Providers, accounts, profiles and sign-in move under `crates/ai/*` as the chat plan's §4.3.1 says, before new chat work lands.
+- **The A1 pass plan:** "Approve, start A1a", in three PRs (move, split, app files).
+- **The Cursor provider:** "Keep it for now". It moves with the others; retiring it is its own ruling.
 - **"No import/export"** means no shortcuts: no aliases (`use x as y`), no barrel re-exports (`pub use` of another module's items), and nothing kept as "legacy". It does not mean removing `dpl_workflows::interop`.

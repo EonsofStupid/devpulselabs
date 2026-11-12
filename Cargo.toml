@@ -8,14 +8,19 @@ members = [
     "crates/egui-pilot-ai-runner",
     "crates/egui-pilot-ai-cli",
     "crates/egui-pilot-ai-lab",
+    "crates/ai/accounts",
+    "crates/ai/browser-auth",
+    "crates/ai/imagine",
+    "crates/ai/profiles",
+    "crates/ai/providers/codex",
+    "crates/ai/providers/claude",
+    "crates/ai/providers/cursor",
+    "crates/ai/providers/gemini",
+    "crates/ai/providers/grok",
     "crates/chat/core",
-    "crates/chat/accounts",
-    "crates/chat/browser-auth",
     "crates/chat/context",
     "crates/chat/extensions",
-    "crates/chat/imagine",
     "crates/chat/interactions",
-    "crates/chat/profiles",
     "crates/chat/projects",
     "crates/chat/renderers",
     "crates/chat/runtime",
@@ -24,11 +29,6 @@ members = [
     "crates/chat/testkit",
     "crates/chat/window",
     "crates/chat/windows",
-    "crates/chat/providers/codex",
-    "crates/chat/providers/claude",
-    "crates/chat/providers/cursor",
-  "crates/chat/providers/gemini",
-    "crates/chat/providers/grok",
     "crates/tools-deps",
     "crates/hub",
     "crates/coldlight",
@@ -110,7 +110,7 @@ serde_json = "1"
 # shapes against schemas/*.schema.json so Rust and wire never drift.
 # default-features off: no reqwest — our $refs are all local.
 jsonschema = { version = "0.60", default-features = false }
-# ADR-011: the ONE outbound HTTPS client, used only by dpl-chat-imagine's
+# ADR-011: the ONE outbound HTTPS client, used only by dpl-ai-imagine's
 # bounded worker against the compiled-in xAI Imagine endpoint.
 ureq = "3"
 data-encoding = "2"
@@ -165,14 +165,19 @@ egui-pilot-ai-runtime = { path = "crates/egui-pilot-ai-runtime" }
 egui-pilot-ai-runner = { path = "crates/egui-pilot-ai-runner" }
 egui-pilot-ai-lab = { path = "crates/egui-pilot-ai-lab" }
 
+dpl-ai-accounts = { path = "crates/ai/accounts" }
+dpl-ai-browser-auth = { path = "crates/ai/browser-auth" }
+dpl-ai-imagine = { path = "crates/ai/imagine" }
+dpl-ai-profiles = { path = "crates/ai/profiles" }
+dpl-ai-codex = { path = "crates/ai/providers/codex" }
+dpl-ai-claude = { path = "crates/ai/providers/claude" }
+dpl-ai-cursor = { path = "crates/ai/providers/cursor" }
+dpl-ai-gemini = { path = "crates/ai/providers/gemini" }
+dpl-ai-grok = { path = "crates/ai/providers/grok" }
 dpl-chat-core = { path = "crates/chat/core" }
-dpl-chat-accounts = { path = "crates/chat/accounts" }
-dpl-chat-browser-auth = { path = "crates/chat/browser-auth" }
 dpl-chat-context = { path = "crates/chat/context" }
 dpl-chat-extensions = { path = "crates/chat/extensions" }
-dpl-chat-imagine = { path = "crates/chat/imagine" }
 dpl-chat-interactions = { path = "crates/chat/interactions" }
-dpl-chat-profiles = { path = "crates/chat/profiles" }
 dpl-chat-renderers = { path = "crates/chat/renderers" }
 dpl-chat-runtime = { path = "crates/chat/runtime" }
 dpl-chat-projects = { path = "crates/chat/projects" }
@@ -181,11 +186,6 @@ dpl-chat-store = { path = "crates/chat/store" }
 dpl-chat-testkit = { path = "crates/chat/testkit" }
 dpl-chat-window = { path = "crates/chat/window" }
 dpl-chat-windows = { path = "crates/chat/windows" }
-dpl-chat-codex = { path = "crates/chat/providers/codex" }
-dpl-chat-claude = { path = "crates/chat/providers/claude" }
-dpl-chat-cursor = { path = "crates/chat/providers/cursor" }
-dpl-chat-gemini = { path = "crates/chat/providers/gemini" }
-dpl-chat-grok = { path = "crates/chat/providers/grok" }
 dpl-tools-deps = { path = "crates/tools-deps" }
 
 dpl-hub = { path = "crates/hub" }

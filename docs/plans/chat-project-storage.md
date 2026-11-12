@@ -24,7 +24,7 @@ Grounded owners:
 - `crates/app/src/main.rs`: provider working directory is process CWD;
   `local_chat_history_catalog` chooses host histories.
 - `crates/chat/runtime/src/lib.rs`: in-memory session events and drafts.
-- `crates/chat/providers/codex/src/runtime.rs`: list/load rejected; successful
+- `crates/ai/providers/codex/src/runtime.rs`: list/load rejected; successful
   ordinary RPC responses are discarded. Its existing request ledger can own
   the missing response correlation. Schema baseline is `codex-cli 0.163.0`.
 - `crates/app/src/chat.rs`: Connected starts a new session, SessionsPage is

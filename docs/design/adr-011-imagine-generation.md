@@ -34,7 +34,7 @@ narrow decision the commissioned feature is impossible.
 
 ## Decision (proposed)
 
-> Permit one named generation adapter (`dpl-chat-imagine`) to call exactly
+> Permit one named generation adapter (`dpl-ai-imagine`) to call exactly
 > the xAI Imagine endpoints, authenticated by an operator-owned key that
 > DevPULSE reads but never stores. Everything else keeps the existing laws.
 

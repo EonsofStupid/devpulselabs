@@ -167,7 +167,7 @@ Ground truth, measured 2026-08-03:
 
 - `grep dpl_estate` across the entire `crates/chat/**` tree returns
   **zero**. Chat never touches the estate.
-- `dpl-chat-profiles` keeps its own database —
+- `dpl-ai-profiles` keeps its own database —
   `.userdata/chat/provider-profiles.db` (turso) with **its own tokio
   runtime**.
 - The only thing writing `Tree::Agents` is `app/src/chat.rs`, on chat's

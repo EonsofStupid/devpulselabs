@@ -1,5 +1,5 @@
 [package]
-name = "dpl-chat-imagine"
+name = "dpl-ai-imagine"
 version.workspace = true
 edition.workspace = true
 publish = false

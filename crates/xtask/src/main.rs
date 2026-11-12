@@ -660,8 +660,8 @@ fn vendor_schema(arguments: &[String]) -> Result<(), String> {
     if tool != "codex" {
         return Err(format!("`{tool}` has no vendored schema"));
     }
-    let schema_dir = workspace_root().join("crates/chat/providers/codex/schema");
-    let version = dpl_chat_codex::adoption::vendor_schema(Path::new(executable), &schema_dir)?;
+    let schema_dir = workspace_root().join("crates/ai/providers/codex/schema");
+    let version = dpl_ai_codex::adoption::vendor_schema(Path::new(executable), &schema_dir)?;
     println!(
         "vendored the Codex {version} schema into {}; update MINIMUM_VERSION and PINNED_CLI_VERSION to {version}, then run the codex tests",
         schema_dir.display()
@@ -686,9 +686,9 @@ fn adopt_tool(arguments: &[String]) -> Result<(), String> {
     if tool != "codex" {
         return Err(format!("`{tool}` cannot be adopted yet; only codex can"));
     }
-    let verified = dpl_chat_codex::adoption::verify(
+    let verified = dpl_ai_codex::adoption::verify(
         Path::new(executable),
-        &dpl_chat_codex::adoption::SystemInspector,
+        &dpl_ai_codex::adoption::SystemInspector,
     )
     .map_err(|error| error.to_string())?;
     let version = verified.version.to_string();
@@ -1513,19 +1513,19 @@ fn structure_audit() -> Result<(), String> {
         "dpl-guide",
         "dpl-chat-core",
         "dpl-chat-store",
-        "dpl-chat-accounts",
-        "dpl-chat-browser-auth",
+        "dpl-ai-accounts",
+        "dpl-ai-browser-auth",
         "dpl-chat-interactions",
-        "dpl-chat-profiles",
+        "dpl-ai-profiles",
         "dpl-chat-runtime",
         "dpl-chat-projects",
         "dpl-chat-social",
         "dpl-chat-testkit",
-        "dpl-chat-codex",
-        "dpl-chat-claude",
-        "dpl-chat-gemini",
-        "dpl-chat-grok",
-        "dpl-chat-imagine",
+        "dpl-ai-codex",
+        "dpl-ai-claude",
+        "dpl-ai-gemini",
+        "dpl-ai-grok",
+        "dpl-ai-imagine",
         "dpl-coach-pack",
         "egui-pilot-ai-protocol",
         "egui-pilot-ai-transport",

@@ -34,11 +34,15 @@ side rails         dpl-fabric (signals) · dpl-seam (agent HTTP) ·
                    egui-pilot-ai-* (semantic harness) · xtask (automation)
 ```
 
-`chat/*` mirrors the same shape internally: `dpl-chat-core` is the pure
-document/domain layer; providers and accounts are engines; window/windows/
-renderers are surfaces.
+`ai/*` owns every provider and subscription concern (chat plan §4.3, R301):
+the provider crates `dpl-ai-<vendor>` under `crates/ai/providers/`, plus
+`dpl-ai-accounts`, `dpl-ai-profiles`, `dpl-ai-browser-auth` and
+`dpl-ai-imagine`; all are engines. `chat/*` owns chat: `dpl-chat-core` is the
+pure document/domain layer and window/windows/renderers are surfaces. A1b moves
+the provider vocabulary still held in chat-core, chat-runtime and chat-store
+into `ai/*`.
 
-`dpl-chat-codex → dpl-chat-projects` carries an explicitly leased candidate
+`dpl-ai-codex → dpl-chat-projects` carries an explicitly leased candidate
 profile into every owned provider child. The project owner validates paths,
 links and identities; Codex owns process/protocol policy. A valid candidate
 does not enable native resume or standalone support without qualification.
@@ -156,7 +160,7 @@ the audit, same commit, with the reason.
 
 - **One concern.** The lib.rs doc-header names it in one sentence; if the
   sentence needs "and", it is two crates.
-- **Naming**: `dpl-` prefix; kebab ids; grouped folders (`chat/*`,
+- **Naming**: `dpl-` prefix; kebab ids; grouped folders (`ai/*`, `chat/*`,
   `hubs/*`) when a family exceeds ~3 crates. Stated exactly, because this
   law was prose-only until 2026-07-30 and drifted where nobody looked: a
   crate is `dpl-` + its folder; a BINARY is kebab-case; a `src/bin/*.rs`

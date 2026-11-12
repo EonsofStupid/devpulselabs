@@ -391,7 +391,7 @@ mod tests {
 
     fn ledger(name: &str) -> (PathBuf, ActivationLedger) {
         let path = std::env::temp_dir().join(format!(
-            "dpl-chat-accounts-{name}-{}-{}.db",
+            "dpl-ai-accounts-{name}-{}-{}.db",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-10
+updated: 2026-11-11
 active_lane: recording-for-ai
 dirty: false
 ---
@@ -13,7 +13,7 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-11-10. **Baseline `v0.1.0` (R295, R296):** the tag marks the
+**Updated:** 2026-11-11. **Baseline `v0.1.0` (R295, R296):** the tag marks the
 merge of everything through RA1a (#313), ST3, and all ten open dependency
 updates, which clear the nine open security alerts. Tag `v0.1.1` adds chat
 resume's code (PC1b), with native resume and standalone launch still disabled
@@ -67,7 +67,8 @@ not fixed: see [`plans/coach-correctness.md`](plans/coach-correctness.md).
 **Landing the never-merged work (R300, R301).** Foundry lands as a module of
 `dpl-coach-pack`. The August chat branch is not a second chat: its pieces are
 mapped to the [chat plan](plans/chat-native-program.md)'s own passes. A1 (providers
-under `crates/ai/*`) runs next, ruled in R301. The process-supervisor branch is not landing:
+under `crates/ai/*`, [pass plan](plans/ai-boundary-a1.md)) is under way: A1a moves
+the provider, account, profile, sign-in and Imagine crates; A1b and A1c follow. The process-supervisor branch is not landing:
 its own commit records it as a placebo that fails the gate. The originals are
 local tags under `retired/`. The old clone at `D:\localdev\devpulselabs` now
 holds only `main`.
