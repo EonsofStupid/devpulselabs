@@ -98,7 +98,6 @@ named first and the others are marked **P2**: they merge into it during
 | Doc | Truth for |
 |---|---|
 | [`plans/chat-native-program.md`](plans/chat-native-program.md) | **The** chat + AI program: one chat, one plan; A1 under way (R301). |
-| [`plans/ai-boundary-a1.md`](plans/ai-boundary-a1.md) | A1: providers and subscriptions move under `crates/ai/*`, behaviour unchanged (R301). Deleted when A1 lands. |
 | [`plans/chat-provider-runtime-adr.md`](plans/chat-provider-runtime-adr.md) | The provider runtime exception to the no-IPC law. |
 | [`plans/chat-project-storage.md`](plans/chat-project-storage.md) | R292: PC1a project archives, drafts, selection and machine awareness passed local and native verification. Standalone links and native resume remain PC1b qualification. |
 | [`plans/chat-project-native-execution.md`](plans/chat-project-native-execution.md) | Authorized PC1b execution and qualification gates for native resume and standalone project clients. |

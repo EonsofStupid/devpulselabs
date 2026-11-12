@@ -1,0 +1,23 @@
+[package]
+name = "dpl-ai-host"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# A1c of the AI boundary (docs/plans/chat-native-program.md §4.3.1): host
+# work that spans providers. `presence` asks each vendor's own tool whether
+# the operator is signed in; `usage` is the census of every provider's usage
+# adapter. Egui-free; never depends on a chat crate.
+
+[dependencies]
+dpl-ai-core.workspace = true
+dpl-ai-codex.workspace = true
+dpl-ai-claude.workspace = true
+dpl-ai-cursor.workspace = true
+dpl-ai-gemini.workspace = true
+dpl-ai-grok.workspace = true
+dpl-proc.workspace = true
+tracing = "0.1"
+
+[lints]
+workspace = true

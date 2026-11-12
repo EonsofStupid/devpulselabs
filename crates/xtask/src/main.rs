@@ -1513,6 +1513,7 @@ fn structure_audit() -> Result<(), String> {
         "dpl-svg",
         "dpl-guide",
         "dpl-ai-core",
+        "dpl-ai-host",
         "dpl-chat-core",
         "dpl-chat-store",
         "dpl-ai-accounts",

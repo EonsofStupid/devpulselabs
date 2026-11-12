@@ -523,7 +523,7 @@ fn publish(state: &mut Shared) {
         workspace: project.workspace().into(),
     };
     state.window.set_project_view(ProjectView {
-        machine: crate::presence::platform_label().into(),
+        machine: dpl_ai_host::presence::platform_label().into(),
         active: state.project.active.as_ref().map(choice),
         choices: state
             .project

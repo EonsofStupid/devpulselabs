@@ -66,11 +66,14 @@ not fixed: see [`plans/coach-correctness.md`](plans/coach-correctness.md).
 
 **Landing the never-merged work (R300, R301).** Foundry lands as a module of
 `dpl-coach-pack`. The August chat branch is not a second chat: its pieces are
-mapped to the [chat plan](plans/chat-native-program.md)'s own passes. A1 (providers
-under `crates/ai/*`, [pass plan](plans/ai-boundary-a1.md)) is under way: A1a (#322)
-moved the provider, account, profile, sign-in and Imagine crates; A1b creates
-`dpl-ai-core` and moves the provider vocabulary out of chat-core, chat-runtime and
-chat-store; A1c moves presence, usage and backfill out of the app. The process-supervisor branch is not landing:
+mapped to the [chat plan](plans/chat-native-program.md)'s own passes. A1 has landed, so the code
+matches the plan's AI boundary: A1a (#322) moved the provider, account, profile,
+sign-in and Imagine crates to `crates/ai/*`; A1b (#323) created `dpl-ai-core` with
+the provider vocabulary from chat-core, chat-runtime and chat-store; A1c creates
+`dpl-ai-host` with presence and the usage census from the app. The gate enforces
+that no AI crate depends on chat. Grok's separate runtime path moves onto the
+shared registry in A7, because that changes behaviour; backfill stays in the app
+as wiring. Next for chat: the pieces mapped in the plan's R301 amendment. The process-supervisor branch is not landing:
 its own commit records it as a placebo that fails the gate. The originals are
 local tags under `retired/`. The old clone at `D:\localdev\devpulselabs` now
 holds only `main`.

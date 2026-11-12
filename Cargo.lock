@@ -1791,6 +1791,7 @@ dependencies = [
  "dpl-ai-cursor",
  "dpl-ai-gemini",
  "dpl-ai-grok",
+ "dpl-ai-host",
  "dpl-ai-imagine",
  "dpl-ai-profiles",
  "dpl-chat-core",
@@ -1992,6 +1993,20 @@ dependencies = [
  "dpl-tools-deps",
  "futures-lite",
  "serde_json",
+]
+
+[[package]]
+name = "dpl-ai-host"
+version = "0.1.0"
+dependencies = [
+ "dpl-ai-claude",
+ "dpl-ai-codex",
+ "dpl-ai-core",
+ "dpl-ai-cursor",
+ "dpl-ai-gemini",
+ "dpl-ai-grok",
+ "dpl-proc",
+ "tracing",
 ]
 
 [[package]]
