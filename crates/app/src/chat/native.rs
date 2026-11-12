@@ -50,7 +50,7 @@ pub(super) fn qualified(state: &Shared, provider: ProviderId) -> bool {
 pub(super) fn connected(state: &mut Shared, provider: ProviderId, supported: bool) -> bool {
     // A schema-capable runtime is not proof of a portable project profile.
     let qualified = supported
-        && provider == dpl_chat_codex::PROVIDER
+        && provider == dpl_ai_codex::PROVIDER
         && state
             .codex_activation
             .runtime_profile()

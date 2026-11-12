@@ -527,7 +527,7 @@ mod tests {
     #[test]
     fn non_secret_profiles_round_trip() {
         let path = std::env::temp_dir().join(format!(
-            "dpl-chat-profiles-{}-{}.db",
+            "dpl-ai-profiles-{}-{}.db",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

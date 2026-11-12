@@ -34,8 +34,8 @@ pub(super) struct State {
 struct Prepared {
     project: Project,
     archive: Option<Value>,
-    codex: dpl_chat_codex::CodexActivationCoordinator,
-    grok: dpl_chat_grok::GrokActivationCoordinator,
+    codex: dpl_ai_codex::CodexActivationCoordinator,
+    grok: dpl_ai_grok::GrokActivationCoordinator,
 }
 
 enum Outcome {
@@ -176,12 +176,12 @@ pub(super) fn boot(state: &mut Shared, ctx: &egui::Context) {
 fn prepare(project: Project, providers_enabled: bool) -> Result<Prepared, String> {
     let archive = project.load_state()?;
     let codex = if providers_enabled {
-        dpl_chat_codex::CodexActivationCoordinator::discover(project.workspace())
+        dpl_ai_codex::CodexActivationCoordinator::discover(project.workspace())
     } else {
         unconfigured_codex()
     };
     let grok = if providers_enabled {
-        dpl_chat_grok::GrokActivationCoordinator::discover(project.workspace())
+        dpl_ai_grok::GrokActivationCoordinator::discover(project.workspace())
     } else {
         unconfigured_grok()
     };
@@ -482,15 +482,15 @@ fn activate(state: &mut Shared, registry: Registry, prepared: Prepared, choices:
     state.project.switching = false;
     state.project.message = "Project archive connected. Saved chats are available to read.".into();
     let _ = state.window.set_provider_activation(
-        dpl_chat_codex::PROVIDER,
+        dpl_ai_codex::PROVIDER,
         state.codex_activation.activation().clone(),
     );
     let _ = state.window.set_provider_activation(
-        dpl_chat_grok::PROVIDER,
+        dpl_ai_grok::PROVIDER,
         state.grok_activation.activation().clone(),
     );
     if state.provider_runtime_enabled && state.grok_activation.activation_capability_qualified() {
-        begin_grok_runtime_verification(state, dpl_chat_grok::GrokVerificationOrigin::Startup);
+        begin_grok_runtime_verification(state, dpl_ai_grok::GrokVerificationOrigin::Startup);
     }
     sync_clyffy(state);
 }
@@ -728,7 +728,7 @@ pub(super) fn live_session(state: &Shared, provider: ProviderId, session: ChatSe
         })
     });
     writable
-        && if provider == dpl_chat_grok::PROVIDER {
+        && if provider == dpl_ai_grok::PROVIDER {
             state.grok_sessions.values().any(|bound| *bound == session)
         } else {
             state
@@ -761,34 +761,34 @@ pub(super) fn workspace(state: &Shared) -> Option<PathBuf> {
 // only after a project has been selected and checked on the storage worker.
 #[derive(Debug)]
 struct NoProject;
-impl dpl_chat_codex::CodexLoginLauncher for NoProject {
+impl dpl_ai_codex::CodexLoginLauncher for NoProject {
     fn launch_login(
         &self,
-        _: &dpl_chat_codex::CodexRuntimeProfile,
-    ) -> std::io::Result<Box<dyn dpl_chat_codex::CodexLoginProcess>> {
+        _: &dpl_ai_codex::CodexRuntimeProfile,
+    ) -> std::io::Result<Box<dyn dpl_ai_codex::CodexLoginProcess>> {
         Err(std::io::Error::other("Choose a project first"))
     }
 }
-impl dpl_chat_codex::CodexStatusProbe for NoProject {
+impl dpl_ai_codex::CodexStatusProbe for NoProject {
     fn begin(
         &self,
-        _: &dpl_chat_codex::CodexRuntimeProfile,
-    ) -> std::io::Result<Box<dyn dpl_chat_codex::CodexStatusRequest>> {
+        _: &dpl_ai_codex::CodexRuntimeProfile,
+    ) -> std::io::Result<Box<dyn dpl_ai_codex::CodexStatusRequest>> {
         Err(std::io::Error::other("Choose a project first"))
     }
 }
-impl dpl_chat_grok::LoginLauncher for NoProject {
+impl dpl_ai_grok::LoginLauncher for NoProject {
     fn launch_login(
         &self,
-        _: &dpl_chat_grok::GrokRuntimeProfile,
-    ) -> std::io::Result<Box<dyn dpl_chat_grok::LoginProcess>> {
+        _: &dpl_ai_grok::GrokRuntimeProfile,
+    ) -> std::io::Result<Box<dyn dpl_ai_grok::LoginProcess>> {
         Err(std::io::Error::other("Choose a project first"))
     }
 }
 
-pub(crate) fn unconfigured_codex() -> dpl_chat_codex::CodexActivationCoordinator {
-    dpl_chat_codex::CodexActivationCoordinator::from_parts(
-        Err(dpl_chat_codex::CodexDiscoveryError::WorkingDirectory(
+pub(crate) fn unconfigured_codex() -> dpl_ai_codex::CodexActivationCoordinator {
+    dpl_ai_codex::CodexActivationCoordinator::from_parts(
+        Err(dpl_ai_codex::CodexDiscoveryError::WorkingDirectory(
             "Choose a project first".into(),
         )),
         ActivationState::Blocked {
@@ -800,9 +800,9 @@ pub(crate) fn unconfigured_codex() -> dpl_chat_codex::CodexActivationCoordinator
     )
 }
 
-pub(crate) fn unconfigured_grok() -> dpl_chat_grok::GrokActivationCoordinator {
-    dpl_chat_grok::GrokActivationCoordinator::from_parts(
-        Err(dpl_chat_grok::GrokDiscoveryError::WorkingDirectory(
+pub(crate) fn unconfigured_grok() -> dpl_ai_grok::GrokActivationCoordinator {
+    dpl_ai_grok::GrokActivationCoordinator::from_parts(
+        Err(dpl_ai_grok::GrokDiscoveryError::WorkingDirectory(
             "Choose a project first".into(),
         )),
         Box::new(NoProject),
@@ -823,7 +823,7 @@ mod tests {
 
     impl ProviderRuntime for NativeFixture {
         fn provider(&self) -> ProviderId {
-            dpl_chat_codex::PROVIDER
+            dpl_ai_codex::PROVIDER
         }
         fn try_send(&self, command: RuntimeCommand) -> Result<(), RuntimeSendError> {
             lock(&self.commands).push(command);
@@ -857,24 +857,24 @@ mod tests {
         state.provider_runtime_enabled = true;
         let commands = Arc::new(Mutex::new(Vec::new()));
         state.runtimes.insert(
-            dpl_chat_codex::PROVIDER,
+            dpl_ai_codex::PROVIDER,
             Box::new(NativeFixture {
                 commands: Arc::clone(&commands),
             }),
         );
-        native::qualify_fixture(&mut state, dpl_chat_codex::PROVIDER);
+        native::qualify_fixture(&mut state, dpl_ai_codex::PROVIDER);
         state
             .window
-            .set_provider_activation(dpl_chat_codex::PROVIDER, ActivationState::Ready)
+            .set_provider_activation(dpl_ai_codex::PROVIDER, ActivationState::Ready)
             .unwrap();
         for id in [11, 12] {
             state
                 .window
                 .upsert_provider_session(
-                    dpl_chat_codex::PROVIDER,
+                    dpl_ai_codex::PROVIDER,
                     SessionSummary {
                         id: ChatSessionId(id),
-                        provider_id: dpl_chat_codex::PROVIDER,
+                        provider_id: dpl_ai_codex::PROVIDER,
                         provider_session_id: Some(ProviderSessionId(format!("thread-{id}"))),
                         title: format!("Saved {id}"),
                         workspace: "A".into(),
@@ -885,21 +885,21 @@ mod tests {
                 .unwrap();
             state
                 .window
-                .select_provider_session(dpl_chat_codex::PROVIDER, ChatSessionId(id))
+                .select_provider_session(dpl_ai_codex::PROVIDER, ChatSessionId(id))
                 .unwrap();
             draft(&mut state, &format!("draft-{id}"));
         }
         state
             .window
-            .select_provider_session(dpl_chat_codex::PROVIDER, ChatSessionId(11))
+            .select_provider_session(dpl_ai_codex::PROVIDER, ChatSessionId(11))
             .unwrap();
         state
             .window
             .append_provider_event(
-                dpl_chat_codex::PROVIDER,
+                dpl_ai_codex::PROVIDER,
                 ChatEvent {
                     id: ChatEventId(22),
-                    provider_id: dpl_chat_codex::PROVIDER,
+                    provider_id: dpl_ai_codex::PROVIDER,
                     session_id: ChatSessionId(11),
                     turn_id: Some(TurnId("old-local-turn".into())),
                     content: ChatEventContent::StatusUpdated("Saved local annotation".into()),
@@ -945,7 +945,7 @@ mod tests {
             &ctx,
             &shared,
             HostIntent::LoadSession {
-                provider: dpl_chat_codex::PROVIDER,
+                provider: dpl_ai_codex::PROVIDER,
                 session: ChatSessionId(11),
             },
         );
@@ -965,11 +965,8 @@ mod tests {
             }]
         );
         let mut state = lock(&shared);
-        project_seam_event(&mut state, dpl_chat_codex::PROVIDER, loaded(&workspace));
-        let view = state
-            .window
-            .provider_view(dpl_chat_codex::PROVIDER)
-            .unwrap();
+        project_seam_event(&mut state, dpl_ai_codex::PROVIDER, loaded(&workspace));
+        let view = state.window.provider_view(dpl_ai_codex::PROVIDER).unwrap();
         assert_eq!(view.active_session, Some(ChatSessionId(11)));
         assert_eq!(view.draft, "draft-11");
         assert_eq!(view.registration.events.len(), 4);
@@ -983,14 +980,14 @@ mod tests {
             .all(|event| event.turn_id == Some(TurnId("native-turn".into()))));
         assert!(live_session(
             &state,
-            dpl_chat_codex::PROVIDER,
+            dpl_ai_codex::PROVIDER,
             ChatSessionId(11)
         ));
         assert!(state.ai_calls.is_empty());
         assert!(state.seam_turns.is_empty());
         state
             .window
-            .select_provider_session(dpl_chat_codex::PROVIDER, ChatSessionId(12))
+            .select_provider_session(dpl_ai_codex::PROVIDER, ChatSessionId(12))
             .unwrap();
         assert_eq!(draft_text(&state), "draft-12");
         // The pre-load revision still retains local annotations; no event is
@@ -1009,7 +1006,7 @@ mod tests {
     fn failed_stale_wrong_project_and_duplicate_native_loads_never_replace_the_archive() {
         for scenario in 0..4 {
             let (mut state, _, workspace, _) = native_fixture(&format!("native-reject-{scenario}"));
-            let provider = dpl_chat_codex::PROVIDER;
+            let provider = dpl_ai_codex::PROVIDER;
             let before = state.window.project_archive().unwrap();
             native::request_load(&mut state, provider, ChatSessionId(11));
             assert!(native::busy(&state));
@@ -1053,7 +1050,7 @@ mod tests {
     #[test]
     fn host_timeout_retires_the_old_receiver_before_any_retry_can_match_it() {
         let (mut state, _, workspace, commands) = native_fixture("native-host-timeout");
-        let provider = dpl_chat_codex::PROVIDER;
+        let provider = dpl_ai_codex::PROVIDER;
         let before = state.window.project_archive().unwrap();
         native::request_load(&mut state, provider, ChatSessionId(11));
         native::expire_fixture(&mut state, provider);
@@ -1069,7 +1066,7 @@ mod tests {
     #[test]
     fn empty_native_pages_never_erase_a_known_saved_conversation() {
         let (mut state, _, workspace, _) = native_fixture("native-empty-history");
-        let provider = dpl_chat_codex::PROVIDER;
+        let provider = dpl_ai_codex::PROVIDER;
         state
             .window
             .append_provider_event(
@@ -1107,7 +1104,7 @@ mod tests {
     #[test]
     fn reconnect_reloads_the_same_session_without_duplicate_events_or_a_new_thread() {
         let (mut state, _, workspace, commands) = native_fixture("native-reconnect");
-        let provider = dpl_chat_codex::PROVIDER;
+        let provider = dpl_ai_codex::PROVIDER;
         native::request_load(&mut state, provider, ChatSessionId(11));
         project_seam_event(&mut state, provider, loaded(&workspace));
         let first = state
@@ -1142,7 +1139,7 @@ mod tests {
     #[test]
     fn native_listing_merges_without_erasing_archives_and_stops_repeated_cursors() {
         let (mut state, _, workspace, commands) = native_fixture("native-list");
-        let provider = dpl_chat_codex::PROVIDER;
+        let provider = dpl_ai_codex::PROVIDER;
         let original_events = state
             .window
             .provider_view(provider)
@@ -1199,7 +1196,7 @@ mod tests {
     #[test]
     fn transport_capabilities_alone_never_enable_native_resume() {
         let (mut state, ctx, _, commands) = native_fixture("native-qualification");
-        let provider = dpl_chat_codex::PROVIDER;
+        let provider = dpl_ai_codex::PROVIDER;
         assert!(!native::connected(&mut state, provider, true));
         verify_intent(
             &mut state,
@@ -1230,8 +1227,8 @@ mod tests {
     fn host(base: &Path) -> Shared {
         let fabric = Fabric::new();
         let runtime = ChatRuntime::try_from_registrations([
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_codex::MANIFEST),
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_grok::MANIFEST),
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_codex::MANIFEST),
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_grok::MANIFEST),
         ])
         .unwrap();
         let coordinator = ChatWindowCoordinator::new(
@@ -1331,7 +1328,7 @@ mod tests {
             verify_intent(
                 &mut state,
                 &ctx,
-                HostIntent::NewSession(dpl_chat_codex::PROVIDER),
+                HostIntent::NewSession(dpl_ai_codex::PROVIDER),
             );
         }
         // Dispatch takes Shared again: this also guards against accidentally
@@ -1393,7 +1390,7 @@ mod tests {
         state
             .window
             .apply(dpl_chat_window::ChatWindowIntent::UpdateAiDraft {
-                provider: dpl_chat_codex::PROVIDER,
+                provider: dpl_ai_codex::PROVIDER,
                 value: text.into(),
             })
             .unwrap();
@@ -1402,7 +1399,7 @@ mod tests {
     fn draft_text(state: &Shared) -> String {
         state
             .window
-            .provider_view(dpl_chat_codex::PROVIDER)
+            .provider_view(dpl_ai_codex::PROVIDER)
             .unwrap()
             .draft
     }
@@ -1516,7 +1513,7 @@ mod tests {
         verify_intent(
             &mut state,
             &ctx,
-            HostIntent::NewSession(dpl_chat_codex::PROVIDER),
+            HostIntent::NewSession(dpl_ai_codex::PROVIDER),
         );
         assert!(state.project.worker.is_none());
         assert!(take_verified(&mut state).is_none());
@@ -1540,7 +1537,7 @@ mod tests {
         verify_intent(
             &mut state,
             &ctx,
-            HostIntent::NewSession(dpl_chat_codex::PROVIDER),
+            HostIntent::NewSession(dpl_ai_codex::PROVIDER),
         );
         settle(&mut state, &ctx);
         assert!(take_verified(&mut state).is_none());
@@ -1619,7 +1616,7 @@ mod tests {
         let mut state = host(&root.join("machine"));
         let ctx = egui::Context::default();
         let a = setup(&mut state, &ctx, &root, "A");
-        let provider = dpl_chat_codex::PROVIDER;
+        let provider = dpl_ai_codex::PROVIDER;
         state
             .window
             .upsert_provider_session(

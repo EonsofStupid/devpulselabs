@@ -234,11 +234,11 @@ pub fn begin_sign_in(
 /// The providers that can answer for themselves, in rail order.
 pub fn specs() -> Vec<(ProviderId, PresenceSpec)> {
     vec![
-        (dpl_chat_codex::PROVIDER, CODEX),
-        (dpl_chat_claude::PROVIDER, dpl_chat_claude::PRESENCE),
-        (dpl_chat_grok::PROVIDER, dpl_chat_grok::PRESENCE),
-        (dpl_chat_cursor::PROVIDER, dpl_chat_cursor::PRESENCE),
-        (dpl_chat_gemini::PROVIDER, dpl_chat_gemini::PRESENCE),
+        (dpl_ai_codex::PROVIDER, CODEX),
+        (dpl_ai_claude::PROVIDER, dpl_ai_claude::PRESENCE),
+        (dpl_ai_grok::PROVIDER, dpl_ai_grok::PRESENCE),
+        (dpl_ai_cursor::PROVIDER, dpl_ai_cursor::PRESENCE),
+        (dpl_ai_gemini::PROVIDER, dpl_ai_gemini::PRESENCE),
     ]
 }
 
@@ -459,7 +459,7 @@ mod tests {
         // backed provider must carry a login verb, or its Sign in button is
         // the dead end this pass exists to remove.
         for (provider, spec) in specs() {
-            if provider == dpl_chat_codex::PROVIDER || provider == dpl_chat_gemini::PROVIDER {
+            if provider == dpl_ai_codex::PROVIDER || provider == dpl_ai_gemini::PROVIDER {
                 continue;
             }
             assert!(

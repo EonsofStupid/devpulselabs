@@ -1,5 +1,5 @@
 [package]
-name = "dpl-chat-codex"
+name = "dpl-ai-codex"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true

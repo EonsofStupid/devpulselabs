@@ -17,10 +17,10 @@ use dpl_chat_store::{ProviderUsage, UsageReporting};
 /// registry against THIS list, so a new provider cannot arrive with its
 /// accounting silently missing.
 pub const PROVIDER_MANIFESTS: &[ProviderManifest] = &[
-    dpl_chat_codex::MANIFEST,
-    dpl_chat_claude::MANIFEST,
-    dpl_chat_grok::MANIFEST,
-    dpl_chat_gemini::MANIFEST,
+    dpl_ai_codex::MANIFEST,
+    dpl_ai_claude::MANIFEST,
+    dpl_ai_grok::MANIFEST,
+    dpl_ai_gemini::MANIFEST,
 ];
 
 /// Every provider's usage adapter, one per major.
@@ -28,10 +28,10 @@ pub const PROVIDER_MANIFESTS: &[ProviderManifest] = &[
 /// A provider with nothing to report still appears here declaring
 /// `UsageReporting::NOTHING` — absence is stated, never implied.
 pub fn usage_adapters() -> &'static [&'static dyn ProviderUsage] {
-    const CODEX: dpl_chat_codex::CodexUsage = dpl_chat_codex::CodexUsage;
-    const CLAUDE: dpl_chat_claude::ClaudeUsage = dpl_chat_claude::ClaudeUsage;
-    const GROK: dpl_chat_grok::GrokUsage = dpl_chat_grok::GrokUsage;
-    const GEMINI: dpl_chat_gemini::GeminiUsage = dpl_chat_gemini::GeminiUsage;
+    const CODEX: dpl_ai_codex::CodexUsage = dpl_ai_codex::CodexUsage;
+    const CLAUDE: dpl_ai_claude::ClaudeUsage = dpl_ai_claude::ClaudeUsage;
+    const GROK: dpl_ai_grok::GrokUsage = dpl_ai_grok::GrokUsage;
+    const GEMINI: dpl_ai_gemini::GeminiUsage = dpl_ai_gemini::GeminiUsage;
     &[&CODEX, &CLAUDE, &GROK, &GEMINI]
 }
 
@@ -166,20 +166,20 @@ mod tests {
     #[test]
     fn each_adapter_declares_what_it_actually_reports() {
         // Codex: full split, backfillable from session files, no pricing.
-        let codex = usage_for(dpl_chat_codex::PROVIDER).expect("codex");
+        let codex = usage_for(dpl_ai_codex::PROVIDER).expect("codex");
         let r = codex.reports();
         assert!(r.input_output_split && r.total_tokens && r.model);
         assert!(r.history_backfill, "codex sessions are JSONL on disk");
         assert!(!r.provider_priced, "codex does not price its own calls");
 
         // Claude: the one major that reports REAL MONEY.
-        let claude = usage_for(dpl_chat_claude::PROVIDER).expect("claude");
+        let claude = usage_for(dpl_ai_claude::PROVIDER).expect("claude");
         let r = claude.reports();
         assert!(r.provider_priced, "claude reports total_cost_usd");
         assert!(r.input_output_split && r.history_backfill);
 
         // Grok: context occupancy only, and LIVE-ONLY.
-        let grok = usage_for(dpl_chat_grok::PROVIDER).expect("grok");
+        let grok = usage_for(dpl_ai_grok::PROVIDER).expect("grok");
         let r = grok.reports();
         assert!(r.context_window);
         assert!(
@@ -192,7 +192,7 @@ mod tests {
         );
 
         // Gemini: nothing yet — stated, not implied.
-        let gemini = usage_for(dpl_chat_gemini::PROVIDER).expect("gemini");
+        let gemini = usage_for(dpl_ai_gemini::PROVIDER).expect("gemini");
         assert_eq!(gemini.reports(), UsageReporting::NOTHING);
         assert_eq!(reporting_summary(gemini.reports()), "does not report usage");
     }
@@ -200,18 +200,18 @@ mod tests {
     #[test]
     fn the_backfill_set_is_exactly_the_file_backed_providers() {
         let ids: Vec<ProviderId> = backfillable().map(ProviderUsage::provider_id).collect();
-        assert!(ids.contains(&dpl_chat_codex::PROVIDER));
-        assert!(ids.contains(&dpl_chat_claude::PROVIDER));
+        assert!(ids.contains(&dpl_ai_codex::PROVIDER));
+        assert!(ids.contains(&dpl_ai_claude::PROVIDER));
         assert!(
-            !ids.contains(&dpl_chat_grok::PROVIDER),
+            !ids.contains(&dpl_ai_grok::PROVIDER),
             "a live-only provider must never be walked for history"
         );
-        assert!(!ids.contains(&dpl_chat_gemini::PROVIDER));
+        assert!(!ids.contains(&dpl_ai_gemini::PROVIDER));
     }
 
     #[test]
     fn claude_reads_real_money_and_keeps_cache_separate() {
-        let claude = usage_for(dpl_chat_claude::PROVIDER).expect("claude");
+        let claude = usage_for(dpl_ai_claude::PROVIDER).expect("claude");
         let assistant = r#"{"type":"assistant","message":{"model":"claude-opus-5",
             "usage":{"input_tokens":100,"cache_read_input_tokens":900,
             "cache_creation_input_tokens":50,"output_tokens":200}}}"#;
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn a_nonsense_cost_is_refused_not_cast() {
-        let claude = usage_for(dpl_chat_claude::PROVIDER).expect("claude");
+        let claude = usage_for(dpl_ai_claude::PROVIDER).expect("claude");
         for bad in [
             r#"{"type":"result","total_cost_usd":-1.0}"#,
             r#"{"type":"result","total_cost_usd":null}"#,
@@ -258,7 +258,7 @@ mod tests {
     #[test]
     fn grok_reports_occupancy_through_its_typed_live_path() {
         let usage =
-            dpl_chat_grok::GrokUsage::usage_from_update(&dpl_chat_grok::GrokSessionUpdate::Usage {
+            dpl_ai_grok::GrokUsage::usage_from_update(&dpl_ai_grok::GrokSessionUpdate::Usage {
                 used: 12_000,
                 size: 128_000,
             })
@@ -272,8 +272,8 @@ mod tests {
 
         // A non-usage update yields nothing.
         assert_eq!(
-            dpl_chat_grok::GrokUsage::usage_from_update(
-                &dpl_chat_grok::GrokSessionUpdate::AssistantText("hi".into())
+            dpl_ai_grok::GrokUsage::usage_from_update(
+                &dpl_ai_grok::GrokSessionUpdate::AssistantText("hi".into())
             ),
             None
         );
@@ -286,7 +286,7 @@ mod tests {
 
     #[test]
     fn absent_counts_never_become_zero() {
-        let codex = usage_for(dpl_chat_codex::PROVIDER).expect("codex");
+        let codex = usage_for(dpl_ai_codex::PROVIDER).expect("codex");
         // A token_count with no numbers yields None, not a zeroed usage —
         // cost computed from a guessed zero would be a lie.
         let empty = r#"{"type":"event_msg","payload":{"type":"token_count","info":{}}}"#;

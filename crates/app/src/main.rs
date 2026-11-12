@@ -43,24 +43,24 @@ fn run_ai_backfill(fabric: &dpl_fabric::Fabric, analytics_root: &std::path::Path
     let codex = codex_root.exists().then(|| {
         JsonlHistorySource::open(
             &codex_root,
-            dpl_chat_codex::CodexHistoryDecoder,
+            dpl_ai_codex::CodexHistoryDecoder,
             HistoryLimits::default(),
         )
     });
     let claude = claude_root.exists().then(|| {
         JsonlHistorySource::open(
             &claude_root,
-            dpl_chat_claude::ClaudeHistoryDecoder,
+            dpl_ai_claude::ClaudeHistoryDecoder,
             HistoryLimits::default(),
         )
     });
     if let Some(Ok(source)) = codex.as_ref() {
-        if let Some(usage) = ai_usage::usage_for(dpl_chat_codex::PROVIDER) {
+        if let Some(usage) = ai_usage::usage_for(dpl_ai_codex::PROVIDER) {
             sources.push((source, usage));
         }
     }
     if let Some(Ok(source)) = claude.as_ref() {
-        if let Some(usage) = ai_usage::usage_for(dpl_chat_claude::PROVIDER) {
+        if let Some(usage) = ai_usage::usage_for(dpl_ai_claude::PROVIDER) {
             sources.push((source, usage));
         }
     }
@@ -1312,15 +1312,15 @@ impl App {
             || {
                 vec![
                     activation_registration(
-                        dpl_chat_codex::MANIFEST,
+                        dpl_ai_codex::MANIFEST,
                         codex_activation.activation().clone(),
                         codex_activation.activation_capability_qualified(),
                     ),
-                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
-                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_cursor::MANIFEST),
-                    dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
+                    dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_claude::MANIFEST),
+                    dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_cursor::MANIFEST),
+                    dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_gemini::MANIFEST),
                     activation_registration(
-                        dpl_chat_grok::MANIFEST,
+                        dpl_ai_grok::MANIFEST,
                         grok_activation.activation().clone(),
                         grok_activation.activation_capability_qualified(),
                     ),
@@ -1334,15 +1334,15 @@ impl App {
         #[cfg(not(feature = "eguipilotai-devtools"))]
         let chat_registrations: Vec<dpl_chat_runtime::ProviderRegistration> = vec![
             activation_registration(
-                dpl_chat_codex::MANIFEST,
+                dpl_ai_codex::MANIFEST,
                 codex_activation.activation().clone(),
                 codex_activation.activation_capability_qualified(),
             ),
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_cursor::MANIFEST),
-            dpl_chat_runtime::ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_claude::MANIFEST),
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_cursor::MANIFEST),
+            dpl_chat_runtime::ProviderRegistration::planned(dpl_ai_gemini::MANIFEST),
             activation_registration(
-                dpl_chat_grok::MANIFEST,
+                dpl_ai_grok::MANIFEST,
                 grok_activation.activation().clone(),
                 grok_activation.activation_capability_qualified(),
             ),
@@ -1880,7 +1880,7 @@ fn local_chat_history_catalog() -> dpl_chat_store::HistoryCatalog {
     if codex_root.is_dir() {
         match dpl_chat_store::JsonlHistorySource::open(
             codex_root,
-            dpl_chat_codex::CodexHistoryDecoder,
+            dpl_ai_codex::CodexHistoryDecoder,
             dpl_chat_store::HistoryLimits::default(),
         ) {
             Ok(source) => {
@@ -1896,7 +1896,7 @@ fn local_chat_history_catalog() -> dpl_chat_store::HistoryCatalog {
     if claude_root.is_dir() {
         match dpl_chat_store::JsonlHistorySource::open(
             claude_root,
-            dpl_chat_claude::ClaudeHistoryDecoder,
+            dpl_ai_claude::ClaudeHistoryDecoder,
             dpl_chat_store::HistoryLimits::default(),
         ) {
             Ok(source) => {
@@ -2467,7 +2467,7 @@ mod tests {
         let mut catalog = HistoryCatalog::default();
         let source = JsonlHistorySource::open(
             env!("CARGO_MANIFEST_DIR"),
-            dpl_chat_claude::ClaudeHistoryDecoder,
+            dpl_ai_claude::ClaudeHistoryDecoder,
             HistoryLimits::default(),
         )
         .expect("this crate's own directory is a readable root");
@@ -2478,7 +2478,7 @@ mod tests {
     #[test]
     fn local_transcripts_activate_a_planned_provider() {
         let registration = with_local_history(
-            ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+            ProviderRegistration::planned(dpl_ai_claude::MANIFEST),
             &claude_catalog(),
         );
         assert!(
@@ -2492,7 +2492,7 @@ mod tests {
     #[test]
     fn a_history_activated_provider_still_cannot_send() {
         let registration = with_local_history(
-            ProviderRegistration::planned(dpl_chat_claude::MANIFEST),
+            ProviderRegistration::planned(dpl_ai_claude::MANIFEST),
             &claude_catalog(),
         );
         assert!(
@@ -2503,7 +2503,7 @@ mod tests {
 
     #[test]
     fn a_live_activation_is_never_downgraded_by_history() {
-        let mut live = ProviderRegistration::planned(dpl_chat_claude::MANIFEST);
+        let mut live = ProviderRegistration::planned(dpl_ai_claude::MANIFEST);
         live.activation = ActivationState::Ready;
         let registration = with_local_history(live, &claude_catalog());
         assert_eq!(registration.activation, ActivationState::Ready);
@@ -2513,7 +2513,7 @@ mod tests {
     #[test]
     fn a_provider_without_transcripts_is_untouched() {
         let registration = with_local_history(
-            ProviderRegistration::planned(dpl_chat_gemini::MANIFEST),
+            ProviderRegistration::planned(dpl_ai_gemini::MANIFEST),
             &claude_catalog(),
         );
         assert!(!registration.activation.is_activated());

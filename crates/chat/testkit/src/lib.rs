@@ -111,7 +111,7 @@ pub fn authored_chat() -> AuthoredChatFixture {
 
 fn authored_providers() -> Vec<ProviderRegistration> {
     let mut codex = authored_provider(
-        dpl_chat_codex::MANIFEST,
+        dpl_ai_codex::MANIFEST,
         ChatSessionId(101),
         "Choice poll redesign",
         SessionState::Idle,
@@ -142,7 +142,7 @@ fn authored_providers() -> Vec<ProviderRegistration> {
     codex.sessions[0].group = SessionGroup::Active;
     codex.sessions.push(SessionSummary {
         id: ChatSessionId(100),
-        provider_id: dpl_chat_codex::MANIFEST.descriptor.id,
+        provider_id: dpl_ai_codex::MANIFEST.descriptor.id,
         provider_session_id: None,
         title: "Council: UI review".into(),
         workspace: "C:/fixture/devpulse".into(),
@@ -151,7 +151,7 @@ fn authored_providers() -> Vec<ProviderRegistration> {
     });
     codex.sessions.push(SessionSummary {
         id: ChatSessionId(102),
-        provider_id: dpl_chat_codex::MANIFEST.descriptor.id,
+        provider_id: dpl_ai_codex::MANIFEST.descriptor.id,
         provider_session_id: None,
         title: "Route bridge review".into(),
         workspace: "C:/fixture/devpulse".into(),
@@ -159,7 +159,7 @@ fn authored_providers() -> Vec<ProviderRegistration> {
         state: SessionState::Attention,
     });
     let mut claude = authored_provider(
-        dpl_chat_claude::MANIFEST,
+        dpl_ai_claude::MANIFEST,
         ChatSessionId(201),
         "Architecture critique",
         SessionState::Idle,
@@ -175,7 +175,7 @@ fn authored_providers() -> Vec<ProviderRegistration> {
     claude.events.clear();
 
     let mut gemini = authored_provider(
-        dpl_chat_gemini::MANIFEST,
+        dpl_ai_gemini::MANIFEST,
         ChatSessionId(301),
         "Multimodal research",
         SessionState::ReadOnly,
@@ -189,7 +189,7 @@ fn authored_providers() -> Vec<ProviderRegistration> {
     };
 
     let mut grok = authored_provider(
-        dpl_chat_grok::MANIFEST,
+        dpl_ai_grok::MANIFEST,
         ChatSessionId(401),
         "Social signal review",
         SessionState::ReadOnly,
@@ -480,7 +480,7 @@ mod tests {
         let codex = fixture
             .providers
             .iter()
-            .find(|provider| provider.manifest.descriptor.id == dpl_chat_codex::PROVIDER)
+            .find(|provider| provider.manifest.descriptor.id == dpl_ai_codex::PROVIDER)
             .expect("Codex activation fixture");
         assert_eq!(codex.activation, ActivationState::Ready);
         assert!(codex.has_capability(Capability::StreamTurns));
@@ -488,7 +488,7 @@ mod tests {
         let grok = fixture
             .providers
             .iter()
-            .find(|provider| provider.manifest.descriptor.id == dpl_chat_grok::PROVIDER)
+            .find(|provider| provider.manifest.descriptor.id == dpl_ai_grok::PROVIDER)
             .expect("Grok activation fixture");
         assert!(matches!(
             grok.activation.recovery().first().map(|action| action.kind),

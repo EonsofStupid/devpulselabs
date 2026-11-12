@@ -296,11 +296,11 @@ mod tests {
 
         let source = JsonlHistorySource::open(
             &sessions,
-            dpl_chat_codex::CodexHistoryDecoder,
+            dpl_ai_codex::CodexHistoryDecoder,
             HistoryLimits::default(),
         )
         .expect("source");
-        let usage = ai_usage::usage_for(dpl_chat_codex::PROVIDER).expect("codex adapter");
+        let usage = ai_usage::usage_for(dpl_ai_codex::PROVIDER).expect("codex adapter");
 
         let fabric = Fabric::new();
         let mut rx = fabric.subscribe_ai();
@@ -365,11 +365,11 @@ mod tests {
 
         let source = JsonlHistorySource::open(
             &sessions,
-            dpl_chat_codex::CodexHistoryDecoder,
+            dpl_ai_codex::CodexHistoryDecoder,
             HistoryLimits::default(),
         )
         .expect("source");
-        let usage = ai_usage::usage_for(dpl_chat_codex::PROVIDER).expect("codex");
+        let usage = ai_usage::usage_for(dpl_ai_codex::PROVIDER).expect("codex");
         let fabric = Fabric::new();
         let mut rx = fabric.subscribe_ai();
         let mut manifest = BackfillManifest::default();
@@ -395,11 +395,11 @@ mod tests {
         fs::write(sessions.join("s1.jsonl"), "{}\n").unwrap();
         let source = JsonlHistorySource::open(
             &sessions,
-            dpl_chat_codex::CodexHistoryDecoder,
+            dpl_ai_codex::CodexHistoryDecoder,
             HistoryLimits::default(),
         )
         .expect("source");
-        let grok = ai_usage::usage_for(dpl_chat_grok::PROVIDER).expect("grok");
+        let grok = ai_usage::usage_for(dpl_ai_grok::PROVIDER).expect("grok");
         let fabric = Fabric::new();
 
         // `run` filters on the declaration, so Grok is skipped even when
@@ -426,11 +426,11 @@ mod tests {
         .unwrap();
         let source = JsonlHistorySource::open(
             &sessions,
-            dpl_chat_claude::ClaudeHistoryDecoder,
+            dpl_ai_claude::ClaudeHistoryDecoder,
             HistoryLimits::default(),
         )
         .expect("source");
-        let usage = ai_usage::usage_for(dpl_chat_claude::PROVIDER).expect("claude");
+        let usage = ai_usage::usage_for(dpl_ai_claude::PROVIDER).expect("claude");
         let fabric = Fabric::new();
         let mut rx = fabric.subscribe_ai();
         let mut manifest = BackfillManifest::default();
@@ -468,11 +468,11 @@ mod tests {
         .unwrap();
         let source = JsonlHistorySource::open(
             &sessions,
-            dpl_chat_claude::ClaudeHistoryDecoder,
+            dpl_ai_claude::ClaudeHistoryDecoder,
             HistoryLimits::default(),
         )
         .unwrap();
-        let usage = ai_usage::usage_for(dpl_chat_claude::PROVIDER).unwrap();
+        let usage = ai_usage::usage_for(dpl_ai_claude::PROVIDER).unwrap();
         let index = source.list(None).unwrap();
         let scanned = source.scan_usage(index.sessions[0].locator, usage).unwrap();
         assert_eq!(
@@ -498,11 +498,11 @@ mod tests {
         .unwrap();
         let source = JsonlHistorySource::open(
             &sessions,
-            dpl_chat_codex::CodexHistoryDecoder,
+            dpl_ai_codex::CodexHistoryDecoder,
             HistoryLimits::default(),
         )
         .unwrap();
-        let usage = ai_usage::usage_for(dpl_chat_codex::PROVIDER).unwrap();
+        let usage = ai_usage::usage_for(dpl_ai_codex::PROVIDER).unwrap();
         let index = source.list(None).unwrap();
         let scanned = source.scan_usage(index.sessions[0].locator, usage).unwrap();
         assert_eq!(

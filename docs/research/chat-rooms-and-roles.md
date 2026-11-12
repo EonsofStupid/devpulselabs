@@ -230,7 +230,7 @@ All four share `GET /v1/models` and a streamed (SSE)
 - "Who said what" goes in the message text, not the `name` field.
 
 The profiles store already models Local (loopback) and Custom (https)
-endpoints (`crates/chat/profiles`); their transport is not built.
+endpoints (`crates/ai/profiles`); their transport is not built.
 
 ### 2.3 Which protocol for which participant
 

@@ -4,6 +4,10 @@
 //! It does not create viewports, publish signals, navigate Main, scan stores,
 //! launch providers, or implement Social transport.
 
+use dpl_ai_profiles::{
+    CatalogSupplement, CatalogSupplementAction, ProviderConfigurationKind, ProviderProfile,
+    ProviderProfileDraft, SUPPLEMENTS,
+};
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
     AccountSummary, ActivationState, Capability, ChatDomain, ChatEvent, ChatEventContent,
@@ -14,10 +18,6 @@ use dpl_chat_core::{
 use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionLifecycle, InteractionPlacement,
     InteractionProvenance, InteractionRegistry, InteractionSpec, OverlayCoordinator, OverlayEntry,
-};
-use dpl_chat_profiles::{
-    CatalogSupplement, CatalogSupplementAction, ProviderConfigurationKind, ProviderProfile,
-    ProviderProfileDraft, SUPPLEMENTS,
 };
 use dpl_chat_runtime::{ChatRuntime, ProviderView, RegistryError};
 use dpl_chat_social::{

@@ -39,12 +39,12 @@ composer/ViziWiz production OS-temp writes (row 31) are removed in ST1.
 | 2 | **Shippin** control plane / entitlement contract; Shippin `NAMING-AND-SSOT` "seat" definition | merge plan §5.4, §6; branch `crates/seat/src/lib.rs:10,19,77` | Docs on main; code on branch | **Reject.** |
 | 3 | Branch `feat/providers-carousel` (23 commits): `crates/seat`, `crates/ai-core`, kernel-boundary gate, chat-as-coworkspace, brainstorm-per-seat | `git log origin/main..origin/feat/providers-carousel` | Unmerged | **Do not merge.** Its pieces are mapped by name to the chat plan's passes (R301, ruled 2026-11-11); the local tag `retired/providers-carousel` is deleted when the last lands. |
 | 4 | The **old app** as read-only reference and source of law (ADR-009/010, signalkind) | `CLAUDE.md:33`, `AGENTS.md:60,81`, `.claude/skills/port-capture`, `slide-catalog-pass`, ~15 plans | Docs say `C:\localdev\devpulse labs` / `D:/localdev/devpulse labs` — neither exists. **Found by exact name at `D:\localdev\review-archive\devpulse labs`** (full TS/TanStack/Tauri source + `.git`, HEAD `98babf4`; skills wrongly call it "build output only"). Other look-alikes never named in docs: `devpulse_alpha`, `DEVPULSE-ALPHA-2026`, `platform_devpulse` | **Confirm** the review-archive path; fix CLAUDE.md, AGENTS.md and the skills. |
-| 5 | **Clyffy** as an in-app persona: pinned "house session" chat row, provider id `"clyffy"` | `crates/app/src/chat.rs:164,1642-1664,2359-2435`; `crates/chat/window/src/lib.rs:163,701-712,2469-2524`; `crates/chat/profiles/src/lib.rs:17,181`; `docs-history-2026-10-12:docs/plans/providers-presence-and-the-brain.md:222-269` | In app; inert ("sends arrive with the next slice") | **Decide:** is Clyffy part of DevPULSE chat? |
+| 5 | **Clyffy** as an in-app persona: pinned "house session" chat row, provider id `"clyffy"` | `crates/app/src/chat.rs:164,1642-1664,2359-2435`; `crates/chat/window/src/lib.rs:163,701-712,2469-2524`; `crates/ai/profiles/src/lib.rs:17,181`; `docs-history-2026-10-12:docs/plans/providers-presence-and-the-brain.md:222-269` | In app; inert ("sends arrive with the next slice") | **Decide:** is Clyffy part of DevPULSE chat? |
 | 6 | "DevPulse platform" capture-share spec: forks `EonsofStupid/{str0m,scap,cortex}`, Qortex, Council, Turso control layer | `docs/design/wiredfront-capture-share-spec.md:1-40,104-111,238-247` | DRAFT, "do not implement" | **Decide** (likely park). |
 | 7 | A2UI / AG-UI message vocabulary (Google, CopilotKit) | `docs/plans/operator-coach-a2ui.md:19-25`; `docs-history-2026-10-12:docs/plans/brainstorm-and-clyffy-drive-capture.md:38-64` | Vocabulary only | **Decide.** |
 | 8 | ComfyUI node-graph concepts | `docs/plans/wiredfront-workflows-program.md:158-169`; `docs-history-2026-10-12:docs/design/adr-010-workbench-assembly.md` | Program | Confirm (recorded as your directive). |
 | 9 | Vendored INTO the repo: ColdLight tokens (from the prior repo), Lucide 1.27.0, 13 OFL fonts, Phosphor | `crates/coldlight/build.rs:4-6`; `assets/lucide/`, `assets/fonts/` | In-repo, embedded | Confirm (no runtime reach). |
-| 10 | Vendored Codex app-server JSON schema (`codex-cli 0.146.0-alpha.3.1`) | `crates/chat/providers/codex/schema/` | Test-only | Confirm. Note the version gate rejects 0.146 (see 11). |
+| 10 | Vendored Codex app-server JSON schema (`codex-cli 0.146.0-alpha.3.1`) | `crates/ai/providers/codex/schema/` | Test-only | Confirm. Note the version gate rejects 0.146 (see 11). |
 
 ## B · External programs the app launches
 
@@ -98,11 +98,11 @@ composer/ViziWiz production OS-temp writes (row 31) are removed in ST1.
 
 | # | Engine | Pulled by | Recommendation |
 |---|---|---|---|
-| 39 | turso 0.7 (SQLite-compatible + tantivy + mimalloc; **sync-engine crates in the graph**) | `dpl-index`, `chat/accounts`, `chat/profiles` | Decide. |
+| 39 | turso 0.7 (SQLite-compatible + tantivy + mimalloc; **sync-engine crates in the graph**) | `dpl-index`, `ai/accounts`, `ai/profiles` | Decide. |
 | 40 | fjall (estate), parquet/arrow (ledger) | `dpl-estate`, `dpl-ledger` | Decide. |
 | 41 | rav1e (AVIF), libwebp (C) | `engine-media`, `engine-capture` | Decide (ffmpeg could own encoding). |
-| 42 | agent-client-protocol + async stack (~99 crates) | `dpl-chat-grok` only | Decided by the chat plan. |
-| 43 | ureq + rustls + ring | `dpl-chat-imagine` only | Follows 32. |
+| 42 | agent-client-protocol + async stack (~99 crates) | `dpl-ai-grok` only | Decided by the chat plan. |
+| 43 | ureq + rustls + ring | `dpl-ai-imagine` only | Follows 32. |
 
 ## G · Build, CI, depot, infrastructure
 
@@ -136,7 +136,7 @@ composer/ViziWiz production OS-temp writes (row 31) are removed in ST1.
 | 59 | Your OpenAI Codex desktop app runs its own `codex app-server` daemons (0.162.1, `~/.codex/packages/…`). These are separate from DevPULSE's depot codex. "ChatGPT is open" (R21) means *that* app is signed in, not necessarily the depot CLI. | process list 2026-10-10 | Informs C2's plain-words sign-in states. |
 | 60 | **Google's Antigravity CLI (`agy`)**, the default Gemini participant (R281). It is sourced into the depot as the unmodified binary and driven in Google's documented headless mode (`-p`, stream-json) on the operator's AI Pro/Ultra quota. Its credentials stay in `agy`'s own cache, from the operator's interactive sign-in. Also its fallback: **Gemini CLI on a paid Gemini API key** funded by Developer Program credits. | [headless docs](https://antigravity.google/docs/cli/headless/); [terms §6](https://antigravity.google/terms); `docs/requirements.md` R279–R281 | **Confirmed by the operator 2026-10-18** ("Both, subscription first"). The residual risk under §6's broad wording is disclosed in the provider panel. |
 | 61 | **A build's program folder is its project** (ST1b): an exe at `<project>\target\{release,debug}\` whose `<project>\Cargo.toml` exists keeps `roots.toml` and `library\` in `<project>` | `docs/plans/portable-storage.md` §4.7 | Two fixed levels, no walk | **Ruled** 2026-10-26 (R291: "stored inside the project properly"). |
-| 61 | **The operator's own Codex install, `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin`** (`codex.exe` + `codex-code-mode-host.exe`, 0.163.0 on 2026-10-20). CW1 READS it only to offer "Update Codex": nothing runs from there. Adoption first has Windows verify OpenAI's Authenticode signature on every file ("OpenAI OpCo, LLC"), probes the version, and checks the build's own protocol schema, then copies it into the depot. | `Get-AuthenticodeSignature` (Valid, OpenAI OpCo); SHA-256 equal to GitHub's published `rust-v0.163.0` digests (`2692c8c7…`, `07f3869f…`); `crates/chat/providers/codex/src/adoption.rs` | Adopted 0.163.0 into the central depot (row 56: `artifacts/windows-x86_64/codex/0.163.0`) and into `target/debug` and `target/release` | Confirm: adopting from the vendor's own install, signature-checked, is the update path (R278). |
+| 61 | **The operator's own Codex install, `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin`** (`codex.exe` + `codex-code-mode-host.exe`, 0.163.0 on 2026-10-20). CW1 READS it only to offer "Update Codex": nothing runs from there. Adoption first has Windows verify OpenAI's Authenticode signature on every file ("OpenAI OpCo, LLC"), probes the version, and checks the build's own protocol schema, then copies it into the depot. | `Get-AuthenticodeSignature` (Valid, OpenAI OpCo); SHA-256 equal to GitHub's published `rust-v0.163.0` digests (`2692c8c7…`, `07f3869f…`); `crates/ai/providers/codex/src/adoption.rs` | Adopted 0.163.0 into the central depot (row 56: `artifacts/windows-x86_64/codex/0.163.0`) and into `target/debug` and `target/release` | Confirm: adopting from the vendor's own install, signature-checked, is the update path (R278). |
 
 ---
 

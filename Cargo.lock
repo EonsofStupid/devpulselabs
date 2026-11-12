@@ -1783,17 +1783,17 @@ checksum = "c2ea6706d74fca54e15f1d40b5cf7fe7f764aaec61352a9fcec58fe27e042fc8"
 name = "devpulselabs"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-accounts",
- "dpl-chat-browser-auth",
- "dpl-chat-claude",
- "dpl-chat-codex",
+ "dpl-ai-accounts",
+ "dpl-ai-browser-auth",
+ "dpl-ai-claude",
+ "dpl-ai-codex",
+ "dpl-ai-cursor",
+ "dpl-ai-gemini",
+ "dpl-ai-grok",
+ "dpl-ai-imagine",
+ "dpl-ai-profiles",
  "dpl-chat-core",
- "dpl-chat-cursor",
- "dpl-chat-gemini",
- "dpl-chat-grok",
- "dpl-chat-imagine",
  "dpl-chat-interactions",
- "dpl-chat-profiles",
  "dpl-chat-projects",
  "dpl-chat-runtime",
  "dpl-chat-social",
@@ -1920,17 +1920,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
-name = "dpl-backdrop"
-version = "0.1.0"
-dependencies = [
- "dpl-coldlight",
- "dpl-video",
- "egui",
- "egui-pilot-ai",
-]
-
-[[package]]
-name = "dpl-chat-accounts"
+name = "dpl-ai-accounts"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
@@ -1940,7 +1930,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dpl-chat-browser-auth"
+name = "dpl-ai-browser-auth"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
@@ -1948,7 +1938,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dpl-chat-claude"
+name = "dpl-ai-claude"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
@@ -1957,7 +1947,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dpl-chat-codex"
+name = "dpl-ai-codex"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
@@ -1968,6 +1958,69 @@ dependencies = [
  "dpl-tools-deps",
  "process-wrap",
  "serde_json",
+]
+
+[[package]]
+name = "dpl-ai-cursor"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+]
+
+[[package]]
+name = "dpl-ai-gemini"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-chat-store",
+]
+
+[[package]]
+name = "dpl-ai-grok"
+version = "0.1.0"
+dependencies = [
+ "agent-client-protocol",
+ "async-channel",
+ "async-io",
+ "async-process",
+ "dpl-chat-core",
+ "dpl-chat-runtime",
+ "dpl-chat-store",
+ "dpl-proc",
+ "dpl-tools-deps",
+ "futures-lite",
+ "serde_json",
+]
+
+[[package]]
+name = "dpl-ai-imagine"
+version = "0.1.0"
+dependencies = [
+ "data-encoding",
+ "dpl-roots",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "dpl-ai-profiles"
+version = "0.1.0"
+dependencies = [
+ "dpl-chat-core",
+ "dpl-roots",
+ "tokio",
+ "turso",
+]
+
+[[package]]
+name = "dpl-backdrop"
+version = "0.1.0"
+dependencies = [
+ "dpl-coldlight",
+ "dpl-video",
+ "egui",
+ "egui-pilot-ai",
 ]
 
 [[package]]
@@ -1988,13 +2041,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dpl-chat-cursor"
-version = "0.1.0"
-dependencies = [
- "dpl-chat-core",
-]
-
-[[package]]
 name = "dpl-chat-extensions"
 version = "0.1.0"
 dependencies = [
@@ -2003,56 +2049,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "dpl-chat-gemini"
-version = "0.1.0"
-dependencies = [
- "dpl-chat-core",
- "dpl-chat-store",
-]
-
-[[package]]
-name = "dpl-chat-grok"
-version = "0.1.0"
-dependencies = [
- "agent-client-protocol",
- "async-channel",
- "async-io",
- "async-process",
- "dpl-chat-core",
- "dpl-chat-runtime",
- "dpl-chat-store",
- "dpl-proc",
- "dpl-tools-deps",
- "futures-lite",
- "serde_json",
-]
-
-[[package]]
-name = "dpl-chat-imagine"
-version = "0.1.0"
-dependencies = [
- "data-encoding",
- "dpl-roots",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
 name = "dpl-chat-interactions"
 version = "0.1.0"
 dependencies = [
  "dpl-chat-core",
-]
-
-[[package]]
-name = "dpl-chat-profiles"
-version = "0.1.0"
-dependencies = [
- "dpl-chat-core",
- "dpl-roots",
- "tokio",
- "turso",
 ]
 
 [[package]]
@@ -2096,11 +2096,11 @@ dependencies = [
 name = "dpl-chat-testkit"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-claude",
- "dpl-chat-codex",
+ "dpl-ai-claude",
+ "dpl-ai-codex",
+ "dpl-ai-gemini",
+ "dpl-ai-grok",
  "dpl-chat-core",
- "dpl-chat-gemini",
- "dpl-chat-grok",
  "dpl-chat-interactions",
  "dpl-chat-runtime",
  "dpl-chat-social",
@@ -2110,10 +2110,10 @@ dependencies = [
 name = "dpl-chat-window"
 version = "0.1.0"
 dependencies = [
+ "dpl-ai-profiles",
  "dpl-chat-context",
  "dpl-chat-core",
  "dpl-chat-interactions",
- "dpl-chat-profiles",
  "dpl-chat-projects",
  "dpl-chat-runtime",
  "dpl-chat-social",
@@ -9440,7 +9440,7 @@ checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "dpl-chat-codex",
+ "dpl-ai-codex",
  "dpl-doc",
  "dpl-roots",
  "dpl-tools-deps",
