@@ -740,6 +740,116 @@ clients. Provider conversation footprint, fresh-machine resume, lease ownership
 and the exact external paths are explicit gates. The operator resumed the
 reviewed design; PC1a implementation proceeds without repeating approval.
 
+### 4.8 The finished chat (R302, R303) — the program from here
+
+**Status:** approved 2026-11-14 (rulings in requirements.md, 2026-11-14). It extends this plan (one
+source). Every step lands in an existing boundary: `crates/ai/*` for providers and
+the host, `crates/chat/*` for chat, `dpl-roots` for storage, and `dpl-coldlight`
+for the look.
+
+#### 4.8.1 The experience being built
+1. **The chat knows the machine's AIs.** On open, the chat lists every frontier AI
+   it can find:
+   - **installed**, in the depot or in the vendor's known locations;
+   - **running**, recognised by its process tell: Claude Desktop, ChatGPT, Grok,
+     Meta, Kimi, Hermes or a custom one;
+   - **signed in**, from the vendor's own status command.
+
+   Each one shows plainly what it can do here.
+2. **A general chat by default.** Tabs drill down per provider. Picking one (for
+   example Claude) lets the operator attach the current project to that session.
+3. **Trust first.** Before any AI can read or write in a folder, a built-in prompt
+   asks once per project, in the spirit of VS Code's workspace trust. The answer is
+   remembered, and the AI is denied until it is given.
+4. **Everything stays in DevPULSE.**
+   - Chats, logs, research context and images save inside the portable library by
+     default, grouped by project in folders.
+   - The location can be changed later.
+   - Every dependency is installable locally.
+5. **Group chat.**
+   - Members are added from pre-defined, configurable roles through an animated,
+     layman-friendly popup that closes on selection.
+   - Turn-taking is configurable: round robin, raise a hand, or Clyffy moderates.
+6. **Roles compose.** A base (for example Brainstorming, under Development) plus
+   chained modifiers makes the full expert. Each role is data on a base schema, so
+   only what is unique is authored.
+7. **Clyffy.** Tap Clyffy to get a mode popup: Dev (planning and research) or
+   Creative (images). Clyffy runs on an API key, an assigned subscription, or a
+   local or Hugging Face model, chosen to give the frontier experience at the
+   lowest cost. In TaskAssist:
+   - the frontier model does the foundational planning from a plain-language back
+     and forth;
+   - a task component appears, listing tasks and objectives toward one structured
+     senior-dev PR;
+   - "Take control" shows the enhanced prompt;
+   - Clyffy follows up as a backseat driver and corrects drift;
+   - a semantic router hands work below a threshold to cheaper models.
+8. **Dev UI.** For every AI it shows triggers, latency (time to first token, total),
+   tokens and limits, and the CPU and memory of its process.
+9. **A2UI.** The chat renders a dynamic library of components: the task map, cards,
+   pickers and results.
+
+#### 4.8.2 Design rules (from the 2026-11-14 research; sources in the PR)
+1. Pin and hash-verify every vendor binary in the depot. Apply a release cooldown,
+   and refuse entries without a hash unless the operator approves them.
+2. Never pass text through a shell. Resolve the real executable, never a `.cmd`
+   shim, pass arguments as an argv list, and send prompts over stdin.
+3. Every provider runs inside a Windows Job Object with kill-on-close (a process
+   group on Linux), and the whole tree is always torn down.
+4. Never touch credentials. Auth is checked only through each vendor's own status
+   command, and sign-in happens only in the vendor's own flow. This is what
+   Anthropic's and Google's terms require.
+5. Provider output, transcripts and MCP results are untrusted data. They are shown
+   inert, and one member's output never reaches another member's tools without a
+   prompt.
+6. Launch with a scrubbed environment and an app-owned config directory
+   (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `KIMI_CODE_HOME`). Strip `*_BASE_URL`, and
+   never pass permission-bypass flags.
+7. Never auto-trust a workspace (item 3 of 4.8.1). This is the class behind 2025-26
+   CVEs: project config ran before trust was given.
+8. Protocol ladder: ACP first, then the vendor's own JSON-RPC, then stream-json.
+   Feature-detect `fork`, `list` and `resume`, and validate events against schemas
+   generated for the installed version.
+9. DevPULSE owns the transcript. Its own versioned JSONL is the truth; vendor
+   session ids are pointers, and vendor files are never parsed as a contract.
+10. Show usage honestly ("unknown" when the vendor does not report it). Every
+    spawn, approval and denial goes to an audit log that holds no secrets.
+
+#### 4.8.3 How each part extends what exists
+| Part | Extends | Notes |
+|---|---|---|
+| AI catalog as data | `dpl-ai-core` manifest → a data catalog; `dpl-ai-host` presence | The ACP registry (about 46 agents, launch command and sha256 per platform) becomes the vendored, pinned catalog. The compiled `Manifest` consts become catalog entries. |
+| Installed / running / signed-in | `dpl-ai-host::presence` | Process tells via `sysinfo` (already in the workspace). Known install paths per OS. Status commands from the depot binary. |
+| Desktop apps | `dpl-ai-host` | Detect and offer launch or focus only (R12). Chat goes through each vendor's CLI sibling, because the desktop apps expose no local API. |
+| Generic ACP adapter | `dpl-ai-core::adapter` + one ACP client | Kimi, Gemini/Antigravity, Copilot, Qwen, Vibe, Grok and Goose plug in by catalog entry. Codex keeps its app-server. Claude uses stream-json (or `claude-agent-acp`). |
+| Trust prompt | `chat/projects` binding + ColdLight dialog | Per project folder; read, write and run are granted separately. |
+| Storage | `dpl-roots` layout (ST4) | `<library>/.usr/.ai/` replaces the reserved `.aidata`, per project: `chats/`, `logs/`, `context/`, `media/`. Project folders keep only a link back. Changeable later. |
+| Group chat and moderation | rooms RM2–RM4, `room.v1` | Turn policy is data: `round_robin`, `raise_hand` or `moderated_by`. |
+| Composable roles | `dpl.role/2` in `chat/core/rooms.rs`, migrated once | A base plus ordered modifiers; later modifiers override fields, and lists append. Categories form a tree. |
+| Clyffy | profiles (`dpl-ai-profiles`) + `dpl-ai-host` router | Backing is a profile: subscription, API key, local or Hugging Face. The router routes by task class and threshold, as data. |
+| Task map / A2UI | `dpl-chat-renderers` + `dpl-chat-extensions` | These two crates are the unwired registry (consolidation review item 5); they become the A2UI component library. |
+| Dev UI | fabric `AiEvent` + `dpl-ai-host` sampling | `AiEvent` already carries time to first token and duration. Add per-process CPU and memory, and turn the ledger on in dev runs. |
+| Look and accessibility | ColdLight `roles.json` chat surface (K2) + C2a patterns | Raw colour leaves `chat/window`. An accessibility checklist goes into every pilot scenario. |
+
+#### 4.8.4 Passes, in order (one PR each; recording-for-AI alternates)
+1. **KB** — the chat defects: Codex Ready, Grok sign-in, the compact tab bar.
+2. **C2b** — general chat by default, the tab model, the composer + menu with
+   modes, the ColdLight chat surface, and the accessibility checklist.
+3. **AH1** — the AI catalog as data (ACP registry), installed / running /
+   signed-in detection, desktop tells, and the trust prompt.
+4. **ST4** — chats, logs, context and media in the library, grouped per project.
+5. **A2b / CW2** — the generic ACP adapter (Kimi and the rest) and the Claude
+   runtime.
+6. **DV1** — the dev telemetry panel.
+7. **RM2–RM4** — the room log, the animated member picker, and moderated turn
+   policies.
+8. **RM1b** — `dpl.role/2`: base plus modifiers, migrated once.
+9. **CL1–CL3** — Clyffy: the mode popup and backing, the router, TaskAssist with
+   the task map, and Take control.
+10. **A2UI1** — the component library through the renderer registry.
+
+Each pass gets its own pass plan and the operator's OK before code.
+
 ## 5. Wiring
 
 **Edges:**

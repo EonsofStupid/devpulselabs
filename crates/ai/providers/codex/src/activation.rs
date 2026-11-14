@@ -618,7 +618,7 @@ fn canonical_directory(path: &Path) -> Result<PathBuf, CodexDiscoveryError> {
     })
 }
 
-fn discover_executable() -> Result<PathBuf, CodexDiscoveryError> {
+pub(crate) fn discover_executable() -> Result<PathBuf, CodexDiscoveryError> {
     dpl_tools_deps::resolve_current(dpl_tools_deps::CODEX)
         .map(|dependency| dependency.path().to_owned())
         .map_err(|error| CodexDiscoveryError::EmbeddedDependency(error.to_string()))

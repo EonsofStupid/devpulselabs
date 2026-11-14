@@ -28,9 +28,19 @@ use dpl_ai_core::provider::{
 };
 use dpl_ai_core::usage::{ProviderUsage, TokenUsage, UsageReporting};
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const PROVIDER: ProviderId = ProviderId("codex");
+
+/// The qualified Codex client this app launches: the tool depot's build
+/// beside the executable. Presence asks THIS client whether the operator is
+/// signed in, so the answer is about the program DevPULSE will run, not
+/// whichever `codex` happens to be first on PATH. `None` when the depot does
+/// not resolve one.
+pub fn qualified_client() -> Option<PathBuf> {
+    activation::discover_executable().ok()
+}
+
 pub const DEFAULT_PROFILE: ProviderProfileId = ProviderProfileId("codex-default");
 
 const TARGETS: &[Capability] = &[

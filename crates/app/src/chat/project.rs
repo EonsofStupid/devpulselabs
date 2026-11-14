@@ -198,6 +198,13 @@ pub(super) fn frozen(state: &Shared) -> bool {
     state.project.switching
 }
 
+/// Whether a project has configured the Codex and Grok coordinators.
+/// `activate` swaps them in and sets `active` in the same step; until then
+/// they are the inert "Choose a project first" placeholders.
+pub(super) fn configured(state: &Shared) -> bool {
+    state.project.active.is_some()
+}
+
 pub(super) fn ready(state: &Shared) -> bool {
     state.project.active.is_some() && !state.project.switching && !state.project.offline
 }

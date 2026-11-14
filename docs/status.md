@@ -77,11 +77,25 @@ as wiring. Next for chat: the pieces mapped in the plan's R301 amendment. C2a (t
 providers rail, chips and catalog) is the first: the rail lists only the providers
 turned on, under Subscriptions and API chips; the catalog keeps every section it
 had in a full-window layout; tofu glyphs are drawn icons; selected rows announce
-it. Four chat pilot scenarios fail on `main` and on C2a at the same steps:
-`chat-codex-persisted-ready` and `chat-grok-persisted-ready` need saved sign-in
-state a scratch library lacks, and `chat-grok-signed-out-readiness` and
-`chat-steam-social` look for a Grok sign-in button that is not shown. The compact
-chat window's tab bar overlaps at 720 px wide. The process-supervisor branch is not landing:
+it. The chat known-broken fixes are on branch `chat/known-broken`, not landed
+([plan](plans/chat-known-broken.md)):
+- Before a project is chosen, presence now speaks for Codex and Grok. It asks
+  the depot's own clients, answers as each probe ends, and does not wait for
+  the main window to paint, so a signed-in Codex reads Ready.
+- A signed-out provider's saved chat keeps a sign-in strip above it.
+- The compact tab bar fits at 720 px.
+
+`chat-grok-signed-out-readiness` and `chat-steam-social` now pass. Two scenarios
+still fail on this machine because of its state, not the code:
+- `chat-grok-persisted-ready` needs Grok signed in. The depot's `grok models`
+  says "You are not authenticated."
+- `chat-codex-persisted-ready` passes the Codex Ready step. It then needs Grok
+  signed in, and a project chat set up so that Send can enable; this machine
+  has neither.
+
+Signing in to Codex or Grok before a project is chosen still reaches only the
+"Choose a project first" placeholder. The window's □, ❐, ▾ and ▸ glyphs are in
+no bundled font. The process-supervisor branch is not landing:
 its own commit records it as a placebo that fails the gate. The originals are
 local tags under `retired/`. The old clone at `D:\localdev\devpulselabs` now
 holds only `main`.
