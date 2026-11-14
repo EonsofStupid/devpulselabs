@@ -432,27 +432,29 @@ fn restore_roster(
         .collect()
 }
 
-/// Take the presence sweep the moment it lands, then never look again.
+/// Take each presence answer the moment it lands, until the probe closes.
 ///
-/// A non-blocking poll on the frame path: the probe runs four short-lived
-/// vendor processes on its own thread, and the egui thread only ever asks
-/// whether the answer has arrived.
+/// A non-blocking poll on the frame path: the probe runs short-lived vendor
+/// processes on its own thread and sends each provider's answer as soon as
+/// that provider has spoken, so a fast provider is not held behind a slow
+/// one. The egui thread only ever asks whether an answer has arrived.
 fn drain_presence(state: &mut Shared) {
-    let Some(receiver) = state.presence.as_ref() else {
-        return;
-    };
-    let found = match receiver.try_recv() {
-        Ok(found) => found,
-        Err(std::sync::mpsc::TryRecvError::Empty) => return,
-        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-            state.presence = None;
+    loop {
+        let Some(receiver) = state.presence.as_ref() else {
             return;
+        };
+        let found = match receiver.try_recv() {
+            Ok(found) => found,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                state.presence = None;
+                return;
+            }
+        };
+        for one in &found {
+            tracing::info!(provider = %one.provider, verdict = ?one.verdict, "provider presence");
+            apply_presence(state, one);
         }
-    };
-    state.presence = None;
-    for one in &found {
-        tracing::info!(provider = %one.provider, verdict = ?one.verdict, "provider presence");
-        apply_presence(state, one);
     }
 }
 
@@ -466,46 +468,75 @@ fn drain_presence(state: &mut Shared) {
 /// has spoken for, and to state honestly what the machine says about the
 /// rest. Overwriting a live coordinator's state from a one-shot probe is how
 /// a working provider ends up reported as signed out mid-session.
+///
+/// Codex's and Grok's coordinators only speak once a project configures
+/// them (no launch-directory authority, PC1a). Before that, the window holds
+/// their "Choose a project first" placeholder, or the history-only
+/// `Experimental` that `with_local_history` put over it — neither is a
+/// verdict on sign-in. Presence asked the same qualified client the
+/// coordinator runs, so it speaks for them until a project does: a ChatGPT
+/// or grok.com login is `Ready`, exactly as each coordinator reads it.
+/// Sending still waits for a project, because the runtime starts only from a
+/// configured coordinator.
 fn apply_presence(state: &mut Shared, found: &dpl_ai_host::presence::Presence) {
-    use dpl_ai_core::presence::PresenceVerdict;
-
-    let already_activated = state
-        .window
-        .provider_capabilities()
-        .iter()
-        .any(|p| p.id == found.provider && p.activated);
-    if already_activated {
-        return;
+    let coordinated =
+        found.provider == dpl_ai_codex::PROVIDER || found.provider == dpl_ai_grok::PROVIDER;
+    if coordinated {
+        if project::configured(state) {
+            return;
+        }
+    } else {
+        let already_activated = state
+            .window
+            .provider_capabilities()
+            .iter()
+            .any(|p| p.id == found.provider && p.activated);
+        if already_activated {
+            return;
+        }
     }
 
-    let note = found.note.clone().unwrap_or_default();
-    let activation = match found.verdict {
-        // Signed in, but nothing here qualifies a live turn transport yet —
-        // say exactly that rather than claiming Ready.
-        PresenceVerdict::SignedIn => ActivationState::Experimental {
-            reason: "Signed in on this machine. Live turns are not qualified yet.".to_owned(),
-            recovery: Vec::new(),
-        },
-        PresenceVerdict::SignedOut => ActivationState::SignedOut {
-            reason: note,
-            recovery: vec![RecoveryAction::new(
-                RecoveryActionKind::SignIn,
-                "Sign in with your browser",
-            )],
-        },
-        PresenceVerdict::NotInstalled => ActivationState::NotInstalled {
-            reason: note,
-            recovery: Vec::new(),
-        },
-        // An answer nobody taught us to read is not evidence of anything.
-        PresenceVerdict::Unknown => return,
+    // An answer nobody taught us to read is not evidence of anything.
+    let Some(activation) = presence_activation(found, coordinated) else {
+        return;
     };
-
     if let Err(error) = state
         .window
         .set_provider_activation(found.provider, activation)
     {
         tracing::warn!(%error, provider = %found.provider, "presence could not be applied");
+    }
+}
+
+/// What one presence answer says about a provider's activation. `coordinated`
+/// is a provider whose own coordinator reads a signed-in client as `Ready`
+/// (Codex, Grok); for everyone else nothing qualifies a live turn transport
+/// yet, so signed in is `Experimental`, never Ready.
+fn presence_activation(
+    found: &dpl_ai_host::presence::Presence,
+    coordinated: bool,
+) -> Option<ActivationState> {
+    use dpl_ai_core::presence::PresenceVerdict;
+
+    let note = found.note.clone().unwrap_or_default();
+    match found.verdict {
+        PresenceVerdict::SignedIn if coordinated => Some(ActivationState::Ready),
+        PresenceVerdict::SignedIn => Some(ActivationState::Experimental {
+            reason: "Signed in on this machine. Live turns are not qualified yet.".to_owned(),
+            recovery: Vec::new(),
+        }),
+        PresenceVerdict::SignedOut => Some(ActivationState::SignedOut {
+            reason: note,
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::SignIn,
+                "Sign in with your browser",
+            )],
+        }),
+        PresenceVerdict::NotInstalled => Some(ActivationState::NotInstalled {
+            reason: note,
+            recovery: Vec::new(),
+        }),
+        PresenceVerdict::Unknown => None,
     }
 }
 
@@ -1561,6 +1592,13 @@ fn service_project(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>) {
         let mut state = lock(shared);
         project::boot(&mut state, ctx);
         project::poll(&mut state, ctx);
+        // Presence answers land on a worker. The peer drains them too, and
+        // keeps polling while the probe is still running, so a hidden or idle
+        // main window cannot hold back what the machine said.
+        drain_presence(&mut state);
+        if state.presence.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         native::tick(&mut state);
         if native::busy(&state) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -5829,6 +5867,60 @@ mod plain_failure_tests {
         let plain = plain_failure("Codex refused turn/start: thread not found");
         assert_eq!(plain.message, "Codex refused turn/start: thread not found");
         assert_eq!(plain.activation, None);
+    }
+}
+
+#[cfg(test)]
+mod presence_tests {
+    use super::*;
+    use dpl_ai_core::presence::PresenceVerdict;
+    use dpl_ai_host::presence::Presence;
+
+    fn found(provider: ProviderId, verdict: PresenceVerdict) -> Presence {
+        Presence {
+            provider,
+            verdict,
+            note: Some("note".to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_signed_in_coordinated_client_is_ready_and_others_stay_experimental() {
+        assert_eq!(
+            presence_activation(
+                &found(dpl_ai_codex::PROVIDER, PresenceVerdict::SignedIn),
+                true
+            ),
+            Some(ActivationState::Ready)
+        );
+        assert!(matches!(
+            presence_activation(
+                &found(dpl_ai_claude::PROVIDER, PresenceVerdict::SignedIn),
+                false
+            ),
+            Some(ActivationState::Experimental { .. })
+        ));
+    }
+
+    #[test]
+    fn signed_out_offers_sign_in_and_unknown_says_nothing() {
+        let signed_out = presence_activation(
+            &found(dpl_ai_grok::PROVIDER, PresenceVerdict::SignedOut),
+            true,
+        )
+        .expect("signed out is a verdict");
+        assert!(matches!(signed_out, ActivationState::SignedOut { .. }));
+        assert_eq!(
+            signed_out.recovery().first().map(|action| action.kind),
+            Some(RecoveryActionKind::SignIn)
+        );
+        assert_eq!(
+            presence_activation(
+                &found(dpl_ai_grok::PROVIDER, PresenceVerdict::Unknown),
+                true
+            ),
+            None
+        );
     }
 }
 

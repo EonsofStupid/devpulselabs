@@ -69,17 +69,6 @@ pub const HISTORY_BANNER_ID: PilotId = PilotId::new("chat.history.banner");
 /// The RECENT CHATS heading. It exists ONLY when transcripts were found, so
 /// its presence is the honest assertion for "the operator's chats surfaced".
 pub const HISTORY_SECTION_ID: PilotId = PilotId::new("chat.sidebar.sessions.history");
-/// One slot in the title-bar tab strip. Shared by the mode buttons and by the
-/// width budget that decides when the search field must yield to them.
-const MODE_TAB_WIDTH: f32 = 112.0;
-/// The narrowest a tab may become before the strip stops shrinking. Below this
-/// the short labels ("FX", "Grok", "Social") stop reading as words.
-const MODE_TAB_MIN_WIDTH: f32 = 68.0;
-/// The title block's fixed allocation at the left of the strip.
-const TITLE_WIDTH: f32 = 166.0;
-/// What the right-to-left group at the end of the strip needs: the four window
-/// buttons, the availability word, and the status dots.
-const TITLE_BAR_RESERVED: f32 = 250.0;
 pub const ROUTE_ID: PilotId = PilotId::new("chat.context.route");
 pub const SHOW_MAIN_ID: PilotId = PilotId::new("chat.window.show-main");
 pub const QUIT_ID: PilotId = PilotId::new("chat.window.quit");
@@ -1862,174 +1851,220 @@ impl ChatWindow {
     }
 
     fn top_strip(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        // Every size in the strip comes from the window's own Fluid scale,
+        // so the same code reads at the 720 px minimum and maximized.
+        let fluid = cl::Fluid::of(ui.ctx().content_rect());
+        let inset = fluid.sp_3().round() as i8;
         egui::Frame::new()
             .fill(Color32::from_rgb(6, 19, 23))
             .stroke(Stroke::new(1.0, teal_hairline()))
             .corner_radius(CornerRadius::same(5))
             .inner_margin(egui::Margin {
-                left: 12,
-                right: 12,
-                top: 6,
+                left: inset,
+                right: inset,
+                top: fluid.sp_1().round() as i8,
                 bottom: 0,
             })
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    // Every connected provider spends a tab's worth of the row,
-                    // so the width the strip needs before the search field may
-                    // keep its place grows with them. The +3 is AI, Content and
-                    // Social — the three that are ALWAYS in the strip. Counting
-                    // only Content under-budgeted by two slots, which stayed
-                    // invisible until a third provider activated and pushed
-                    // Social underneath the status text.
-                    let connected = self.connected_tabs();
-                    let tabs = connected.len() + 3;
-                    let compact = ui.available_width() < 820.0 + MODE_TAB_WIDTH * tabs as f32;
-                    // The strip cannot simply overflow: the window controls and
-                    // the status word are laid out right-to-left in this SAME
-                    // row, so tabs that do not fit are drawn UNDERNEATH them.
-                    // Every slot therefore shares whatever is left once the
-                    // title and that right-hand group are reserved, down to a
-                    // floor where the short labels still read.
-                    let tab_width = ((ui.available_width() - TITLE_WIDTH - TITLE_BAR_RESERVED)
-                        / tabs as f32)
-                        .clamp(MODE_TAB_MIN_WIDTH, MODE_TAB_WIDTH);
-                    let title = ui
-                        .allocate_ui_with_layout(
-                            egui::vec2(166.0, 35.0),
-                            Layout::left_to_right(Align::Center),
-                            |ui| {
-                                brand_mark(ui);
-                                ui.label(
-                                    RichText::new("DevPULSE Chat")
-                                        .strong()
-                                        .size(17.0)
-                                        .color(cl::ink::STRONG),
-                                );
-                            },
-                        )
-                        .response
-                        .interact(Sense::click_and_drag());
-                    if title.drag_started() {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                    }
-                    if title.double_clicked() {
-                        let maximized = ui
-                            .ctx()
-                            .input(|input| input.viewport().maximized.unwrap_or(false));
-                        ui.ctx()
-                            .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
-                    }
-                    ui.add_space(if compact { 4.0 } else { 20.0 });
-                    let focused_tab = self.focused_provider_tab();
-                    if mode_button(
-                        ui,
-                        AI_MODE_ID,
-                        "AI",
-                        self.domain == ChatDomain::Ai && focused_tab.is_none(),
-                        tab_width,
+                let row = egui::Rect::from_min_size(
+                    ui.cursor().min,
+                    egui::vec2(ui.available_width(), fluid.ctl_btn()),
+                );
+                let gap = fluid.sp_2();
+                // The window controls are laid out FIRST and claim their real
+                // width. Everything to their left shares only what remains,
+                // so a tab can never be drawn underneath them.
+                let controls = ui
+                    .scope_builder(
+                        UiBuilder::new()
+                            .max_rect(row)
+                            .layout(Layout::right_to_left(Align::Center)),
+                        |ui| window_controls(ui, intents),
                     )
-                    .clicked()
-                    {
-                        intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Ai));
-                    }
-                    for (id, label, short_label) in connected {
-                        let selected = self.domain == ChatDomain::Ai && focused_tab == Some(id);
-                        // A tab is one fixed slot wide, so it carries the SHORT
-                        // label always — "ChatGPT / Codex" clips to nonsense at
-                        // this size, and a truncated tab is worse than a terse
-                        // one. The full name rides in the pilot metadata.
-                        let tab = mode_button(
-                            ui,
-                            PROVIDER_TAB_ID.child(&PilotKey::new(id.0)),
-                            short_label,
-                            selected,
-                            tab_width,
-                        )
-                        .on_hover_text(label);
-                        if tab.clicked() {
-                            intents.push(ChatWindowIntent::SelectProviderTab(id));
-                        }
-                    }
-                    if mode_button(
-                        ui,
-                        CONTENT_MODE_ID,
-                        "Content",
-                        self.domain == ChatDomain::Content,
-                        tab_width,
-                    )
-                    .clicked()
-                    {
-                        intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Content));
-                    }
-                    let social_label = if self.domain_states.social.unread > 0 {
-                        format!("Social  {}", self.domain_states.social.unread)
-                    } else {
-                        "Social".to_owned()
-                    };
-                    if mode_button(
-                        ui,
-                        SOCIAL_MODE_ID,
-                        &social_label,
-                        self.domain == ChatDomain::Social,
-                        tab_width,
-                    )
-                    .clicked()
-                    {
-                        intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Social));
-                    }
-                    if !compact {
-                        ui.add_space(10.0);
-                        let mut search_value = String::new();
-                        let search = ui.add_sized(
-                            [ui.available_width().min(260.0), 27.0],
-                            egui::TextEdit::singleline(&mut search_value)
-                                .hint_text("Search DevPULSE"),
-                        );
-                        ui.pilot_track(
-                            &search,
-                            NodeMetadata::new(
-                                PilotId::new("chat.search"),
-                                Role::TextInput,
-                                "Search Chat",
-                            ),
-                        );
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if quiet_button(ui, CLOSE_ID, "×", "Close Chat").clicked() {
-                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                        let maximized = ui
-                            .ctx()
-                            .input(|input| input.viewport().maximized.unwrap_or(false));
-                        if quiet_button(
-                            ui,
-                            MAXIMIZE_ID,
-                            if maximized { "❐" } else { "□" },
-                            if maximized {
-                                "Restore Chat"
-                            } else {
-                                "Maximize Chat"
-                            },
-                        )
-                        .clicked()
-                        {
-                            ui.ctx()
-                                .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
-                        }
-                        if quiet_button(ui, MINIMIZE_ID, "—", "Minimize Chat").clicked() {
-                            ui.ctx()
-                                .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-                        }
-                        if quiet_button(ui, SHOW_MAIN_ID, "↗", "Show Main").clicked() {
-                            intents.push(ChatWindowIntent::ShowMain);
-                        }
-                        ui.label(RichText::new("available").small().color(Tone::Lime.color()));
-                        status_dot(ui, Tone::Lime.color());
-                        ui.add_space(3.0);
-                        status_dot(ui, Tone::Amber.color());
-                    });
-                });
+                    .response
+                    .rect;
+                let left = egui::Rect::from_min_max(
+                    row.min,
+                    egui::pos2((controls.left() - gap).max(row.left()), row.bottom()),
+                );
+                ui.scope_builder(
+                    UiBuilder::new()
+                        .max_rect(left)
+                        .layout(Layout::left_to_right(Align::Center)),
+                    |ui| {
+                        ui.set_clip_rect(left.intersect(ui.clip_rect()));
+                        self.title_and_tabs(ui, &fluid, intents);
+                    },
+                );
+                ui.advance_cursor_after_rect(row);
             });
+    }
+
+    /// The title, the mode tabs, the search field and the availability word,
+    /// fitted into the room the window controls left.
+    ///
+    /// When the room runs out the strip sheds in a fixed order — the search
+    /// field, then the word "available" (its dots stay and carry it as a
+    /// tooltip), then the title's words (the brand mark stays and still
+    /// drags the window) — and only then do the tabs narrow. A tab is clipped
+    /// to its own slot, so its label ends in "…" instead of running into the
+    /// next tab.
+    fn title_and_tabs(
+        &self,
+        ui: &mut egui::Ui,
+        fluid: &cl::Fluid,
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        let gap = fluid.sp_2();
+        let spacing = ui.spacing().item_spacing.x;
+        let title_font = egui::FontId::proportional(fluid.fs_body_lg());
+        let tab_font = egui::FontId::proportional(fluid.fs_body());
+        let word_font = egui::TextStyle::Small.resolve(ui.style());
+
+        let connected = self.connected_tabs();
+        let social_label = if self.domain_states.social.unread > 0 {
+            format!("Social  {}", self.domain_states.social.unread)
+        } else {
+            "Social".to_owned()
+        };
+        let tab_count = connected.len() + 3;
+        let widest_label = ["AI", "Content", social_label.as_str()]
+            .into_iter()
+            .chain(connected.iter().map(|(_, _, short_label)| *short_label))
+            .map(|label| text_width(ui, label, tab_font.clone()))
+            .fold(0.0_f32, f32::max);
+        let natural_tab = ModeTab::chrome(fluid) + widest_label;
+        let title_text = text_width(ui, "DevPULSE Chat", title_font.clone()) + spacing;
+        let word = text_width(ui, "available", word_font) + spacing;
+        let search_width = fluid.rail_expanded();
+        let brand = fluid.ctl_icon();
+        let dots = status_dots_width(ui, fluid);
+
+        let gaps = spacing * (tab_count - 1) as f32;
+        let tabs_natural = natural_tab * tab_count as f32 + gaps;
+        let room = ui.available_width() - brand - spacing - gap * 2.0 - dots;
+        let mut spare = room - tabs_natural;
+        let show_search = spare >= title_text + word + search_width + gap;
+        if show_search {
+            spare -= search_width + gap;
+        }
+        let show_word = spare >= title_text + word;
+        if show_word {
+            spare -= word;
+        }
+        let show_title = spare >= title_text;
+        if show_title {
+            spare -= title_text;
+        }
+        let tab = ModeTab {
+            width: if spare >= 0.0 {
+                natural_tab
+            } else {
+                ((tabs_natural + spare - gaps) / tab_count as f32).max(0.0)
+            },
+            height: ui.available_height(),
+            font: tab_font,
+            fluid: *fluid,
+        };
+
+        let title = ui
+            .scope(|ui| {
+                brand_mark(ui, brand);
+                if show_title {
+                    ui.label(
+                        RichText::new("DevPULSE Chat")
+                            .strong()
+                            .font(title_font)
+                            .color(cl::ink::STRONG),
+                    );
+                }
+            })
+            .response
+            .interact(Sense::click_and_drag());
+        let title = cl::tip(title, "Drag to move Chat. Double-click to maximize it.");
+        if title.drag_started() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+        if title.double_clicked() {
+            let maximized = ui
+                .ctx()
+                .input(|input| input.viewport().maximized.unwrap_or(false));
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+        }
+        ui.add_space(gap);
+        let focused_tab = self.focused_provider_tab();
+        if tab
+            .show(
+                ui,
+                AI_MODE_ID,
+                "AI",
+                self.domain == ChatDomain::Ai && focused_tab.is_none(),
+            )
+            .clicked()
+        {
+            intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Ai));
+        }
+        for (id, label, short_label) in connected {
+            let selected = self.domain == ChatDomain::Ai && focused_tab == Some(id);
+            // A tab carries the SHORT label — "ChatGPT / Codex" clips to
+            // nonsense at this size. The full name rides in the tooltip.
+            let response = tab
+                .show(
+                    ui,
+                    PROVIDER_TAB_ID.child(&PilotKey::new(id.0)),
+                    short_label,
+                    selected,
+                )
+                .on_hover_text(label);
+            if response.clicked() {
+                intents.push(ChatWindowIntent::SelectProviderTab(id));
+            }
+        }
+        if tab
+            .show(
+                ui,
+                CONTENT_MODE_ID,
+                "Content",
+                self.domain == ChatDomain::Content,
+            )
+            .clicked()
+        {
+            intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Content));
+        }
+        if tab
+            .show(
+                ui,
+                SOCIAL_MODE_ID,
+                &social_label,
+                self.domain == ChatDomain::Social,
+            )
+            .clicked()
+        {
+            intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Social));
+        }
+        if show_search {
+            ui.add_space(gap);
+            let mut search_value = String::new();
+            let search = ui.add_sized(
+                [search_width, fluid.ctl_btn() - fluid.sp_2()],
+                egui::TextEdit::singleline(&mut search_value).hint_text("Search DevPULSE"),
+            );
+            ui.pilot_track(
+                &search,
+                NodeMetadata::new(PilotId::new("chat.search"), Role::TextInput, "Search Chat"),
+            );
+        }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if show_word {
+                ui.label(RichText::new("available").small().color(Tone::Lime.color()));
+            }
+            let status = ui
+                .scope(|ui| status_dots(ui, fluid))
+                .response
+                .interact(Sense::hover());
+            let _ = cl::tip(status, "Chat is available");
+        });
     }
 
     fn sidebar(
@@ -3350,6 +3385,10 @@ impl ChatWindow {
             return;
         }
         if reading_project_archive {
+            // The saved transcript stays readable while the provider is
+            // signed out, so the way back in rides above it rather than
+            // replacing it with the connection card.
+            provider_sign_in_strip(ui, &provider, intents);
             let status = self
                 .native_sessions
                 .get(&descriptor.id)
@@ -5369,18 +5408,7 @@ impl ChatWindow {
                 let label = recovery
                     .map(|action| action.label.as_str())
                     .unwrap_or("Log in");
-                let response = ui.button(label);
-                ui.pilot_track(
-                    &response,
-                    NodeMetadata::new(
-                        PROVIDER_LOGIN_ID.child(&PilotKey::new(provider_id.0)),
-                        Role::Button,
-                        label,
-                    ),
-                );
-                if response.clicked() {
-                    intents.push(ChatWindowIntent::ActivateProvider(provider_id));
-                }
+                provider_sign_in_button(ui, provider_id, label, intents);
             }
             Some(RecoveryActionKind::InstallInstructions | RecoveryActionKind::UpdateProvider) => {
                 let label = recovery
@@ -5994,90 +6022,251 @@ fn split_address(id: &ContentEpisodeId) -> (&str, &str) {
     id.0.split_once('/').unwrap_or(("template", &id.0))
 }
 
-fn mode_button(
+/// The one sign-in control a provider's recovery offers — on the connection
+/// card and on the strip above a saved transcript alike, so both carry the
+/// same pilot id, words and tooltip.
+fn provider_sign_in_button(
     ui: &mut egui::Ui,
-    path: impl Into<PilotPath>,
+    provider: ProviderId,
     label: &str,
-    selected: bool,
-    width: f32,
-) -> egui::Response {
-    let path = path.into();
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 35.0), Sense::click());
-    let fill = if selected {
-        Color32::from_rgb(8, 31, 36)
-    } else if response.hovered() {
-        Color32::from_rgb(9, 25, 30)
-    } else {
-        Color32::from_rgb(4, 13, 17)
-    };
-    let stroke = if response.has_focus() {
-        Stroke::new(1.5, Tone::Cyan.color())
-    } else if selected {
-        Stroke::new(1.0, Color32::from_rgb(24, 104, 108))
-    } else {
-        Stroke::new(1.0, cl::surface::HAIRLINE)
-    };
-    ui.painter().rect(
-        rect,
-        CornerRadius {
-            nw: 7,
-            ne: 7,
-            sw: 0,
-            se: 0,
-        },
-        fill,
-        stroke,
-        egui::StrokeKind::Inside,
+    intents: &mut Vec<ChatWindowIntent>,
+) {
+    let response = cl::tip(
+        ui.button(label),
+        "Sign in through the provider's own app in your browser. Your password and subscription stay with the provider.",
     );
-    if selected {
-        ui.painter().line_segment(
-            [
-                egui::pos2(rect.left() + 8.0, rect.top() + 1.5),
-                egui::pos2(rect.right() - 8.0, rect.top() + 1.5),
-            ],
-            Stroke::new(2.5, Tone::Cyan.color()),
-        );
+    ui.pilot_track(
+        &response,
+        NodeMetadata::new(
+            PROVIDER_LOGIN_ID.child(&PilotKey::new(provider.0)),
+            Role::Button,
+            label,
+        ),
+    );
+    if response.clicked() {
+        intents.push(ChatWindowIntent::ActivateProvider(provider));
     }
-    // Violet is Social's colour alone; AI and every provider tab under it
-    // are cyan, so a provider tab never reads as the other domain.
-    let accent = if path == SOCIAL_MODE_ID.path() {
-        Tone::Violet.color()
-    } else {
-        Tone::Cyan.color()
+}
+
+/// A signed-out provider's saved chats stay on screen, so its sign-in cannot
+/// live on the connection card that would hide them. This strip carries the
+/// provider's own reason and its sign-in control above the transcript, on the
+/// vibron plate in the provider's tone. Nothing is drawn while the provider is
+/// activated or offers no sign-in.
+fn provider_sign_in_strip(
+    ui: &mut egui::Ui,
+    provider: &ProviderView,
+    intents: &mut Vec<ChatWindowIntent>,
+) {
+    let activation = &provider.registration.activation;
+    if activation.is_activated() {
+        return;
+    }
+    let Some(action) = activation.recovery().first().filter(|action| {
+        matches!(
+            action.kind,
+            RecoveryActionKind::SignIn | RecoveryActionKind::Retry
+        )
+    }) else {
+        return;
     };
-    ui.painter().circle_filled(
-        egui::pos2(rect.left() + 18.0, rect.center().y),
-        3.5,
-        if selected { accent } else { cl::ink::SUBTLE },
-    );
-    ui.painter().text(
-        egui::pos2(rect.left() + 38.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        label,
-        egui::FontId::proportional(15.0),
+    let descriptor = provider.registration.manifest.descriptor;
+    let tone = provider_tone(descriptor.accent);
+    let fluid = cl::Fluid::of(ui.max_rect());
+    cl::vibron(tone, cl::TraitState::Idle).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new(format!("{} is signed out", descriptor.short_label))
+                    .strong()
+                    .size(fluid.fs_body())
+                    .color(cl::ink::STRONG),
+            );
+            if let Some(reason) = activation.reason() {
+                ui.label(
+                    RichText::new(reason)
+                        .size(fluid.fs_body_sm())
+                        .color(cl::ink::MUTED),
+                );
+            }
+            ui.add_space(fluid.sp_2());
+            provider_sign_in_button(ui, descriptor.id, &action.label, intents);
+        });
+    });
+    ui.add_space(fluid.sp_1());
+}
+
+/// One slot in the title-bar tab strip. Every slot in a strip shares the
+/// width the strip's budget gave it; its insets and type come from Fluid.
+struct ModeTab {
+    width: f32,
+    height: f32,
+    font: egui::FontId,
+    fluid: cl::Fluid,
+}
+
+impl ModeTab {
+    /// Everything in a tab but its label: the inset, the dot, the gap after
+    /// the dot and the closing inset.
+    fn chrome(fluid: &cl::Fluid) -> f32 {
+        fluid.sp_2() * 3.0 + fluid.sp_1()
+    }
+
+    fn show(
+        &self,
+        ui: &mut egui::Ui,
+        path: impl Into<PilotPath>,
+        label: &str,
+        selected: bool,
+    ) -> egui::Response {
+        let path = path.into();
+        let pad = self.fluid.sp_2();
+        let dot = self.fluid.sp_1();
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(self.width, self.height), Sense::click());
+        let fill = if selected {
+            Color32::from_rgb(8, 31, 36)
+        } else if response.hovered() {
+            Color32::from_rgb(9, 25, 30)
+        } else {
+            Color32::from_rgb(4, 13, 17)
+        };
+        let stroke = if response.has_focus() {
+            Stroke::new(1.5, Tone::Cyan.color())
+        } else if selected {
+            Stroke::new(1.0, Color32::from_rgb(24, 104, 108))
+        } else {
+            Stroke::new(1.0, cl::surface::HAIRLINE)
+        };
+        let radius = self.fluid.r_md().round() as u8;
+        // Everything a tab paints stays inside its own slot.
+        let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+        painter.rect(
+            rect,
+            CornerRadius {
+                nw: radius,
+                ne: radius,
+                sw: 0,
+                se: 0,
+            },
+            fill,
+            stroke,
+            egui::StrokeKind::Inside,
+        );
         if selected {
+            let underline = Stroke::new(2.5, Tone::Cyan.color());
+            let y = rect.top() + underline.width * 0.5;
+            painter.line_segment(
+                [
+                    egui::pos2(rect.left() + pad, y),
+                    egui::pos2(rect.right() - pad, y),
+                ],
+                underline,
+            );
+        }
+        // Violet is Social's colour alone; AI and every provider tab under it
+        // are cyan, so a provider tab never reads as the other domain.
+        let accent = if path == SOCIAL_MODE_ID.path() {
+            Tone::Violet.color()
+        } else {
+            Tone::Cyan.color()
+        };
+        painter.circle_filled(
+            egui::pos2(rect.left() + pad + dot * 0.5, rect.center().y),
+            dot * 0.5,
+            if selected { accent } else { cl::ink::SUBTLE },
+        );
+        let ink = if selected {
             cl::ink::STRONG
         } else {
             cl::ink::MUTED
-        },
-    );
-    let mut metadata = NodeMetadata::new(path, Role::Tab, label.to_owned());
-    metadata.selected = Some(selected);
-    ui.pilot_track(&response, metadata);
-    response
+        };
+        let text_left = rect.left() + pad + dot + pad;
+        let mut job = egui::text::LayoutJob::single_section(
+            label.to_owned(),
+            egui::TextFormat::simple(self.font.clone(), ink),
+        );
+        job.wrap =
+            egui::text::TextWrapping::truncate_at_width((rect.right() - pad - text_left).max(0.0));
+        let galley = painter.layout_job(job);
+        painter.galley(
+            egui::pos2(text_left, rect.center().y - galley.size().y * 0.5),
+            galley,
+            ink,
+        );
+        let mut metadata = NodeMetadata::new(path, Role::Tab, label.to_owned());
+        metadata.selected = Some(selected);
+        ui.pilot_track(&response, metadata);
+        response
+    }
 }
 
-fn brand_mark(ui: &mut egui::Ui) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
+/// The four window buttons, right to left from the strip's edge.
+fn window_controls(ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+    if quiet_button(ui, CLOSE_ID, "×", "Close Chat").clicked() {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+    let maximized = ui
+        .ctx()
+        .input(|input| input.viewport().maximized.unwrap_or(false));
+    if quiet_button(
+        ui,
+        MAXIMIZE_ID,
+        if maximized { "❐" } else { "□" },
+        if maximized {
+            "Restore Chat"
+        } else {
+            "Maximize Chat"
+        },
+    )
+    .clicked()
+    {
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+    }
+    if quiet_button(ui, MINIMIZE_ID, "—", "Minimize Chat").clicked() {
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+    }
+    if quiet_button(ui, SHOW_MAIN_ID, "↗", "Show Main").clicked() {
+        intents.push(ChatWindowIntent::ShowMain);
+    }
+}
+
+/// How wide `text` lays out in `font`, unwrapped.
+fn text_width(ui: &egui::Ui, text: &str, font: egui::FontId) -> f32 {
+    ui.painter()
+        .layout_no_wrap(text.to_owned(), font, cl::ink::STRONG)
+        .size()
+        .x
+}
+
+/// The title bar's two status dots, laid out in the caller's direction.
+fn status_dots(ui: &mut egui::Ui, fluid: &cl::Fluid) {
+    status_dot(ui, Tone::Lime.color());
+    ui.add_space(fluid.sp_1());
+    status_dot(ui, Tone::Amber.color());
+}
+
+/// What [`status_dots`] allocates, so a budget cannot drift from the drawing.
+fn status_dots_width(ui: &egui::Ui, fluid: &cl::Fluid) -> f32 {
+    STATUS_DOT_WIDTH * 2.0 + fluid.sp_1() + ui.spacing().item_spacing.x * 2.0
+}
+
+/// The DevPULSE mark, `size` square: a cyan-edged plate with an amber core,
+/// in the proportions of the original 18-point mark.
+fn brand_mark(ui: &mut egui::Ui, size: f32) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), Sense::hover());
+    let plate = rect.shrink(size / 9.0);
     ui.painter().rect(
-        rect.shrink(2.0),
-        CornerRadius::same(2),
+        plate,
+        CornerRadius::same((size / 9.0).round() as u8),
         Color32::from_rgb(5, 24, 29),
         Stroke::new(1.0, Tone::Cyan.color()),
         egui::StrokeKind::Inside,
     );
     ui.painter()
-        .circle_filled(rect.center(), 2.5, Tone::Amber.color());
+        .circle_filled(rect.center(), plate.width() / 5.6, Tone::Amber.color());
 }
 
 fn borderless_resize(ui: &egui::Ui) {
@@ -6237,8 +6426,11 @@ fn sidebar_operator_header(ui: &mut egui::Ui) {
     );
 }
 
+/// The slot one status dot allocates in a row.
+const STATUS_DOT_WIDTH: f32 = 10.0;
+
 fn status_dot(ui: &mut egui::Ui, color: Color32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 18.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(STATUS_DOT_WIDTH, 18.0), Sense::hover());
     ui.painter().circle_filled(rect.center(), 3.0, color);
 }
 
@@ -7111,6 +7303,146 @@ mod tests {
             harness.state().project_provider_views()[0].draft,
             "saved before switch"
         );
+    }
+
+    fn tab_manifest(
+        id: &'static str,
+        label: &'static str,
+        short_label: &'static str,
+    ) -> ProviderManifest {
+        ProviderManifest {
+            descriptor: ProviderDescriptor {
+                id: ProviderId(id),
+                label,
+                short_label,
+                glyph: "T",
+                accent: ProviderAccent::Cyan,
+                summary: "title-bar fixture",
+                since: "2000-01-01",
+            },
+            profile: ProviderProfileId("title-bar"),
+            target_capabilities: CAPABILITIES,
+            delivery_slice: "test",
+            evidence: "fixture",
+        }
+    }
+
+    /// The compact proof's tab bar at the 720 px minimum, with every
+    /// provider connected: no tab may overlap the next one or reach under
+    /// the window controls, and the availability word may not cover a tab.
+    #[test]
+    fn the_title_bar_tabs_fit_at_the_minimum_window_width() {
+        use egui_kittest::kittest::Queryable;
+        let manifests = [
+            tab_manifest("codex", "ChatGPT / Codex", "Codex"),
+            tab_manifest("claude", "Claude Code", "Claude"),
+            tab_manifest("gemini", "Gemini CLI", "Gemini"),
+            tab_manifest("grok", "Grok Build", "Grok"),
+        ];
+        let runtime = ChatRuntime::try_from_registrations(manifests.map(|manifest| {
+            let mut registration = ProviderRegistration::planned(manifest);
+            registration.activation = ActivationState::Ready;
+            registration
+        }))
+        .expect("runtime");
+        let window = ChatWindow::new(
+            runtime,
+            ROUTE,
+            &HistoryCatalog::default(),
+            vec![("Library".into(), ROUTE)],
+        );
+        let width = 720.0;
+        let mut harness = Harness::builder().with_size([width, 560.0]).build_ui_state(
+            |ui, window: &mut ChatWindow| {
+                let _ = window.ui(ui);
+            },
+            window,
+        );
+        harness.run_steps(2);
+        let tabs: Vec<egui::Rect> = [
+            "AI", "Codex", "Claude", "Gemini", "Grok", "Content", "Social",
+        ]
+        .into_iter()
+        .map(|label| {
+            harness
+                .get_by_role_and_label(egui::accesskit::Role::Button, label)
+                .rect()
+        })
+        .collect();
+        for pair in tabs.windows(2) {
+            assert!(
+                pair[0].right() <= pair[1].left(),
+                "tabs overlap: {:?} then {:?}",
+                pair[0],
+                pair[1]
+            );
+        }
+        let controls = harness.get_by_label("Show Main").rect();
+        let last = tabs.last().expect("seven tabs");
+        assert!(
+            last.right() < controls.left(),
+            "Social {last:?} reaches under the window controls {controls:?}"
+        );
+        if let Some(word) = harness.query_by_label("available") {
+            assert!(
+                word.rect().left() >= last.right(),
+                "the availability word covers Social"
+            );
+        }
+        assert!(last.right() <= width);
+    }
+
+    #[test]
+    fn a_signed_out_provider_keeps_its_saved_chat_and_offers_sign_in_above_it() {
+        use egui_kittest::kittest::Queryable;
+        let mut window = window();
+        window
+            .runtime
+            .append_event(
+                PROVIDER,
+                ChatEvent {
+                    id: ChatEventId(101),
+                    provider_id: PROVIDER,
+                    session_id: ChatSessionId(1),
+                    turn_id: None,
+                    content: ChatEventContent::AssistantMessage(
+                        "Archived answer remains readable".into(),
+                    ),
+                },
+            )
+            .unwrap();
+        let archive = window.project_archive().unwrap();
+        window
+            .set_provider_activation(
+                PROVIDER,
+                ActivationState::SignedOut {
+                    reason: "Sign in again".into(),
+                    recovery: vec![dpl_ai_core::activation::RecoveryAction::new(
+                        RecoveryActionKind::SignIn,
+                        "Log in again",
+                    )],
+                },
+            )
+            .unwrap();
+        window.restore_project_archive(&archive).unwrap();
+        let mut harness = Harness::builder()
+            .with_size([1280.0, 800.0])
+            .build_ui_state(
+                |ui, state: &mut (ChatWindow, Vec<ChatWindowIntent>)| {
+                    let intents = state.0.ui(ui);
+                    state.1.extend(intents);
+                },
+                (window, Vec::new()),
+            );
+        harness.run_steps(2);
+        harness.get_by_label("Archived answer remains readable");
+        harness.get_by_label("Saved project chat — read-only");
+        harness.get_by_label("Log in again").click();
+        harness.run_steps(2);
+        assert!(harness
+            .state()
+            .1
+            .contains(&ChatWindowIntent::ActivateProvider(PROVIDER)));
     }
 
     #[test]

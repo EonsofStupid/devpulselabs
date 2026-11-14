@@ -67,7 +67,9 @@ pub struct Presence {
 /// Run one probe to completion. Blocking — callers use [`probe_all`], which
 /// owns the thread.
 pub fn probe(provider: ProviderId, spec: &PresenceSpec) -> Presence {
-    let mut command = Command::new(spec.program);
+    let mut command = Command::new(
+        qualified_client(provider).unwrap_or_else(|| std::path::PathBuf::from(spec.program)),
+    );
     command.args(spec.args);
     probe_command(provider, spec, command, PROBE_TIMEOUT)
 }
@@ -148,19 +150,21 @@ fn probe_command(
 /// Every provider that declares a probe, run on ONE background thread.
 ///
 /// One coordinator checks providers in sequence; each probe has two bounded
-/// pipe readers. The receiver is polled from the frame loop, never awaited.
+/// pipe readers. Each answer is sent the moment its probe ends, so a fast
+/// provider is never held back behind the slowest one; the channel closes
+/// after the last. The receiver is polled from the frame loop, never awaited.
 pub fn probe_all(
     specs: Vec<(ProviderId, PresenceSpec)>,
 ) -> std::sync::mpsc::Receiver<Vec<Presence>> {
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let (sender, receiver) = std::sync::mpsc::sync_channel(specs.len().max(1));
     let spawned = std::thread::Builder::new()
         .name("devpulse-provider-presence".to_owned())
         .spawn(move || {
-            let found = specs
-                .iter()
-                .map(|(provider, spec)| probe(*provider, spec))
-                .collect();
-            let _ = sender.send(found);
+            for (provider, spec) in &specs {
+                if sender.send(vec![probe(*provider, spec)]).is_err() {
+                    return;
+                }
+            }
         });
     if let Err(error) = spawned {
         tracing::warn!(%error, "provider presence probe could not start");
@@ -243,14 +247,37 @@ pub fn specs() -> Vec<(ProviderId, PresenceSpec)> {
     ]
 }
 
+/// The client presence asks for a provider DevPULSE launches itself: the
+/// qualified tool-depot build its runtime would start. Codex and Grok ship in
+/// the depot, so asking whichever copy is first on PATH answered for a
+/// different program — on a machine with Grok only in the depot it reported
+/// "not installed". Every other provider, and a depot that cannot resolve
+/// one, keeps the CLI on PATH.
+fn qualified_client(provider: ProviderId) -> Option<std::path::PathBuf> {
+    if provider == dpl_ai_codex::PROVIDER {
+        dpl_ai_codex::qualified_client()
+    } else if provider == dpl_ai_grok::PROVIDER {
+        dpl_ai_grok::qualified_client()
+    } else {
+        None
+    }
+}
+
 /// Codex already owns a full activation coordinator with its own launcher and
 /// runtime; this spec exists so the ROSTER can answer for Codex on the same
 /// footing as the rest without going through that ceremony.
 const CODEX: PresenceSpec = PresenceSpec {
     program: "codex",
     args: &["login", "status"],
-    signed_in: &["logged in using chatgpt", "logged in"],
-    signed_out: &["not logged in"],
+    // Only a ChatGPT login is signed in for this tab, exactly as the Codex
+    // coordinator reads `codex login status`: API-key billing is the
+    // coordinator's SignedOut, so it is signed out here too, never "Ready".
+    signed_in: &["logged in using chatgpt"],
+    signed_out: &[
+        "not logged in",
+        "logged in using api key",
+        "logged in with api key",
+    ],
     // Codex's own coordinator owns its login ceremony (device code + system
     // browser); the roster only needs to READ its presence, so no sign-in
     // verb is declared here and `activate_provider` keeps routing Codex to
@@ -370,6 +397,30 @@ mod tests {
     }
 
     #[test]
+    fn each_presence_answer_arrives_on_its_own_then_the_channel_closes() {
+        let ghost = PresenceSpec {
+            program: "dpl-definitely-not-a-real-binary",
+            args: &["status"],
+            signed_in: &["logged in"],
+            signed_out: &["not logged in"],
+            login: &[],
+        };
+        let receiver = probe_all(vec![
+            (ProviderId("first"), ghost),
+            (ProviderId("second"), ghost),
+        ]);
+        let first = receiver.recv().expect("the first answer");
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].provider, ProviderId("first"));
+        let second = receiver.recv().expect("the second answer");
+        assert_eq!(second[0].provider, ProviderId("second"));
+        assert!(
+            receiver.recv().is_err(),
+            "the channel closes after the last"
+        );
+    }
+
+    #[test]
     fn a_missing_cli_is_not_installed_never_signed_out() {
         // The distinction the operator sees: "you don't have it" and "you
         // have it and are logged out" are different problems with different
@@ -419,6 +470,52 @@ mod tests {
             spec.classify("You are not logged in. Run `x login` to log in."),
             PresenceVerdict::SignedOut
         );
+    }
+
+    #[test]
+    fn codex_presence_reads_login_status_the_way_its_coordinator_does() {
+        // The words `codex login status` 0.163.0 prints. Only a ChatGPT
+        // login is signed in; API-key billing is signed out for this tab.
+        assert_eq!(
+            CODEX.classify("Logged in using ChatGPT"),
+            PresenceVerdict::SignedIn
+        );
+        assert_eq!(
+            CODEX.classify("Logged in using API key - sk-...abcd"),
+            PresenceVerdict::SignedOut
+        );
+        assert_eq!(CODEX.classify("Not logged in"), PresenceVerdict::SignedOut);
+    }
+
+    #[test]
+    fn grok_presence_reads_the_depot_build_signed_out_words() {
+        // `grok models` from the depot's 0.2.112 when nobody is signed in.
+        assert_eq!(
+            dpl_ai_grok::PRESENCE.classify(
+                "You are not authenticated.
+
+Default model: grok-4.5
+
+Available models:"
+            ),
+            PresenceVerdict::SignedOut
+        );
+        assert_eq!(
+            dpl_ai_grok::PRESENCE.classify("You are logged in with grok.com."),
+            PresenceVerdict::SignedIn
+        );
+    }
+
+    #[test]
+    fn only_depot_providers_ask_a_qualified_client() {
+        // Providers without a depot build keep the CLI on PATH.
+        for provider in [
+            dpl_ai_claude::PROVIDER,
+            dpl_ai_cursor::PROVIDER,
+            dpl_ai_gemini::PROVIDER,
+        ] {
+            assert_eq!(qualified_client(provider), None, "{provider}");
+        }
     }
 
     #[test]

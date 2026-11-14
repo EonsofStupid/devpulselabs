@@ -31,14 +31,29 @@ pub const PROVIDER: ProviderId = ProviderId("grok");
 
 /// Grok's CLI has `login`/`logout` but no `status`, so presence is read off
 /// `grok models`, which names the signed-in account before it lists them.
-/// Verified against grok 0.2.117.
+/// Signed in verified against grok 0.2.117; signed out against the depot's
+/// 0.2.112, which prints "You are not authenticated." and exits 0.
 pub const PRESENCE: dpl_ai_core::presence::PresenceSpec = dpl_ai_core::presence::PresenceSpec {
     program: "grok",
     args: &["models"],
     signed_in: &["you are logged in with"],
-    signed_out: &["not logged in", "please log in", "run `grok login`"],
+    signed_out: &[
+        "not logged in",
+        "please log in",
+        "run `grok login`",
+        "you are not authenticated",
+    ],
     login: &["login"],
 };
+
+/// The qualified Grok Build client this app launches: the tool depot's build
+/// beside the executable. Presence asks THIS client, so a Grok that is only
+/// in the depot is not reported as missing because `grok` is not on PATH.
+/// `None` when the depot does not resolve one.
+pub fn qualified_client() -> Option<PathBuf> {
+    discover_executable().ok()
+}
+
 pub const DEFAULT_PROFILE: ProviderProfileId = ProviderProfileId("grok-default");
 pub const SETUP_URL: &str = "https://docs.x.ai/build/overview";
 
