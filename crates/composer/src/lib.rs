@@ -6417,7 +6417,7 @@ fn small_btn(
 }
 
 /// A word button with its registry icon ahead of it (Browse…, the
-/// reference toggle) — the mock's `＋ Import` / `Browse folders…` shape.
+/// reference toggle) — the mock's `+ Import` / `Browse folders…` shape.
 fn icon_word_btn(
     ui: &mut egui::Ui,
     icon: &str,

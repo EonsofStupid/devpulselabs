@@ -1587,13 +1587,32 @@ impl UiPilotExt for egui::Ui {
     fn pilot_track(&mut self, response: &egui::Response, metadata: NodeMetadata) {
         let role = metadata.role;
         let name = metadata.name.clone();
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(widget_type(role), response.enabled(), name.clone())
+        let state = announced_state(&metadata);
+        response.widget_info(|| match state {
+            Some(state) => egui::WidgetInfo::selected(
+                widget_type(role),
+                response.enabled(),
+                state,
+                name.clone(),
+            ),
+            None => egui::WidgetInfo::labeled(widget_type(role), response.enabled(), name.clone()),
         });
         self.ctx().with_plugin::<EguiPilotPlugin, _>(|plugin| {
             plugin.register(self, response, metadata);
         });
     }
+}
+
+/// The on/off state a tracked node announces to platform accessibility.
+///
+/// `widget_info` is what egui hands to AccessKit, so every pilot node is also
+/// a screen-reader node: state a scenario can assert on must be state a
+/// screen reader can hear. Provider rows, session rows, content rows and mode
+/// tabs set `metadata.selected`; `WidgetInfo::labeled` has no field for it,
+/// so the ACTIVE row used to announce nothing. `checked` wins when both are
+/// set — a checkbox is announced by the state the operator is toggling.
+fn announced_state(metadata: &NodeMetadata) -> Option<bool> {
+    metadata.checked.or(metadata.selected)
 }
 
 fn widget_type(role: Role) -> egui::WidgetType {
@@ -1663,6 +1682,46 @@ mod tests {
         assert_eq!(frame.nodes[0].id, NodeId::new("root/settings.save"));
         assert_eq!(frame.nodes[0].role, Role::Button);
         assert!(frame.nodes[0].actions.contains(&ActionKind::Click));
+    }
+
+    #[test]
+    fn a_selected_node_announces_its_state_to_accessibility() {
+        use egui::accesskit::Toggled;
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let (_, rect) = ui.allocate_space(egui::vec2(80.0, 24.0));
+            let row = ui.interact(rect, egui::Id::new("row.selected"), egui::Sense::click());
+            let mut metadata = NodeMetadata::new(PilotId::new("rows.codex"), Role::Tab, "Codex");
+            metadata.selected = Some(true);
+            ui.pilot_track(&row, metadata);
+
+            let (_, rect) = ui.allocate_space(egui::vec2(80.0, 24.0));
+            let other = ui.interact(rect, egui::Id::new("row.other"), egui::Sense::click());
+            let mut metadata = NodeMetadata::new(PilotId::new("rows.grok"), Role::Tab, "Grok");
+            metadata.selected = Some(false);
+            ui.pilot_track(&other, metadata);
+
+            let (_, rect) = ui.allocate_space(egui::vec2(80.0, 24.0));
+            let plain = ui.interact(rect, egui::Id::new("row.plain"), egui::Sense::click());
+            ui.pilot_track(&plain, NodeMetadata::new(SAVE, Role::Button, "Save"));
+        });
+        output.textures_delta.clear();
+        let update = output
+            .platform_output
+            .accesskit_update
+            .expect("accesskit is enabled");
+        let toggled = |label: &str| {
+            update
+                .nodes
+                .iter()
+                .find(|(_, node)| node.label() == Some(label))
+                .map(|(_, node)| node.toggled())
+                .expect("the tracked node reaches the accessibility tree")
+        };
+        assert_eq!(toggled("Codex"), Some(Toggled::True));
+        assert_eq!(toggled("Grok"), Some(Toggled::False));
+        assert_eq!(toggled("Save"), None, "a node with no state claims none");
     }
 
     #[test]

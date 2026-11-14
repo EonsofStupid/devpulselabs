@@ -9,6 +9,10 @@
 
 use egui::{Color32, CornerRadius, Rect, Shadow, Stroke};
 
+/// Reusable interaction patterns (chips, lift tiles, carousel rows, tile
+/// grids, the ink-bleed control) painted only from the tokens below.
+pub mod patterns;
+
 // ── THE GENERATED ENGINE ────────────────────────────────────────────────
 // build.rs ports the palette engine (generate-scales.mjs) and the fluid XY
 // clamp core (fluid-axis.mjs) from the vendored authored sources. Editing
@@ -3335,7 +3339,10 @@ mod tests {
             "layer-lock",
             "layer-parent",
         ];
-        for id in EDITOR_ICONS {
+        // The chat composer and provider card draw these as icons because
+        // the glyphs they replaced are missing from the bundled fonts.
+        const CHAT_ICONS: &[&str] = &["route", "media", "voice", "diagnostics"];
+        for id in EDITOR_ICONS.iter().chain(CHAT_ICONS) {
             let def = icon_def(id)
                 .unwrap_or_else(|| panic!("{id} must be authored in tokens/icons.json"));
             assert!(
@@ -3346,9 +3353,9 @@ mod tests {
         }
         assert_eq!(
             ICON_COUNT,
-            25 + EDITOR_ICONS.len(),
-            "the registry is the 25 chrome ids plus the editor set — \
-             update this count deliberately when either grows"
+            25 + EDITOR_ICONS.len() + CHAT_ICONS.len(),
+            "the registry is the 25 chrome ids plus the editor and chat sets — \
+             update this count deliberately when any grows"
         );
     }
 

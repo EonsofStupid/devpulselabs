@@ -937,7 +937,7 @@ pub struct Shell {
     /// every launch.
     tooltip_mood: usize,
     /// The session's seeded ink-bleed (V1): the hue pair and the dwell.
-    bleed: providers::BleedRoll,
+    bleed: cl::patterns::BleedRoll,
     /// Is the Providers roster popup open (V2)?
     providers_open: bool,
     presets_open: bool,
@@ -1026,7 +1026,7 @@ impl Shell {
             // The bleed's pair and dwell are drawn ONCE per launch, off the
             // same boot roll the tooltip mood uses, and pinned together by
             // `set_harness_mood` so a capture reproduces.
-            bleed: providers::BleedRoll::from_seed(dpl_backdrop::random_mood_index() as u64),
+            bleed: cl::patterns::BleedRoll::from_seed(dpl_backdrop::random_mood_index() as u64),
             providers_open: false,
             presets_open: false,
             jobs_open: false,
@@ -1091,7 +1091,7 @@ impl Shell {
         self.tooltip_mood = index;
         // The ink bleed is boot-randomized too, so it pins here or the
         // capture of a six-second wash is a different colour every run.
-        self.bleed = providers::BleedRoll::from_seed(index as u64);
+        self.bleed = cl::patterns::BleedRoll::from_seed(index as u64);
     }
 
     pub fn full_bleed(&self) -> bool {

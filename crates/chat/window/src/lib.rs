@@ -12,7 +12,7 @@ use dpl_ai_core::provider::{ProviderAccent, ProviderId};
 use dpl_ai_core::turn::TurnId;
 use dpl_ai_profiles::{
     CatalogSupplement, CatalogSupplementAction, ProviderConfigurationKind, ProviderProfile,
-    ProviderProfileDraft, SUPPLEMENTS,
+    ProviderProfileDraft, CLYFFY_PROVIDER, SUPPLEMENTS,
 };
 use dpl_chat_context::RouteContextState;
 use dpl_chat_core::{
@@ -177,6 +177,24 @@ pub const BRAINSTORM_SUGGEST_ID: PilotId = PilotId::new("chat.brainstorm.suggest
 pub const COMPOSER_STATUS_ID: PilotId = PilotId::new("chat.composer.status");
 pub const COMMAND_STRIP_ID: PilotId = PilotId::new("chat.composer.command-strip");
 pub const CLYFFY_ROW_ID: PilotId = PilotId::new("chat.clyffy.session");
+/// The composer's way into the provider catalog — the second trigger beside
+/// the rail's AI Providers control.
+pub const ADD_PROVIDER_ID: PilotId = PilotId::new("chat.composer.add-provider");
+/// The catalog's own close control.
+pub const PROVIDER_CATALOG_CLOSE_ID: PilotId = PilotId::new("chat.provider.catalog.close");
+
+/// A subscription tile. Few of them, so each is large enough to carry a
+/// mark, a name, a tenure date and a live presence line. Sized in whole
+/// chrome grid steps.
+const SUB_TILE: egui::Vec2 = egui::vec2(cl::space::S6 * 5.0, cl::space::S6 * 4.0);
+/// An API tile. Many of them, so compact: a name and a kind.
+const API_TILE: egui::Vec2 = egui::vec2(cl::space::S6 * 5.0, cl::space::S6 * 2.0);
+/// The FLOOR, not a cap: the API grid never collapses below this many rows
+/// once it has a tile, and takes more as profiles are added.
+const API_ROWS_FLOOR: usize = 2;
+/// The bleed seed. A constant rather than a clock read: every proof shot of
+/// the rail must show the same two hues, or the capture is unreviewable.
+const BLEED_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 
 const FULL_RAIL_WIDTH: f32 = 840.0;
 const SIDEBAR_WIDTH: f32 = 252.0;
@@ -788,6 +806,9 @@ pub struct ChatWindow {
     composer_status: Option<String>,
     /// The Clyffy house session as the HOST projects it.
     clyffy: ClyffyView,
+    /// The AI Providers control's seeded hue pair and dwell. Rolled ONCE, so
+    /// a capture reproduces it and a repaint does not strobe.
+    bleed: cl::patterns::BleedRoll,
 }
 
 /// The host's projection of the Clyffy house session (BND1): DevPULSE's
@@ -929,6 +950,7 @@ impl ChatWindow {
             brainstorm_item_drafts: HashMap::new(),
             composer_status: None,
             clyffy: ClyffyView::default(),
+            bleed: cl::patterns::BleedRoll::from_seed(BLEED_SEED),
         }
     }
 
@@ -2133,7 +2155,10 @@ impl ChatWindow {
                     }
                 }
                 let can_start = target.is_some_and(|(_, _, can_start)| can_start);
-                let new_chat = sidebar_destination_button(ui, "＋  New chat", can_start);
+                let new_chat = cl::tip(
+                    sidebar_destination_button(ui, "+  New chat", can_start),
+                    "Start a new chat with the selected provider",
+                );
                 let mut metadata = NodeMetadata::new(
                     NEW_CHAT_ID.child(&PilotKey::new("sidebar")),
                     Role::Button,
@@ -2411,26 +2436,47 @@ impl ChatWindow {
             micro_heading(ui, domain.label());
             match domain {
                 ChatDomain::Ai => {
-                    if let Some(provider) = self.runtime.selected_provider() {
-                        let descriptor = provider.registration.manifest.descriptor;
-                        let response = sidebar_row(ui, descriptor.short_label, true);
-                        let active = active_session_count(&self.runtime.provider_views());
-                        let mut metadata = NodeMetadata::new(
-                            PROVIDERS_ID.child(&PilotKey::new("compact")),
-                            Role::Button,
-                            "Open AI Providers",
-                        );
-                        metadata.value = Some(format!(
+                    // Too narrow for the word, so the control is the brain
+                    // alone — always present, so the catalog is one tap away
+                    // even before a provider is chosen. The chips are dropped
+                    // here rather than re-encoded as a tint: a distinction
+                    // carried by colour alone is not one a screen reader hears.
+                    let glyph = cl::tip(
+                        cl::patterns::bleed_glyph(
+                            ui,
+                            egui::Id::new("dpl_chat_providers_bleed_compact"),
+                            self.bleed,
+                        ),
+                        "AI Providers — every subscription and API endpoint",
+                    );
+                    let active = active_session_count(&self.runtime.provider_views());
+                    let mut metadata = NodeMetadata::new(
+                        PROVIDERS_ID.child(&PilotKey::new("compact")),
+                        Role::Button,
+                        "Open AI Providers",
+                    );
+                    metadata.value = Some(match self.runtime.selected_provider() {
+                        Some(provider) => format!(
                             "{} · {active} active session{}",
-                            descriptor.label,
+                            provider.registration.manifest.descriptor.label,
                             if active == 1 { "" } else { "s" }
-                        ));
-                        ui.pilot_track(&response, metadata);
-                        if response.clicked() {
-                            intents.push(ChatWindowIntent::SetOverlay(Some(
-                                DomainOverlay::ProviderCatalog,
-                            )));
-                        }
+                        ),
+                        None => "No provider selected".to_owned(),
+                    });
+                    ui.pilot_track(&glyph, metadata);
+                    if glyph.clicked() {
+                        intents.push(ChatWindowIntent::SetOverlay(Some(
+                            DomainOverlay::ProviderCatalog,
+                        )));
+                    }
+                    // Which provider the window speaks through, as plain
+                    // lettering under the control — the control is the action.
+                    if let Some(provider) = self.runtime.selected_provider() {
+                        ui.label(
+                            RichText::new(provider.registration.manifest.descriptor.short_label)
+                                .small()
+                                .color(cl::ink::STRONG),
+                        );
                     }
                 }
                 ChatDomain::Content => {
@@ -2530,23 +2576,104 @@ impl ChatWindow {
         self.provider_row(ui, provider, true, false, intents);
     }
 
+    /// The rail's provider section: ONE control into the catalog, then the
+    /// two populations under their chips.
+    ///
+    /// **Activation puts a provider here, not registration.** One row per
+    /// registered provider pushed "More providers…" off mid-word and left
+    /// the session groups below with no height. Every provider, on or off,
+    /// is one tap away in the catalog; the rail keeps what is turned on.
     fn provider_roster(
         &self,
         ui: &mut egui::Ui,
         providers: &[ProviderView],
         intents: &mut Vec<ChatWindowIntent>,
     ) {
-        micro_heading(ui, "AI PROVIDERS");
-        for provider in providers {
-            self.provider_row(ui, provider, true, false, intents);
-        }
-        ui.add_space(2.0);
-        let more = sidebar_destination_button(ui, "＋  More providers…", true);
+        let subscriptions = rail_subscriptions(providers);
+        let width = ui.available_width();
+        let control = cl::tip(
+            cl::patterns::bleed_control(
+                ui,
+                // Stable, never `ui.id()`-derived, and distinct from the
+                // shell's control so the two do not share one animation.
+                egui::Id::new("dpl_chat_providers_bleed"),
+                "AI Providers",
+                self.bleed,
+                Some(width),
+            ),
+            "See every AI provider — the subscriptions you hold and the API endpoints you saved",
+        );
         let mut metadata = NodeMetadata::new(PROVIDERS_ID, Role::Button, "Open AI Providers");
-        metadata.description =
-            Some("All built-in providers plus Local or Custom setup.".to_owned());
-        ui.pilot_track(&more, metadata);
-        if more.clicked() {
+        metadata.description = Some(
+            "Every provider: the subscriptions you hold and the API endpoints you saved, plus              Local or Custom setup."
+                .to_owned(),
+        );
+        metadata.value = Some(format!("{} activated", subscriptions.len()));
+        ui.pilot_track(&control, metadata);
+        if control.clicked() {
+            intents.push(ChatWindowIntent::SetOverlay(Some(
+                DomainOverlay::ProviderCatalog,
+            )));
+        }
+
+        // SUBSCRIPTIONS — the accounts already paid for.
+        ui.add_space(cl::space::S2);
+        let chip = cl::patterns::group_chip(ui, "Subscriptions", None);
+        let _ = cl::tip(
+            chip,
+            "AI accounts you already pay for, signed in on this computer",
+        );
+        if subscriptions.is_empty() {
+            group_awaiting(ui, "Nothing turned on yet");
+        } else {
+            for provider in subscriptions {
+                self.provider_row(ui, provider, true, false, intents);
+            }
+        }
+
+        // API — the qualifier is the most important word on the rail: a
+        // subscription is already paid for, an API call costs money per use.
+        // This is where the operator learns which they are about to spend
+        // from, BEFORE they pick.
+        ui.add_space(cl::space::S2);
+        let chip = cl::patterns::group_chip(ui, "API", Some("usage-based"));
+        let _ = cl::tip(
+            chip,
+            "Endpoints you saved yourself — each call is billed as you use it",
+        );
+        if self.provider_profiles.is_empty() {
+            group_awaiting(ui, "No endpoints saved yet");
+        } else {
+            for profile in &self.provider_profiles {
+                self.profile_row(ui, profile, intents);
+            }
+        }
+    }
+
+    /// One saved API endpoint, in the rail. A saved profile cannot chat yet
+    /// (its transport adapter is not qualified), so the row says so and opens
+    /// the catalog, where every way to add or change one lives.
+    fn profile_row(
+        &self,
+        ui: &mut egui::Ui,
+        profile: &ProviderProfile,
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        let response = cl::tip(
+            sidebar_row(ui, &profile.display_name, false),
+            "A saved endpoint. It cannot chat until its adapter is qualified — tap to see every provider.",
+        );
+        let mut metadata = NodeMetadata::new(
+            PROVIDERS_ID
+                .child(&PilotKey::new("api"))
+                .child(&PilotKey::new(profile.key.as_str())),
+            Role::Button,
+            profile.display_name.clone(),
+        );
+        metadata.value = Some(format!("{} · usage-based", profile.kind.label()));
+        metadata.description = Some(profile.activation_reason().to_owned());
+        ui.pilot_track(&response, metadata);
+        if response.clicked() {
             intents.push(ChatWindowIntent::SetOverlay(Some(
                 DomainOverlay::ProviderCatalog,
             )));
@@ -3489,10 +3616,34 @@ impl ChatWindow {
                     );
                     let route_label = route.map_or_else(
                         || "No Main route observed".to_owned(),
-                        |snapshot| {
-                            format!("⌁  {} / {}", snapshot.route.hub.0, snapshot.route.sub.0)
-                        },
+                        |snapshot| format!("{} / {}", snapshot.route.hub.0, snapshot.route.sub.0),
                     );
+                    // THE SECOND WAY INTO THE CATALOG. First in the row, so it
+                    // is not read as a sibling of "+ Attach" further along —
+                    // two adjacent + controls meaning different things is a
+                    // collision, and position is what separates them. The
+                    // catalog is the AI tab's, so the control lives there.
+                    if self.domain == ChatDomain::Ai {
+                        let add = cl::tip(
+                            ui.add(egui::Button::new(RichText::new("+").small())),
+                            "AI Providers — pick a subscription or add an API endpoint",
+                        );
+                        let mut add_metadata =
+                            NodeMetadata::new(ADD_PROVIDER_ID, Role::Button, "Add a provider");
+                        add_metadata.description = Some(
+                            "Open AI Providers: the subscriptions you hold and the API \
+                             endpoints you saved."
+                                .to_owned(),
+                        );
+                        ui.pilot_track(&add, add_metadata);
+                        if add.clicked() {
+                            intents.push(ChatWindowIntent::SetOverlay(Some(
+                                DomainOverlay::ProviderCatalog,
+                            )));
+                        }
+                    }
+                    let icon = ui.text_style_height(&egui::TextStyle::Small);
+                    let _ = cl::icon_label(ui, "route", icon, Tone::Cyan.color());
                     let route_response = ui.label(
                         RichText::new(route_label.clone())
                             .small()
@@ -3537,14 +3688,16 @@ impl ChatWindow {
                     composer_capability_button(
                         ui,
                         ATTACHMENT_ID,
-                        "＋ Attach",
+                        None,
+                        "+ Attach",
                         supports(Capability::Attachments),
                         "This provider has not qualified attachment input yet.",
                     );
                     let media = composer_capability_button(
                         ui,
                         MEDIA_ID,
-                        "▧ Image / video",
+                        Some("media"),
+                        "Image / video",
                         self.generation_status.image_available
                             || supports(Capability::Images)
                             || supports(Capability::Video),
@@ -3578,6 +3731,7 @@ impl ChatWindow {
                         composer_capability_button(
                             ui,
                             INTERACTION_COMPONENT_ID,
+                            None,
                             "⊞ Component",
                             false,
                             "Components live in the AI conversation — switch to the AI tab.",
@@ -3586,7 +3740,8 @@ impl ChatWindow {
                     composer_capability_button(
                         ui,
                         VOICE_ID,
-                        "◉ Voice",
+                        Some("voice"),
+                        "Voice",
                         false,
                         "Voice input is visible but is not qualified for this provider.",
                     );
@@ -4459,7 +4614,10 @@ impl ChatWindow {
                             && provider
                                 .registration
                                 .has_capability(Capability::StartSession);
-                        let new_chat = ui.add_enabled(can_start, egui::Button::new("＋  New chat"));
+                        let new_chat = cl::tip(
+                            ui.add_enabled(can_start, egui::Button::new("+  New chat")),
+                            "Start a new chat with this provider",
+                        );
                         let mut metadata = NodeMetadata::new(
                             NEW_CHAT_ID
                                 .child(&PilotKey::new("provider-card"))
@@ -4488,7 +4646,11 @@ impl ChatWindow {
                             }
                         }
                         ui.label(RichText::new("♙  Account").color(cl::ink::BASE));
-                        ui.label(RichText::new("⌁  Diagnostics").color(cl::ink::BASE));
+                        ui.horizontal(|ui| {
+                            let icon = ui.text_style_height(&egui::TextStyle::Body);
+                            let _ = cl::icon_label(ui, "diagnostics", icon, cl::ink::BASE);
+                            ui.label(RichText::new("Diagnostics").color(cl::ink::BASE));
+                        });
                         if ui.button("Close").clicked() {
                             intents.push(ChatWindowIntent::SetOverlay(None));
                         }
@@ -4501,162 +4663,88 @@ impl ChatWindow {
             });
     }
 
+    /// THE PROVIDER CATALOG — every provider, one overlay, the full window.
+    ///
+    /// The carousel layout carrying every part of the catalog, top to bottom:
+    /// the sessions running now; SUBSCRIPTIONS as one row of large tiles
+    /// (few, already paid for); API as a tile grid (many, billed per call);
+    /// the Clyffy house adapter; ADD A PROVIDER (Local, Custom); and the
+    /// adapters still to come, last and quiet.
+    ///
+    /// Selecting a subscription is just `SelectProvider`, as from the rail:
+    /// an unactivated provider then meets its connection card in the
+    /// conversation pane, so this surface builds no sign-in UI of its own.
     fn provider_catalog_overlay(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
         if self.domain_states.ai.overlay != Some(DomainOverlay::ProviderCatalog) {
             return;
         }
         let providers = self.runtime.provider_views();
-        egui::Window::new("AI Providers")
-            .id(egui::Id::new("chat.provider.catalog"))
-            .anchor(Align2::LEFT_TOP, [270.0, 70.0])
-            .default_width(360.0)
-            .collapsible(false)
-            .resizable(false)
-            .frame(
-                egui::Frame::new()
-                    .fill(Color32::from_rgb(7, 22, 26))
-                    .stroke(Stroke::new(1.0, Tone::Cyan.color()))
-                    .corner_radius(CornerRadius::same(5))
-                    .inner_margin(egui::Margin::same(12)),
+        let screen = ui.ctx().content_rect();
+        let id = egui::Id::new("chat.provider.catalog");
+        let plate = cl::compose(Tone::Cyan, "vibron", &[], cl::TraitState::Idle);
+        let edge = cl::compose(Tone::Cyan, "vibron", &[], cl::TraitState::Active).edge;
+        // The overlay sits a chrome step inside the window on every side.
+        let inset = cl::space::S2;
+        let margin = egui::vec2(cl::space::S4, cl::space::S3);
+        let mut frame = egui::Frame::new()
+            .fill(plate.fill)
+            .stroke(edge)
+            .corner_radius(CornerRadius::same(plate.radius))
+            .inner_margin(egui::Margin::symmetric(margin.x as i8, margin.y as i8));
+        if let Some(shadow) = plate.shadows.first() {
+            frame = frame.shadow(*shadow);
+        }
+
+        let modal = egui::Modal::new(id)
+            .backdrop_color(cl::scrim(cl::SCRIM_MEDIA_A))
+            .frame(frame)
+            .area(
+                egui::Modal::default_area(id)
+                    .fixed_pos(screen.min + egui::Vec2::splat(inset))
+                    .default_width(screen.width() - 2.0 * inset),
             )
             .show(ui.ctx(), |ui| {
-                ui.set_width(336.0);
+                let chrome = 2.0 * (inset + edge.width);
+                ui.set_width(screen.width() - chrome - 2.0 * margin.x);
+                ui.set_max_height(screen.height() - chrome - 2.0 * margin.y);
                 let panel = ui
                     .vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("AI Providers")
+                                    .strong()
+                                    .color(cl::ink::STRONG),
+                            );
+                            ui.label(
+                                RichText::new("subscriptions you hold · endpoints you saved")
+                                    .small()
+                                    .color(cl::ink::SUBTLE),
+                            );
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let close = cl::tip(
+                                    ui.button("Close"),
+                                    "Close the provider list and go back to your chat",
+                                );
+                                ui.pilot_track(
+                                    &close,
+                                    NodeMetadata::new(
+                                        PROVIDER_CATALOG_CLOSE_ID,
+                                        Role::Button,
+                                        "Close AI providers",
+                                    ),
+                                );
+                                if close.clicked() {
+                                    intents.push(ChatWindowIntent::SetOverlay(None));
+                                }
+                            });
+                        });
+                        ui.add_space(cl::space::S2);
                         egui::ScrollArea::vertical()
                             .id_salt("chat.provider.catalog.scroll")
-                            .max_height(350.0)
                             .auto_shrink([false, true])
                             .show(ui, |ui| {
-                                ui.vertical(|ui| {
-                                    ui.label(
-                                        RichText::new("CURRENT ACTIVE SESSION(S)")
-                                            .monospace()
-                                            .small()
-                                            .color(Tone::Cyan.color()),
-                                    );
-                                    let active = providers
-                                        .iter()
-                                        .filter(|provider| {
-                                            provider.sessions.iter().any(|session| {
-                                                session.group == SessionGroup::Active
-                                                    || session.state == SessionState::Running
-                                            })
-                                        })
-                                        .collect::<Vec<_>>();
-                                    if active.is_empty() {
-                                        ui.label(
-                                            RichText::new("No active provider sessions")
-                                                .small()
-                                                .color(cl::ink::SUBTLE),
-                                        );
-                                    } else {
-                                        for provider in active {
-                                            let descriptor =
-                                                provider.registration.manifest.descriptor;
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{}  {} · {} session{}",
-                                                    descriptor.glyph,
-                                                    descriptor.label,
-                                                    provider.sessions.len(),
-                                                    if provider.sessions.len() == 1 {
-                                                        ""
-                                                    } else {
-                                                        "s"
-                                                    }
-                                                ))
-                                                .small()
-                                                .color(cl::ink::BASE),
-                                            );
-                                        }
-                                    }
-                                    ui.add_space(8.0);
-                                    micro_heading(ui, "AVAILABLE PROVIDERS");
-                                    for provider in &providers {
-                                        self.provider_row(ui, provider, true, true, intents);
-                                    }
-                                    for supplement in SUPPLEMENTS.iter().filter(|supplement| {
-                                        supplement.action == CatalogSupplementAction::FutureAdapter
-                                    }) {
-                                        let response =
-                                            catalog_supplement_row(ui, supplement, false);
-                                        let mut metadata = NodeMetadata::new(
-                                            PROVIDER_CATALOG_ID
-                                                .child(&PilotKey::new(supplement.provider_id.0)),
-                                            Role::Status,
-                                            supplement.label,
-                                        );
-                                        metadata.description = Some(supplement.summary.to_owned());
-                                        metadata.value = Some("Adapter not qualified".to_owned());
-                                        ui.pilot_track(&response, metadata);
-                                    }
-                                    ui.add_space(8.0);
-                                    micro_heading(ui, "CONFIGURED PROFILES");
-                                    if self.provider_profiles.is_empty() {
-                                        ui.label(
-                                            RichText::new("No Local or Custom profiles yet")
-                                                .small()
-                                                .color(cl::ink::SUBTLE),
-                                        );
-                                    } else {
-                                        for profile in &self.provider_profiles {
-                                            egui::Frame::new()
-                                                .fill(Color32::from_rgb(9, 28, 31))
-                                                .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
-                                                .corner_radius(CornerRadius::same(3))
-                                                .inner_margin(egui::Margin::symmetric(8, 6))
-                                                .show(ui, |ui| {
-                                                    ui.set_width(ui.available_width());
-                                                    ui.label(
-                                                        RichText::new(&profile.display_name)
-                                                            .small()
-                                                            .strong()
-                                                            .color(cl::ink::STRONG),
-                                                    );
-                                                    ui.label(
-                                                        RichText::new(format!(
-                                                            "{} · {}",
-                                                            profile.kind.label(),
-                                                            profile.activation_reason()
-                                                        ))
-                                                        .small()
-                                                        .color(Tone::Amber.color()),
-                                                    );
-                                                });
-                                        }
-                                    }
-                                });
+                                self.catalog_sections(ui, &providers, intents);
                             });
-                        ui.separator();
-                        micro_heading(ui, "ADD A PROVIDER");
-                        for supplement in SUPPLEMENTS.iter().filter(|supplement| {
-                            matches!(supplement.action, CatalogSupplementAction::Configure(_))
-                        }) {
-                            let response = catalog_supplement_row(ui, supplement, true);
-                            let mut metadata = NodeMetadata::new(
-                                PROVIDER_CATALOG_ID.child(&PilotKey::new(supplement.provider_id.0)),
-                                Role::Button,
-                                supplement.label,
-                            );
-                            metadata.description = Some(supplement.summary.to_owned());
-                            ui.pilot_track(&response, metadata);
-                            if response.clicked() {
-                                if let CatalogSupplementAction::Configure(kind) = supplement.action
-                                {
-                                    intents.push(ChatWindowIntent::UpdateProviderProfileDraft(
-                                        ProviderProfileDraft::for_kind(kind),
-                                    ));
-                                    intents.push(ChatWindowIntent::SetOverlay(Some(
-                                        DomainOverlay::ProviderConfiguration(kind),
-                                    )));
-                                }
-                            }
-                        }
-                        ui.add_space(6.0);
-                        if ui.button("Close").clicked() {
-                            intents.push(ChatWindowIntent::SetOverlay(None));
-                        }
                     })
                     .response;
                 ui.pilot_track(
@@ -4664,6 +4752,260 @@ impl ChatWindow {
                     NodeMetadata::new(PROVIDER_CATALOG_ID, Role::Dialog, "AI provider catalog"),
                 );
             });
+
+        if modal.should_close() {
+            intents.push(ChatWindowIntent::SetOverlay(None));
+        }
+    }
+
+    /// The catalog's sections, in the order the operator reads them.
+    fn catalog_sections(
+        &self,
+        ui: &mut egui::Ui,
+        providers: &[ProviderView],
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        // ── the sessions running now ─────────────────────────────────────
+        section_heading(ui, "CURRENT ACTIVE SESSION(S)", None);
+        let active = providers
+            .iter()
+            .filter(|provider| {
+                provider.sessions.iter().any(|session| {
+                    session.group == SessionGroup::Active || session.state == SessionState::Running
+                })
+            })
+            .collect::<Vec<_>>();
+        if active.is_empty() {
+            ui.label(
+                RichText::new("No active provider sessions")
+                    .small()
+                    .color(cl::ink::SUBTLE),
+            );
+        } else {
+            for provider in active {
+                let descriptor = provider.registration.manifest.descriptor;
+                ui.label(
+                    RichText::new(format!(
+                        "{}  {} · {} session{}",
+                        descriptor.glyph,
+                        descriptor.label,
+                        provider.sessions.len(),
+                        if provider.sessions.len() == 1 {
+                            ""
+                        } else {
+                            "s"
+                        }
+                    ))
+                    .small()
+                    .color(cl::ink::BASE),
+                );
+            }
+        }
+
+        // ── subscriptions ────────────────────────────────────────────────
+        ui.add_space(cl::space::S3);
+        section_heading(ui, "SUBSCRIPTIONS", Some(("already paid for", false)));
+        let row = cl::patterns::carousel_row(
+            ui,
+            "chat.provider.catalog.subscriptions",
+            cl::patterns::lift_reserve(SUB_TILE).y + cl::space::S3,
+            |ui| {
+                for provider in providers {
+                    self.subscription_tile(ui, provider, intents);
+                }
+            },
+        );
+        // The wheel and a drag already scroll the row; the words exist so
+        // the row ANNOUNCES that there is more of it.
+        let more = match (row.can_left, row.can_right) {
+            (true, true) => Some("more on both sides — scroll sideways"),
+            (true, false) => Some("more to the left — scroll sideways"),
+            (false, true) => Some("more to the right — scroll sideways"),
+            (false, false) => None,
+        };
+        if let Some(more) = more {
+            ui.label(RichText::new(more).small().color(cl::ink::SUBTLE));
+        }
+
+        // ── API ──────────────────────────────────────────────────────────
+        ui.add_space(cl::space::S3);
+        section_heading(ui, "API", Some(("usage-based · billed per call", true)));
+        if self.provider_profiles.is_empty() {
+            ui.label(
+                RichText::new("No Local or Custom profiles yet")
+                    .small()
+                    .color(cl::ink::SUBTLE),
+            );
+        } else {
+            let _ = cl::patterns::tile_grid(ui, API_TILE, API_ROWS_FLOOR, |ui| {
+                for profile in &self.provider_profiles {
+                    self.api_tile(ui, profile);
+                }
+            });
+        }
+
+        // ── the house adapter ────────────────────────────────────────────
+        ui.add_space(cl::space::S3);
+        section_heading(ui, "DEVPULSE", Some(("the house adapter", false)));
+        for supplement in SUPPLEMENTS
+            .iter()
+            .filter(|supplement| supplement.provider_id == CLYFFY_PROVIDER)
+        {
+            unqualified_adapter_row(ui, supplement);
+        }
+
+        // ── ways in ──────────────────────────────────────────────────────
+        ui.add_space(cl::space::S3);
+        section_heading(ui, "ADD A PROVIDER", None);
+        for supplement in SUPPLEMENTS
+            .iter()
+            .filter(|supplement| matches!(supplement.action, CatalogSupplementAction::Configure(_)))
+        {
+            let response = cl::tip(
+                catalog_supplement_row(ui, supplement, true),
+                &format!("{} Tap to fill in its settings.", supplement.summary),
+            );
+            let mut metadata = NodeMetadata::new(
+                PROVIDER_CATALOG_ID.child(&PilotKey::new(supplement.provider_id.0)),
+                Role::Button,
+                supplement.label,
+            );
+            metadata.description = Some(supplement.summary.to_owned());
+            ui.pilot_track(&response, metadata);
+            if response.clicked() {
+                if let CatalogSupplementAction::Configure(kind) = supplement.action {
+                    intents.push(ChatWindowIntent::UpdateProviderProfileDraft(
+                        ProviderProfileDraft::for_kind(kind),
+                    ));
+                    intents.push(ChatWindowIntent::SetOverlay(Some(
+                        DomainOverlay::ProviderConfiguration(kind),
+                    )));
+                }
+            }
+        }
+
+        // ── adapters still to come — last, and quiet ─────────────────────
+        let coming = SUPPLEMENTS
+            .iter()
+            .filter(|supplement| {
+                supplement.action == CatalogSupplementAction::FutureAdapter
+                    && supplement.provider_id != CLYFFY_PROVIDER
+            })
+            .collect::<Vec<_>>();
+        if !coming.is_empty() {
+            ui.add_space(cl::space::S3);
+            section_heading(
+                ui,
+                "COMING LATER",
+                Some(("declared, not qualified yet", false)),
+            );
+            for supplement in coming {
+                unqualified_adapter_row(ui, supplement);
+            }
+        }
+    }
+
+    /// One subscription, as a large tile carrying its live presence.
+    fn subscription_tile(
+        &self,
+        ui: &mut egui::Ui,
+        provider: &ProviderView,
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        let descriptor = provider.registration.manifest.descriptor;
+        let selected = self.runtime.selected_provider_id() == Some(descriptor.id);
+        let tone = provider_tone(descriptor.accent);
+        let status = provider_status(&provider.registration);
+        let presence = activation_color(&provider.registration.activation, tone);
+        let (response, ()) = cl::patterns::lift_tile(
+            ui,
+            ("chat.provider.catalog.subscription", descriptor.id.0),
+            SUB_TILE,
+            selected,
+            tone,
+            |ui, style| {
+                ui.spacing_mut().item_spacing.y = cl::space::S1;
+                provider_mark(ui, descriptor.accent);
+                ui.label(
+                    RichText::new(descriptor.short_label)
+                        .strong()
+                        .color(style.ink),
+                );
+                ui.horizontal(|ui| {
+                    status_dot(ui, presence);
+                    ui.label(RichText::new(&status).small().color(presence));
+                });
+            },
+        );
+        let response = cl::tip(
+            response,
+            &format!(
+                "{} — {status}. {} Tap to chat with it.",
+                descriptor.label, descriptor.summary
+            ),
+        );
+        let mut metadata = NodeMetadata::new(
+            PROVIDER_CATALOG_ID.child(&PilotKey::new(descriptor.id.0)),
+            Role::Tab,
+            descriptor.label,
+        );
+        metadata.selected = Some(selected);
+        metadata.value = Some(status);
+        metadata.description = Some(descriptor.summary.to_owned());
+        ui.pilot_track(&response, metadata);
+        if response.clicked() {
+            intents.push(ChatWindowIntent::SelectProvider(descriptor.id));
+            intents.push(ChatWindowIntent::SetOverlay(None));
+        }
+    }
+
+    /// One saved endpoint, as a compact tile in the API grid. It reports;
+    /// it does not act — a saved profile cannot chat until its transport
+    /// adapter is qualified, and the tile says exactly that.
+    fn api_tile(&self, ui: &mut egui::Ui, profile: &ProviderProfile) {
+        let (response, ()) = cl::patterns::lift_tile(
+            ui,
+            ("chat.provider.catalog.api", profile.key.as_str()),
+            API_TILE,
+            false,
+            Tone::Cyan,
+            |ui, _| {
+                ui.label(
+                    RichText::new(&profile.display_name)
+                        .small()
+                        .strong()
+                        .color(cl::ink::STRONG),
+                );
+                ui.label(
+                    RichText::new(profile.kind.label())
+                        .small()
+                        .color(Tone::Amber.color()),
+                );
+            },
+        );
+        let model = if profile.model.is_empty() {
+            "provider default model"
+        } else {
+            profile.model.as_str()
+        };
+        let response = cl::tip(
+            response,
+            &format!(
+                "{} · {model}\n{}",
+                profile.endpoint,
+                profile.activation_reason()
+            ),
+        );
+        let mut metadata = NodeMetadata::new(
+            PROVIDER_CATALOG_ID
+                .child(&PilotKey::new("api"))
+                .child(&PilotKey::new(profile.key.as_str())),
+            Role::Status,
+            profile.display_name.clone(),
+        );
+        metadata.value = Some(format!("{} · usage-based", profile.kind.label()));
+        metadata.description = Some(profile.activation_reason().to_owned());
+        ui.pilot_track(&response, metadata);
     }
 
     fn provider_configuration_overlay(
@@ -5124,8 +5466,10 @@ impl ChatWindow {
                                 .color(Tone::Cyan.color()),
                         );
                         ui.horizontal(|ui| {
-                            let image_mode =
-                                ui.add_enabled(true, egui::Button::new("▧ Image").selected(true));
+                            let image_mode = cl::tip(
+                                icon_word_button(ui, "media", "Image", true, true),
+                                "Make a picture from your prompt",
+                            );
                             ui.pilot_track(
                                 &image_mode,
                                 NodeMetadata::new(
@@ -5508,22 +5852,36 @@ fn catalog_supplement_row(
     supplement: &CatalogSupplement,
     clickable: bool,
 ) -> egui::Response {
-    let response = egui::Frame::new()
-        .fill(Color32::from_rgb(8, 25, 29))
-        .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
-        .corner_radius(CornerRadius::same(3))
-        .inner_margin(egui::Margin::symmetric(8, 6))
+    let style = cl::compose(
+        provider_tone(supplement.accent),
+        "vibron",
+        &[],
+        cl::TraitState::Idle,
+    );
+    let mut frame = egui::Frame::new()
+        .fill(style.fill)
+        .stroke(style.edge)
+        .corner_radius(CornerRadius::same(style.radius))
+        .inner_margin(egui::Margin::symmetric(
+            cl::space::S2 as i8,
+            cl::space::S1 as i8,
+        ));
+    if let Some(shadow) = style.shadows.first() {
+        frame = frame.shadow(*shadow);
+    }
+    let response = frame
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 provider_mark(ui, supplement.accent);
                 ui.vertical(|ui| {
-                    ui.label(
-                        RichText::new(supplement.label)
-                            .small()
-                            .strong()
-                            .color(cl::ink::STRONG),
-                    );
+                    ui.label(RichText::new(supplement.label).small().strong().color(
+                        if clickable {
+                            cl::ink::STRONG
+                        } else {
+                            cl::ink::MUTED
+                        },
+                    ));
                     ui.label(
                         RichText::new(supplement.summary)
                             .small()
@@ -5538,6 +5896,62 @@ fn catalog_supplement_row(
     } else {
         response.on_hover_text("This adapter is declared but not qualified yet.")
     }
+}
+
+/// A declared adapter that is honestly not qualified yet: shown, never
+/// actionable.
+fn unqualified_adapter_row(ui: &mut egui::Ui, supplement: &CatalogSupplement) {
+    let response = catalog_supplement_row(ui, supplement, false);
+    let mut metadata = NodeMetadata::new(
+        PROVIDER_CATALOG_ID.child(&PilotKey::new(supplement.provider_id.0)),
+        Role::Status,
+        supplement.label,
+    );
+    metadata.description = Some(supplement.summary.to_owned());
+    metadata.value = Some("Adapter not qualified".to_owned());
+    ui.pilot_track(&response, metadata);
+}
+
+/// A section heading inside the catalog: the name, and what the section
+/// costs or is. A cost qualifier is never abbreviated away and wears the
+/// warning tone.
+fn section_heading(ui: &mut egui::Ui, name: &str, qualifier: Option<(&str, bool)>) {
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(name)
+                .small()
+                .strong()
+                .color(Tone::Cyan.color()),
+        );
+        if let Some((qualifier, costs)) = qualifier {
+            ui.label(RichText::new(qualifier).small().color(if costs {
+                Tone::Amber.color()
+            } else {
+                cl::ink::SUBTLE
+            }));
+        }
+    });
+    ui.add_space(cl::space::S1);
+}
+
+/// The subscriptions the rail lists: only what is ACTIVATED, in registration
+/// order so the rail never reshuffles under the operator's finger. Everything
+/// else is one tap away in the catalog.
+fn rail_subscriptions(providers: &[ProviderView]) -> Vec<&ProviderView> {
+    providers
+        .iter()
+        .filter(|provider| provider.registration.activation.is_activated())
+        .collect()
+}
+
+/// What a chip's group says while it has no entries. The chip stands first
+/// and the group fills as the operator turns things on, so "empty" is an
+/// ordinary state, not a failure — it has to read as one.
+fn group_awaiting(ui: &mut egui::Ui, text: &str) {
+    ui.horizontal(|ui| {
+        ui.add_space(cl::space::S3);
+        ui.label(RichText::new(text).small().italics().color(cl::ink::SUBTLE));
+    });
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -5944,24 +6358,61 @@ fn sidebar_destination_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> 
 fn composer_capability_button(
     ui: &mut egui::Ui,
     id: PilotId,
+    icon: Option<&'static str>,
     label: &str,
     enabled: bool,
     unavailable_reason: &str,
 ) -> egui::Response {
-    let response = ui.add_enabled(enabled, egui::Button::new(RichText::new(label).small()));
+    let response = match icon {
+        Some(icon) => icon_word_button(ui, icon, label, enabled, false),
+        None => ui.add_enabled(enabled, egui::Button::new(RichText::new(label).small())),
+    };
+    let available = format!("{label} is available for the selected provider.");
     let response = if enabled {
-        response
+        cl::tip(response, &available)
     } else {
         response.on_disabled_hover_text(unavailable_reason)
     };
     let mut metadata = NodeMetadata::new(id, Role::Button, label);
     metadata.description = Some(if enabled {
-        format!("{label} is available for the selected provider.")
+        available
     } else {
         unavailable_reason.to_owned()
     });
     ui.pilot_track(&response, metadata);
     response
+}
+
+/// A small button carrying a registry icon ahead of its word.
+///
+/// The icon is DRAWN — a ColdLight mesh painted into a slot the button
+/// reserves — never a font glyph: the glyphs these buttons used to carry are
+/// in none of the bundled fonts and rendered as empty boxes.
+fn icon_word_button(
+    ui: &mut egui::Ui,
+    icon: &'static str,
+    label: &str,
+    enabled: bool,
+    selected: bool,
+) -> egui::Response {
+    let slot = egui::Id::new(("chat.icon-word-button", icon, label));
+    let size = egui::Vec2::splat(ui.text_style_height(&egui::TextStyle::Small));
+    let laid = ui
+        .add_enabled_ui(enabled, |ui| {
+            egui::Button::new((egui::Atom::custom(slot, size), RichText::new(label).small()))
+                .selected(selected)
+                .atom_ui(ui)
+        })
+        .inner;
+    if let Some(rect) = laid.rect(slot) {
+        let ink = if enabled {
+            cl::ink::BASE
+        } else {
+            cl::ink::SUBTLE
+        };
+        cl::draw_icon(ui.painter(), icon, rect, ink);
+    }
+    laid.response
 }
 
 fn micro_heading(ui: &mut egui::Ui, text: &str) {
@@ -7114,6 +7565,116 @@ mod tests {
         let tabs = window.connected_tabs();
         assert_eq!(tabs.len(), 1, "a signed-out provider has not earned a tab");
         assert_eq!(tabs[0].0, PROVIDER);
+    }
+
+    fn ready_and_signed_out_window() -> ChatWindow {
+        let mut ready = ProviderRegistration::planned(MANIFEST);
+        ready.activation = ActivationState::Ready;
+        let mut signed_out = ProviderRegistration::planned(SECOND_MANIFEST);
+        signed_out.activation = ActivationState::SignedOut {
+            reason: "Not signed in".into(),
+            recovery: Vec::new(),
+        };
+        // Ready first, so it is the window's default selection and the
+        // signed-out provider appears nowhere until it is asked for.
+        let runtime = ChatRuntime::try_from_registrations([ready, signed_out]).expect("runtime");
+        ChatWindow::new(
+            runtime,
+            ROUTE,
+            &HistoryCatalog::default(),
+            vec![("Library".into(), ROUTE)],
+        )
+    }
+
+    #[test]
+    fn the_rail_lists_only_activated_providers() {
+        let window = ready_and_signed_out_window();
+        let views = window.runtime.provider_views();
+        let listed = rail_subscriptions(&views)
+            .iter()
+            .map(|provider| provider.registration.manifest.descriptor.id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            listed,
+            vec![PROVIDER],
+            "a signed-out provider is not listed"
+        );
+
+        // Experimental is an explicit activation, so it is listed too —
+        // and registration order is kept, so the rail never reshuffles.
+        let mut experimental = ProviderRegistration::planned(SECOND_MANIFEST);
+        experimental.activation = ActivationState::Experimental {
+            reason: "fixture".into(),
+            recovery: Vec::new(),
+        };
+        let mut ready = ProviderRegistration::planned(MANIFEST);
+        ready.activation = ActivationState::Ready;
+        let runtime = ChatRuntime::try_from_registrations([experimental, ready]).expect("runtime");
+        let views = runtime.provider_views();
+        let listed = rail_subscriptions(&views)
+            .iter()
+            .map(|provider| provider.registration.manifest.descriptor.id)
+            .collect::<Vec<_>>();
+        assert_eq!(listed, vec![SECOND_PROVIDER, PROVIDER]);
+
+        // Nothing activated lists nothing; the chip says so instead.
+        let runtime =
+            ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)])
+                .expect("runtime");
+        assert!(rail_subscriptions(&runtime.provider_views()).is_empty());
+    }
+
+    #[test]
+    fn an_unactivated_provider_is_one_tap_away_in_the_catalog() {
+        use egui_kittest::kittest::Queryable;
+        let mut harness = Harness::builder()
+            .with_size([1280.0, 800.0])
+            .build_ui_state(
+                |ui, window: &mut ChatWindow| {
+                    for intent in window.ui(ui) {
+                        let _ = window.apply(intent);
+                    }
+                },
+                ready_and_signed_out_window(),
+            );
+        harness.run_steps(2);
+        // The rail carries the activated provider and not the signed-out one.
+        assert!(harness.query_all_by_label("Fixture AI").count() >= 1);
+        assert_eq!(harness.query_all_by_label("Second AI").count(), 0);
+
+        // The AI Providers control opens the catalog, where EVERY provider
+        // is a tile — the signed-out one included.
+        harness.get_by_label("Open AI Providers").click();
+        harness.run_steps(2);
+        assert_eq!(
+            harness.state().domain_states.ai.overlay,
+            Some(DomainOverlay::ProviderCatalog)
+        );
+        assert!(harness.query_all_by_label("Second AI").count() >= 1);
+        // The catalog keeps the house adapter and both ways to add one. A
+        // row's own lettering is a second node with the same words, hence
+        // "at least one".
+        for kept in [
+            "AI provider catalog",
+            "Clyffy",
+            "Add local provider",
+            "Add custom provider",
+        ] {
+            assert!(
+                harness.query_all_by_label(kept).count() >= 1,
+                "the catalog lost {kept}"
+            );
+        }
+
+        // Selecting the signed-out tile is just a selection: it closes the
+        // catalog and hands the provider to the conversation pane.
+        harness.get_by_label("Second AI").click();
+        harness.run_steps(2);
+        assert_eq!(harness.state().domain_states.ai.overlay, None);
+        assert_eq!(
+            harness.state().runtime.selected_provider_id(),
+            Some(SECOND_PROVIDER)
+        );
     }
 
     #[test]

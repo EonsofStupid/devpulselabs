@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-11
+updated: 2026-11-13
 active_lane: recording-for-ai
 dirty: false
 ---
@@ -13,7 +13,7 @@ reorganization).
 Read in this order: this page → [`requirements.md`](requirements.md) (the
 operator's words) → [`README.md`](README.md) (the map of every doc).
 
-**Updated:** 2026-11-11. **Baseline `v0.1.0` (R295, R296):** the tag marks the
+**Updated:** 2026-11-13. **Baseline `v0.1.0` (R295, R296):** the tag marks the
 merge of everything through RA1a (#313), ST3, and all ten open dependency
 updates, which clear the nine open security alerts. Tag `v0.1.1` adds chat
 resume's code (PC1b), with native resume and standalone launch still disabled
@@ -73,7 +73,15 @@ the provider vocabulary from chat-core, chat-runtime and chat-store; A1c creates
 `dpl-ai-host` with presence and the usage census from the app. The gate enforces
 that no AI crate depends on chat. Grok's separate runtime path moves onto the
 shared registry in A7, because that changes behaviour; backfill stays in the app
-as wiring. Next for chat: the pieces mapped in the plan's R301 amendment. The process-supervisor branch is not landing:
+as wiring. Next for chat: the pieces mapped in the plan's R301 amendment. C2a (the
+providers rail, chips and catalog) is the first: the rail lists only the providers
+turned on, under Subscriptions and API chips; the catalog keeps every section it
+had in a full-window layout; tofu glyphs are drawn icons; selected rows announce
+it. Four chat pilot scenarios fail on `main` and on C2a at the same steps:
+`chat-codex-persisted-ready` and `chat-grok-persisted-ready` need saved sign-in
+state a scratch library lacks, and `chat-grok-signed-out-readiness` and
+`chat-steam-social` look for a Grok sign-in button that is not shown. The compact
+chat window's tab bar overlaps at 720 px wide. The process-supervisor branch is not landing:
 its own commit records it as a placebo that fails the gate. The originals are
 local tags under `retired/`. The old clone at `D:\localdev\devpulselabs` now
 holds only `main`.
