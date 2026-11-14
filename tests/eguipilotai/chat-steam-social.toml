@@ -159,7 +159,7 @@ kind = "action"
 type = "click"
 
 [steps.action.target]
-id = "chat.primary/chat.sidebar.providers/codex"
+id = "chat.primary/chat.provider.catalog/codex"
 
 [[steps]]
 kind = "expect"
@@ -195,7 +195,7 @@ kind = "action"
 type = "click"
 
 [steps.action.target]
-id = "chat.primary/chat.sidebar.providers/grok"
+id = "chat.primary/chat.provider.catalog/grok"
 
 [[steps]]
 kind = "expect"

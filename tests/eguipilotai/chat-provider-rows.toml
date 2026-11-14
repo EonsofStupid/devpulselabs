@@ -34,7 +34,8 @@ type = "click"
 [steps.action.target]
 id = "chat.primary/chat.overlay/interaction-1003/reject"
 
-# The roster: every provider visible in the rail, no click, no overlay.
+# The roster: the activated providers in the rail, no click, no overlay.
+# In the authored fixture Codex is Ready and Gemini is Experimental.
 [[steps]]
 kind = "expect"
 
@@ -51,22 +52,25 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
+id = "chat.primary/chat.sidebar.providers/gemini"
+
+# Blocked and signed-out providers are not rows in the rail at all.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
 id = "chat.primary/chat.sidebar.providers/claude"
 
 [[steps]]
 kind = "expect"
 
 [steps.expectation]
-type = "visible"
-
-[steps.expectation.target]
-id = "chat.primary/chat.sidebar.providers/gemini"
-
-[[steps]]
-kind = "expect"
-
-[steps.expectation]
-type = "visible"
+type = "count"
+value = 0
 
 [steps.expectation.target]
 id = "chat.primary/chat.sidebar.providers/grok"
@@ -79,19 +83,19 @@ kind = "action"
 type = "click"
 
 [steps.action.target]
-id = "chat.primary/chat.sidebar.providers/grok"
+id = "chat.primary/chat.sidebar.providers/gemini"
 
 [[steps]]
 kind = "expect"
 
 [steps.expectation]
 type = "value"
-value = "Signed out"
+value = "Experimental"
 
 [steps.expectation.target]
-id = "chat.primary/chat.sidebar.providers/grok"
+id = "chat.primary/chat.sidebar.providers/gemini"
 
-# The catalog survives as the escape hatch only.
+# Every other provider is one tap away in the catalog, with its state.
 [[steps]]
 kind = "action"
 
@@ -109,6 +113,25 @@ type = "visible"
 
 [steps.expectation.target]
 id = "chat.primary/chat.provider.catalog"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.catalog/claude"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "Signed out"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.catalog/grok"
 
 [[steps]]
 kind = "action"

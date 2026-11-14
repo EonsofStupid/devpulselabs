@@ -50,6 +50,10 @@ one source, no regression.
   sends both `RuntimeEvent` and `RuntimeUpdate` to `Event`. Grok's separate
   path joins the shared registry in A7 (a behaviour change, so not in A1).
   `ai_backfill` stays in the app as wiring: it reads chat history.
+- **C2a landed** with this plan's first piece: the providers rail, chips and
+  catalog (August's layout holding main's catalog content), ColdLight patterns
+  `group_chip`, `lift_tile`, `carousel_row` and `tile_grid`, drawn icons for the
+  tofu glyphs, and `selected` in the pilot's accessibility output.
 
 **Amended 2026-10-11 (operator: *"update the existing if wrong and ensure
 you plan against the existing code to implement canonical consistent naming

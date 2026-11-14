@@ -71,7 +71,7 @@ type = "value"
 value = "Ready"
 
 [steps.expectation.target]
-id = "chat.primary/chat.sidebar.providers/codex"
+id = "chat.primary/chat.provider.catalog/codex"
 
 [[steps]]
 kind = "expect"
@@ -81,7 +81,7 @@ type = "value"
 value = "Ready"
 
 [steps.expectation.target]
-id = "chat.primary/chat.sidebar.providers/grok"
+id = "chat.primary/chat.provider.catalog/grok"
 
 [[steps]]
 kind = "action"
@@ -90,7 +90,7 @@ kind = "action"
 type = "click"
 
 [steps.action.target]
-id = "chat.primary/chat.sidebar.providers/codex"
+id = "chat.primary/chat.provider.catalog/codex"
 
 # The app-server child has to spawn, answer `initialize`, and have its
 # advertised capabilities qualified before the surface can offer anything.

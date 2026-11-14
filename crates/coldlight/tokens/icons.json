@@ -366,6 +366,30 @@
       "lucide": "link-2",
       "label": "Parent",
       "blurb": "make this layer ride another one's movement"
+    },
+    {
+      "id": "route",
+      "lucide": "route",
+      "label": "Route",
+      "blurb": "where the main window is right now"
+    },
+    {
+      "id": "media",
+      "lucide": "image",
+      "label": "Image / video",
+      "blurb": "make a picture or a clip"
+    },
+    {
+      "id": "voice",
+      "lucide": "mic",
+      "label": "Voice",
+      "blurb": "talk instead of typing"
+    },
+    {
+      "id": "diagnostics",
+      "lucide": "activity",
+      "label": "Diagnostics",
+      "blurb": "what a provider is doing under the hood"
     }
   ]
 }

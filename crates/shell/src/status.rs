@@ -73,7 +73,7 @@ pub struct StatusCtx<'a> {
     /// The session's seeded ink-bleed: which pair of hues this launch drew
     /// and how long its dwell runs. Rolled once by the shell, never here — a
     /// cell paints, it does not decide.
-    pub bleed: crate::providers::BleedRoll,
+    pub bleed: cl::patterns::BleedRoll,
     /// Where the library lives (ST3). None until one is open.
     pub library: Option<&'a crate::LibraryHome>,
 }

@@ -60,7 +60,7 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
-id = "chat.primary/chat.sidebar.providers/codex"
+id = "chat.primary/chat.provider.catalog/codex"
 
 [[steps]]
 kind = "expect"
@@ -69,7 +69,7 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
-id = "chat.primary/chat.sidebar.providers/claude"
+id = "chat.primary/chat.provider.catalog/claude"
 
 [[steps]]
 kind = "expect"
@@ -78,7 +78,7 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
-id = "chat.primary/chat.sidebar.providers/grok"
+id = "chat.primary/chat.provider.catalog/grok"
 
 [[steps]]
 kind = "expect"
@@ -87,7 +87,7 @@ kind = "expect"
 type = "visible"
 
 [steps.expectation.target]
-id = "chat.primary/chat.sidebar.providers/gemini"
+id = "chat.primary/chat.provider.catalog/gemini"
 
 [[steps]]
 kind = "action"
@@ -96,7 +96,7 @@ kind = "action"
 type = "click"
 
 [steps.action.target]
-id = "chat.primary/chat.sidebar.providers/claude"
+id = "chat.primary/chat.provider.catalog/claude"
 
 [[steps]]
 kind = "expect"
