@@ -1,5 +1,5 @@
 # The Imagine generation panel (ADR-011), proven on the authored fixture:
-# the composer's media button opens the panel; image mode is selected and
+# the composer's `+` menu opens the panel; image mode is selected and
 # video mode is truthfully staged; the generate action enables only once a
 # prompt exists. Authored mode never spends — the host refuses generation
 # in fixtures the same way provider activation is refused.
@@ -38,6 +38,20 @@ type = "click"
 
 [steps.action.target]
 id = "chat.primary/chat.overlay/interaction-1003/reject"
+
+# Image / video lives in the composer's `+` menu (C2b): open it first.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.composer.more"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
 
 [[steps]]
 kind = "action"

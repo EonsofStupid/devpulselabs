@@ -73,25 +73,25 @@ the provider vocabulary from chat-core, chat-runtime and chat-store; A1c creates
 `dpl-ai-host` with presence and the usage census from the app. The gate enforces
 that no AI crate depends on chat. Grok's separate runtime path moves onto the
 shared registry in A7, because that changes behaviour; backfill stays in the app
-as wiring. Next for chat: the pieces mapped in the plan's R301 amendment. C2a (the
-providers rail, chips and catalog) is the first: the rail lists only the providers
-turned on, under Subscriptions and API chips; the catalog keeps every section it
-had in a full-window layout; tofu glyphs are drawn icons; selected rows announce
-it. The chat known-broken fixes are on branch `chat/known-broken`, not landed
-([plan](plans/chat-known-broken.md)):
-- Before a project is chosen, presence now speaks for Codex and Grok. It asks
-  the depot's own clients, answers as each probe ends, and does not wait for
-  the main window to paint, so a signed-in Codex reads Ready.
-- A signed-out provider's saved chat keeps a sign-in strip above it.
-- The compact tab bar fits at 720 px.
+as wiring. The chat program from here is the chat plan's §4.8 (R302, R303).
+Landed so far: C2a (#325) — the providers rail, chips and catalog; KB (#326) —
+Codex reads Ready from the depot's own status check, Grok reads Signed out with a
+Log in button, a signed-out provider's saved chat keeps its Log in button, the
+compact tab bar fits; C2b — the chat opens on General (Clyffy, powered by an AI
+the operator picks), tabs for each ready AI, then More AIs; one + Add menu and
+mode chips on the composer, with what the current AI cannot do greyed and
+explained; the chat window paints only from ColdLight chat tokens; the composer
+fits at any width. Next: AH1 (the AI catalog as data, installed/running/signed-in
+detection, the trust prompt).
 
-`chat-grok-signed-out-readiness` and `chat-steam-social` now pass. Two scenarios
-still fail on this machine because of its state, not the code:
-- `chat-grok-persisted-ready` needs Grok signed in. The depot's `grok models`
-  says "You are not authenticated."
-- `chat-codex-persisted-ready` passes the Codex Ready step. It then needs Grok
-  signed in, and a project chat set up so that Send can enable; this machine
-  has neither.
+Known broken in chat:
+- `chat-grok-persisted-ready` and `chat-codex-persisted-ready` stop at "Grok
+  Ready" on this machine: the depot's `grok models` says "You are not
+  authenticated." Codex's own step passes.
+- Pressing Log in for Codex or Grok before a project exists still reaches the
+  "choose a project first" state; a signed-in Codex with no project reads Ready
+  while Send asks for a session.
+- Attach in the + menu says it is not connected yet.
 
 Signing in to Codex or Grok before a project is chosen still reaches only the
 "Choose a project first" placeholder. The window's □, ❐, ▾ and ▸ glyphs are in

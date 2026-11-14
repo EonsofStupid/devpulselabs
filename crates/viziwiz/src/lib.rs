@@ -921,7 +921,7 @@ impl Viziwiz {
         }
     }
 
-    /// Start▸Stop recording with the C3 matrix: screen or the picked
+    /// Start→Stop recording with the C3 matrix: screen or the picked
     /// window, 720p (the old default; the engine downscales), format +
     /// audio + cap from the chips. The engine owns every refusal.
     fn start_video(&mut self) {

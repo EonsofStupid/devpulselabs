@@ -77,7 +77,8 @@
 				{ "id": "midnight",  "hue": 260, "chroma": 0.04,  "curve": "low-key", "chromaCurve": "flat", "description": "Midnight — deep blue neutral." },
 				{ "id": "mocha",     "hue": 40,  "chroma": 0.02,  "curve": "neutral", "chromaCurve": "flat", "description": "Mocha — warm brown neutral.", "overrides": { "950": { "l": 0.14, "c": 0.016, "h": 40 }, "975": { "l": 0.11, "c": 0.014, "h": 40 } } },
 				{ "id": "porcelain", "hue": 90,  "chroma": 0.008, "curve": "neutral", "chromaCurve": "flat", "description": "Porcelain — near-white warm." },
-				{ "id": "slate",     "hue": 245, "chroma": 0.018, "curve": "neutral", "chromaCurve": "flat", "description": "Slate — cool grey-blue.", "overrides": { "950": { "l": 0.13, "c": 0.014, "h": 245 }, "975": { "l": 0.11, "c": 0.012, "h": 245 } } }
+				{ "id": "slate",     "hue": 245, "chroma": 0.018, "curve": "neutral", "chromaCurve": "flat", "description": "Slate — cool grey-blue.", "overrides": { "950": { "l": 0.13, "c": 0.014, "h": 245 }, "975": { "l": 0.11, "c": 0.012, "h": 245 } } },
+				{ "id": "abyss",     "hue": 215, "chroma": 0.02,  "curve": "neutral", "chromaCurve": "flat", "description": "Abyss — Chat's teal-black. Its dark end is authored step by step, so the chat window's planes (backplate, wells, rails, raised cards, hairlines) are pool steps rather than hand-typed colours.", "overrides": { "200": { "l": 0.475, "c": 0.074, "h": 200 }, "300": { "l": 0.36, "c": 0.0515, "h": 203 }, "400": { "l": 0.285, "c": 0.041, "h": 205 }, "500": { "l": 0.251, "c": 0.033, "h": 212 }, "600": { "l": 0.216, "c": 0.027, "h": 211 }, "700": { "l": 0.2, "c": 0.023, "h": 216 }, "800": { "l": 0.19, "c": 0.022, "h": 219 }, "900": { "l": 0.174, "c": 0.018, "h": 223 }, "950": { "l": 0.148, "c": 0.015, "h": 222 }, "975": { "l": 0.133, "c": 0.0146, "h": 223 } } }
 			]
 		},
 

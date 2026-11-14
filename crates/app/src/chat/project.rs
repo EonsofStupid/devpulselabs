@@ -1647,6 +1647,7 @@ mod tests {
                 provider,
                 session: ChatSessionId(9_000_000),
                 text: "must not send".into(),
+                modes: Default::default(),
             },
         );
         assert!(state.project.worker.is_none());

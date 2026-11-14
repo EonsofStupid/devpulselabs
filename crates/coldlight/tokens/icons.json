@@ -390,6 +390,72 @@
       "lucide": "activity",
       "label": "Diagnostics",
       "blurb": "what a provider is doing under the hood"
+    },
+    {
+      "id": "window-maximize",
+      "lucide": "square",
+      "label": "Maximize",
+      "blurb": "make the window fill the screen"
+    },
+    {
+      "id": "window-restore",
+      "lucide": "copy",
+      "label": "Restore",
+      "blurb": "put the window back to its own size"
+    },
+    {
+      "id": "composer-more",
+      "lucide": "plus",
+      "label": "More",
+      "blurb": "attach, make media, add a component or talk"
+    },
+    {
+      "id": "attach",
+      "lucide": "paperclip",
+      "label": "Attach",
+      "blurb": "bring a file into the message"
+    },
+    {
+      "id": "component",
+      "lucide": "component",
+      "label": "Component",
+      "blurb": "drop a working piece into the chat"
+    },
+    {
+      "id": "mode-thinking",
+      "lucide": "lightbulb",
+      "label": "Thinking",
+      "blurb": "let the AI think longer before it answers"
+    },
+    {
+      "id": "mode-plan",
+      "lucide": "list-checks",
+      "label": "Plan first",
+      "blurb": "ask for a plan before any work"
+    },
+    {
+      "id": "mode-web",
+      "lucide": "globe",
+      "label": "Web search",
+      "blurb": "let the AI look things up online"
+    },
+    {
+      "id": "mode-brainstorm",
+      "lucide": "sparkles",
+      "label": "Brainstorm",
+      "blurb": "ask for many ideas, not one answer"
+    },
+    {
+      "id": "utility-detach",
+      "lucide": "square-arrow-out-up-right",
+      "label": "Detach",
+      "blurb": "float this panel free of Chat"
+    },
+    {
+      "id": "utility-redock",
+      "lucide": "panel-right",
+      "label": "Re-dock",
+      "blurb": "snap this panel back beside Chat"
     }
   ]
 }
