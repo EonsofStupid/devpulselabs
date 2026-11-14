@@ -1018,7 +1018,7 @@ pub fn poster_for(mp4: &str, poster: &str) {
 // ── Pass Z8 V4: Start/Stop video — 720p downscale + format & audio matrix ────
 //
 // The fixed-`seconds` path above (capture_vix / record_*_to) is unchanged. This
-// is the OVERLAY's Start▸Stop recorder: the caller owns an `AtomicBool` it flips
+// is the OVERLAY's Start→Stop recorder: the caller owns an `AtomicBool` it flips
 // to stop, plus an optional hard cap. Codec, container, downscale and an optional
 // audio track are all chosen at call time. Everything is best-effort and proven
 // on the real binary in the V8 drill — Windows system-audio needs a loopback

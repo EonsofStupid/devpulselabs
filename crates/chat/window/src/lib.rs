@@ -15,6 +15,9 @@ use dpl_ai_profiles::{
     ProviderProfileDraft, CLYFFY_PROVIDER, SUPPLEMENTS,
 };
 use dpl_chat_context::RouteContextState;
+use dpl_chat_core::composer::{
+    in_group, Availability, ComposerEntry, ComposerGroup, ComposerModes,
+};
 use dpl_chat_core::{
     ChatDomain, ChatEvent, ChatEventId, ChatSessionId, ContentEpisode, ContentEpisodeId,
     ContentSpine, ContentView, SessionGroup, SessionState, SessionSummary,
@@ -28,6 +31,7 @@ use dpl_chat_social::{
     Presence, SocialConversationId, SocialModel, SocialModelError, SocialThreadKind,
 };
 use dpl_chat_store::{HistoryCatalog, HistoryIndex, HistoryLocator, HistoryPage, IndexedSession};
+use dpl_coldlight::color_roles::chat;
 use dpl_coldlight::{self as cl, Tone};
 use dpl_fabric::{AppWindowKey, ProviderCapability, ProviderEvent, ProviderPresence, Stamped};
 use dpl_hub::Route;
@@ -53,7 +57,17 @@ pub const RESUME_CHAT_ID: PilotId = PilotId::new("chat.session.resume");
 pub const REFRESH_NATIVE_CHATS_ID: PilotId = PilotId::new("chat.sessions.refresh-native");
 
 pub const LAUNCHER_ID: PilotId = PilotId::new("shell.window.chat");
+/// The General tab — the AI domain's home, Clyffy's house session. Its id
+/// predates the name and stays, so every scenario that drives it still does.
 pub const AI_MODE_ID: PilotId = PilotId::new("chat.mode.ai");
+/// The More AIs tab: every known AI that has not earned a tab of its own.
+pub const MORE_AIS_TAB_ID: PilotId = PilotId::new("chat.mode.more-ais");
+/// The More AIs page; each row is `chat.more-ais/<provider>`.
+pub const MORE_AIS_ID: PilotId = PilotId::new("chat.more-ais");
+/// The General tab's header: Clyffy's house session and what backs it.
+pub const GENERAL_ID: PilotId = PilotId::new("chat.general");
+/// One "backed by" choice per signed-in AI: `chat.general.backing/<provider>`.
+pub const GENERAL_BACKING_ID: PilotId = PilotId::new("chat.general.backing");
 pub const ROOM_LIBRARY_ID: PilotId = PilotId::new("chat.library");
 
 pub const SOCIAL_MODE_ID: PilotId = PilotId::new("chat.mode.social");
@@ -166,6 +180,23 @@ pub const BRAINSTORM_SUGGEST_ID: PilotId = PilotId::new("chat.brainstorm.suggest
 pub const COMPOSER_STATUS_ID: PilotId = PilotId::new("chat.composer.status");
 pub const COMMAND_STRIP_ID: PilotId = PilotId::new("chat.composer.command-strip");
 pub const CLYFFY_ROW_ID: PilotId = PilotId::new("chat.clyffy.session");
+/// The composer `+`: one popup holding the census's menu entries.
+pub const COMPOSER_MORE_ID: PilotId = PilotId::new("chat.composer.more");
+/// The `+` popup itself.
+pub const COMPOSER_MENU_ID: PilotId = PilotId::new("chat.composer.menu");
+/// One mode chip on the composer: `chat.composer.mode/<slug>`.
+pub const MODE_ID: PilotId = PilotId::new("chat.composer.mode");
+/// The Send (and Stop) button's size: a touch target in whole space steps.
+const SEND_SIZE: egui::Vec2 = egui::vec2(
+    cl::space::S6 * 2.0 + cl::space::S5,
+    cl::space::S6 + cl::space::S3,
+);
+/// The "More" chip that holds the modes the row had no room for.
+pub const MODES_MORE_ID: PilotId = PilotId::new("chat.composer.modes-more");
+/// The popup it opens.
+pub const MODES_MENU_ID: PilotId = PilotId::new("chat.composer.modes-menu");
+/// The overflow chip's word.
+const MODES_MORE_LABEL: &str = "More";
 /// The composer's way into the provider catalog — the second trigger beside
 /// the rail's AI Providers control.
 pub const ADD_PROVIDER_ID: PilotId = PilotId::new("chat.composer.add-provider");
@@ -206,6 +237,103 @@ impl Composition {
             Self::PresenceRail
         }
     }
+}
+
+/// Which tab the AI domain is showing.
+///
+/// The strip reads, left to right: General, one tab per AI that is installed
+/// and signed in, then More AIs. A provider tab is earned by activation and
+/// nothing else, so signing out takes the tab away without an intent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AiTab {
+    /// Clyffy's house session, backed by the AI the operator assigned.
+    #[default]
+    General,
+    /// One AI that is installed and signed in.
+    Provider(ProviderId),
+    /// Every other known AI, its state, and one tap into its setup.
+    MoreAis,
+}
+
+/// What an AI on the More AIs page needs before it can earn a tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoreAiState {
+    /// Installed; it needs the operator to sign in.
+    SignIn,
+    /// There is a way to install (or update) it from here.
+    Install,
+    /// Nothing on this computer can run it yet.
+    NotOnThisComputer,
+}
+
+impl MoreAiState {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::SignIn => "Sign in",
+            Self::Install => "Install",
+            Self::NotOnThisComputer => "Not on this computer",
+        }
+    }
+
+    /// The state an AI that has not earned a tab is in. Read from its
+    /// activation and the first way back it offers, so the page never
+    /// promises a step the setup flow cannot take.
+    pub fn of(activation: &ActivationState) -> Self {
+        let first = activation.recovery().first().map(|action| action.kind);
+        match activation {
+            ActivationState::SignedOut { .. }
+            | ActivationState::SigningIn
+            | ActivationState::AwaitingAuthorization(_)
+            | ActivationState::Verifying => Self::SignIn,
+            ActivationState::NotInstalled { .. } | ActivationState::VersionUnsupported { .. } => {
+                if first.is_some() {
+                    Self::Install
+                } else {
+                    Self::NotOnThisComputer
+                }
+            }
+            _ => match first {
+                Some(RecoveryActionKind::SignIn | RecoveryActionKind::Retry) => Self::SignIn,
+                Some(
+                    RecoveryActionKind::InstallInstructions | RecoveryActionKind::UpdateProvider,
+                ) => Self::Install,
+                _ => Self::NotOnThisComputer,
+            },
+        }
+    }
+}
+
+/// One row of the More AIs page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MoreAiRow {
+    pub provider: ProviderId,
+    pub label: &'static str,
+    pub state: MoreAiState,
+    /// The provider's own words for why it is not ready, when it gave any.
+    pub reason: Option<String>,
+}
+
+/// The tab model, pure: the ready AIs that earn a tab (registration order,
+/// so the strip never reshuffles under a finger) and every other AI, which
+/// More AIs lists.
+pub fn tab_model(providers: &[ProviderView]) -> (Vec<ProviderId>, Vec<MoreAiRow>) {
+    let mut ready = Vec::new();
+    let mut more = Vec::new();
+    for provider in providers {
+        let descriptor = provider.registration.manifest.descriptor;
+        let activation = &provider.registration.activation;
+        if activation.is_activated() {
+            ready.push(descriptor.id);
+        } else {
+            more.push(MoreAiRow {
+                provider: descriptor.id,
+                label: descriptor.label,
+                state: MoreAiState::of(activation),
+                reason: activation.reason().map(str::to_owned),
+            });
+        }
+    }
+    (ready, more)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -335,6 +463,12 @@ pub enum ChatWindowIntent {
     /// Scope the AI domain to one connected provider — the tab beside
     /// AI/Social that a provider earns once it is activated.
     SelectProviderTab(ProviderId),
+    /// Open the More AIs tab: every AI without a tab of its own.
+    SelectMoreAis,
+    /// The operator chose which signed-in AI backs General (Clyffy).
+    AssignGeneralBacking(ProviderId),
+    /// Turn one composer mode on or off (a census slug).
+    ToggleMode(&'static str),
     /// Inspect one episode. The window records the focus; the host answers
     /// with its spine.
     SelectContentEpisode(ContentEpisodeId),
@@ -387,6 +521,10 @@ pub enum ChatWindowIntent {
         provider: ProviderId,
         session: ChatSessionId,
         text: String,
+        /// The modes standing when the turn was sent. They ride the send so
+        /// a host can tell an AI that takes them; one that does not is sent
+        /// exactly what it was sent before.
+        modes: ComposerModes,
     },
     CancelTurn {
         provider: ProviderId,
@@ -586,6 +724,8 @@ pub enum HostIntent {
         provider: ProviderId,
         session: ChatSessionId,
         text: String,
+        /// See [`ChatWindowIntent::SendTurn`]: carried, never required.
+        modes: ComposerModes,
     },
     CancelTurn {
         provider: ProviderId,
@@ -627,6 +767,9 @@ pub enum HostIntent {
     PromoteBrainstorm,
     /// The operator tapped the pinned Clyffy row.
     SelectClyffy,
+    /// Back General (Clyffy) with this signed-in AI and save the choice in
+    /// chat settings.
+    AssignGeneralBacking(ProviderId),
     ToggleAssist {
         enable: bool,
     },
@@ -757,9 +900,9 @@ pub struct ChatWindow {
     provider_trace_expanded: HashMap<ProviderId, bool>,
     composer_focus_requested: bool,
     domain: ChatDomain,
-    /// The connected provider whose tab is focused. `None` means the AI
-    /// tab itself — the roster and every provider's sessions.
-    provider_tab: Option<ProviderId>,
+    /// Which AI tab is showing: General (the roster and Clyffy's house
+    /// session), one connected provider, or More AIs.
+    ai_tab: AiTab,
     /// The operator's content, as the host last read it. Host-pushed —
     /// the window never reaches for a filesystem.
     content: ContentView,
@@ -795,6 +938,12 @@ pub struct ChatWindow {
     composer_status: Option<String>,
     /// The Clyffy house session as the HOST projects it.
     clyffy: ClyffyView,
+    /// The modes standing on the composer, ridden by the next send.
+    composer_modes: ComposerModes,
+    /// Is the composer `+` popup open?
+    composer_menu_open: bool,
+    /// Is the popup of modes that did not fit the row open?
+    mode_menu_open: bool,
     /// The AI Providers control's seeded hue pair and dwell. Rolled ONCE, so
     /// a capture reproduces it and a repaint does not strobe.
     bleed: cl::patterns::BleedRoll,
@@ -918,7 +1067,7 @@ impl ChatWindow {
             provider_trace_expanded: HashMap::new(),
             composer_focus_requested: false,
             domain: ChatDomain::Ai,
-            provider_tab: None,
+            ai_tab: AiTab::General,
             content: ContentView::default(),
             content_focus: None,
             domain_states,
@@ -939,6 +1088,9 @@ impl ChatWindow {
             brainstorm_item_drafts: HashMap::new(),
             composer_status: None,
             clyffy: ClyffyView::default(),
+            composer_modes: ComposerModes::default(),
+            composer_menu_open: false,
+            mode_menu_open: false,
             bleed: cl::patterns::BleedRoll::from_seed(BLEED_SEED),
         }
     }
@@ -1195,6 +1347,56 @@ impl ChatWindow {
         self.composer_status.as_deref()
     }
 
+    /// The modes standing on the composer right now.
+    pub fn composer_modes(&self) -> &ComposerModes {
+        &self.composer_modes
+    }
+
+    /// Which AI tab is showing.
+    pub fn ai_tab(&self) -> AiTab {
+        self.ai_tab
+    }
+
+    /// What the AI the composer speaks to advertises — the census reads this
+    /// to decide which modes and `+` entries it can offer.
+    fn advertised(&self) -> (Option<&'static str>, Vec<Capability>) {
+        match self.runtime.selected_provider() {
+            Some(provider) => (
+                Some(provider.registration.manifest.descriptor.short_label),
+                provider
+                    .registration
+                    .qualified_capabilities
+                    .iter()
+                    .copied()
+                    .collect(),
+            ),
+            None => (None, Vec::new()),
+        }
+    }
+
+    /// Drop every standing mode the current AI cannot honour, and say so.
+    /// Called whenever the AI behind the composer may have changed.
+    fn retain_offered_modes(&mut self) {
+        let (_, advertised) = self.advertised();
+        let dropped = self.composer_modes.retain_offered(&advertised);
+        if !dropped.is_empty() {
+            let names: Vec<_> = dropped.iter().map(|entry| entry.label).collect();
+            self.composer_status = Some(format!(
+                "{} turned off — this AI doesn't offer it.",
+                names.join(", ")
+            ));
+        }
+    }
+
+    /// The AI backing General, when it is signed in right now.
+    fn general_backing(&self) -> Option<ProviderId> {
+        let backing = self.clyffy.backing?;
+        self.connected_tabs()
+            .into_iter()
+            .any(|(id, _, _)| id == backing)
+            .then_some(backing)
+    }
+
     /// Every census address, in rail order. The host uses this to drive a
     /// deterministic proof state without guessing what content exists.
     pub fn content_episode_ids(&self) -> Vec<ContentEpisodeId> {
@@ -1301,11 +1503,23 @@ impl ChatWindow {
             ChatWindowIntent::RetryProjectSave => Ok(Some(HostIntent::RetryProjectSave)),
             ChatWindowIntent::SelectDomain(domain) => {
                 self.domain = domain;
-                self.provider_tab = None;
+                self.ai_tab = AiTab::General;
+                // General speaks through the AI that backs it, when that AI
+                // is signed in; otherwise the selection stays where it was.
+                if domain == ChatDomain::Ai {
+                    if let Some(backing) = self.general_backing() {
+                        if self.runtime.selected_provider_id() != Some(backing) {
+                            self.runtime.select_provider(backing)?;
+                            self.retain_offered_modes();
+                            return Ok(Some(HostIntent::ProviderSelected(backing)));
+                        }
+                    }
+                }
                 Ok(None)
             }
             ChatWindowIntent::SelectProvider(provider) => {
                 self.runtime.select_provider(provider)?;
+                self.retain_offered_modes();
                 Ok(Some(HostIntent::ProviderSelected(provider)))
             }
             ChatWindowIntent::SelectProviderTab(provider) => {
@@ -1313,8 +1527,42 @@ impl ChatWindow {
                 // tab focus exactly where it was.
                 self.runtime.select_provider(provider)?;
                 self.domain = ChatDomain::Ai;
-                self.provider_tab = Some(provider);
+                self.ai_tab = AiTab::Provider(provider);
+                self.retain_offered_modes();
                 Ok(Some(HostIntent::ProviderSelected(provider)))
+            }
+            ChatWindowIntent::SelectMoreAis => {
+                self.domain = ChatDomain::Ai;
+                self.ai_tab = AiTab::MoreAis;
+                Ok(None)
+            }
+            ChatWindowIntent::AssignGeneralBacking(provider) => {
+                // Only a signed-in AI can back General; the runtime call
+                // leads so a rejected id changes nothing.
+                if !self
+                    .connected_tabs()
+                    .into_iter()
+                    .any(|(id, _, _)| id == provider)
+                {
+                    return Ok(None);
+                }
+                self.runtime.select_provider(provider)?;
+                self.clyffy.backing = Some(provider);
+                self.retain_offered_modes();
+                Ok(Some(HostIntent::AssignGeneralBacking(provider)))
+            }
+            ChatWindowIntent::ToggleMode(slug) => {
+                // A mode is the composer's own state: it flips here and the
+                // NEXT send carries it. One the AI cannot honour is refused.
+                let (_, advertised) = self.advertised();
+                let offered = dpl_chat_core::composer::resolve(slug)
+                    .is_some_and(|entry| entry.availability(&advertised) == Availability::Offered);
+                if offered {
+                    if let Err(error) = self.composer_modes.toggle(slug) {
+                        self.composer_status = Some(error.to_string());
+                    }
+                }
+                Ok(None)
             }
             ChatWindowIntent::SelectContentEpisode(episode) => {
                 // Drop the outgoing spine before asking for the new one, so
@@ -1423,10 +1671,12 @@ impl ChatWindow {
                 provider,
                 session,
                 text,
+                modes,
             } => Ok(Some(HostIntent::SendTurn {
                 provider,
                 session,
                 text,
+                modes,
             })),
             ChatWindowIntent::OperatorSlash { command, synthetic } => {
                 Ok(Some(HostIntent::OperatorSlash { command, synthetic }))
@@ -1856,8 +2106,8 @@ impl ChatWindow {
         let fluid = cl::Fluid::of(ui.ctx().content_rect());
         let inset = fluid.sp_3().round() as i8;
         egui::Frame::new()
-            .fill(Color32::from_rgb(6, 19, 23))
-            .stroke(Stroke::new(1.0, teal_hairline()))
+            .fill(chat::panel::STRIP)
+            .stroke(Stroke::new(1.0, chat::panel::EDGE))
             .corner_radius(CornerRadius::same(5))
             .inner_margin(egui::Margin {
                 left: inset,
@@ -1927,8 +2177,9 @@ impl ChatWindow {
         } else {
             "Social".to_owned()
         };
-        let tab_count = connected.len() + 3;
-        let widest_label = ["AI", "Content", social_label.as_str()]
+        // General, the ready AIs, More AIs, then the two other domains.
+        let tab_count = connected.len() + 4;
+        let widest_label = ["General", "More AIs", "Content", social_label.as_str()]
             .into_iter()
             .chain(connected.iter().map(|(_, _, short_label)| *short_label))
             .map(|label| text_width(ui, label, tab_font.clone()))
@@ -1994,53 +2245,66 @@ impl ChatWindow {
         }
         ui.add_space(gap);
         let focused_tab = self.focused_provider_tab();
-        if tab
-            .show(
+        let in_ai = self.domain == ChatDomain::Ai;
+        let more_open = in_ai && self.ai_tab == AiTab::MoreAis;
+        let general = cl::tip(
+            tab.show(
                 ui,
                 AI_MODE_ID,
-                "AI",
-                self.domain == ChatDomain::Ai && focused_tab.is_none(),
-            )
-            .clicked()
-        {
+                "General",
+                in_ai && focused_tab.is_none() && !more_open,
+            ),
+            "Your general chat with Clyffy, powered by the AI you choose",
+        );
+        if general.clicked() {
             intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Ai));
         }
         for (id, label, short_label) in connected {
-            let selected = self.domain == ChatDomain::Ai && focused_tab == Some(id);
+            let selected = in_ai && focused_tab == Some(id);
             // A tab carries the SHORT label — "ChatGPT / Codex" clips to
             // nonsense at this size. The full name rides in the tooltip.
-            let response = tab
-                .show(
+            let response = cl::tip(
+                tab.show(
                     ui,
                     PROVIDER_TAB_ID.child(&PilotKey::new(id.0)),
                     short_label,
                     selected,
-                )
-                .on_hover_text(label);
+                ),
+                &format!("Chat with {label}"),
+            );
             if response.clicked() {
                 intents.push(ChatWindowIntent::SelectProviderTab(id));
             }
         }
-        if tab
-            .show(
+        let more = cl::tip(
+            tab.show(ui, MORE_AIS_TAB_ID, "More AIs", more_open),
+            "Every other AI DevPULSE knows — sign one in or install it to give it a tab",
+        );
+        if more.clicked() {
+            intents.push(ChatWindowIntent::SelectMoreAis);
+        }
+        let content = cl::tip(
+            tab.show(
                 ui,
                 CONTENT_MODE_ID,
                 "Content",
                 self.domain == ChatDomain::Content,
-            )
-            .clicked()
-        {
+            ),
+            "Your shows and episodes, to talk about with an AI",
+        );
+        if content.clicked() {
             intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Content));
         }
-        if tab
-            .show(
+        let social = cl::tip(
+            tab.show(
                 ui,
                 SOCIAL_MODE_ID,
                 &social_label,
                 self.domain == ChatDomain::Social,
-            )
-            .clicked()
-        {
+            ),
+            "Conversations with people",
+        );
+        if social.clicked() {
             intents.push(ChatWindowIntent::SelectDomain(ChatDomain::Social));
         }
         if show_search {
@@ -2074,7 +2338,7 @@ impl ChatWindow {
         intents: &mut Vec<ChatWindowIntent>,
     ) {
         let response = egui::Frame::new()
-            .fill(Color32::from_rgb(7, 17, 21))
+            .fill(chat::rail::FILL)
             .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
             .corner_radius(CornerRadius::same(4))
             .inner_margin(egui::Margin::symmetric(8, 9))
@@ -2551,7 +2815,10 @@ impl ChatWindow {
                 }
             }
             ui.add_space(8.0);
-            let picker = ui.pilot_button(PilotId::new("chat.sidebar.picker"), "•••");
+            let picker = cl::tip(
+                ui.pilot_button(PilotId::new("chat.sidebar.picker"), "•••"),
+                "Show everything in this list",
+            );
             if picker.clicked() {
                 intents.push(ChatWindowIntent::SetOverlay(Some(DomainOverlay::Picker)));
             }
@@ -2574,11 +2841,13 @@ impl ChatWindow {
             .collect()
     }
 
-    /// The provider the rail is scoped to: `provider_tab`, but only while it
+    /// The provider the rail is scoped to: the provider tab, but only while it
     /// still names a connected provider. Sign-out therefore drops the tab
     /// AND returns the roster without anyone having to send an intent.
     fn focused_provider_tab(&self) -> Option<ProviderId> {
-        let focus = self.provider_tab?;
+        let AiTab::Provider(focus) = self.ai_tab else {
+            return None;
+        };
         self.connected_tabs()
             .into_iter()
             .find(|(id, _, _)| *id == focus)
@@ -2728,14 +2997,14 @@ impl ChatWindow {
         let response = if expanded {
             egui::Frame::new()
                 .fill(if selected {
-                    Color32::from_rgb(11, 48, 52)
+                    chat::rail::SELECTED
                 } else {
                     Color32::TRANSPARENT
                 })
                 .stroke(Stroke::new(
                     1.0,
                     if selected {
-                        Color32::from_rgb(20, 105, 108)
+                        chat::rail::SELECTED_EDGE
                     } else {
                         Color32::TRANSPARENT
                     },
@@ -3034,8 +3303,8 @@ impl ChatWindow {
 
     fn conversation(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
         let response = egui::Frame::new()
-            .fill(Color32::from_rgb(5, 12, 15))
-            .stroke(Stroke::new(1.0, teal_hairline()))
+            .fill(chat::panel::WELL)
+            .stroke(Stroke::new(1.0, chat::panel::EDGE))
             .corner_radius(CornerRadius::same(4))
             .inner_margin(egui::Margin::symmetric(18, 14))
             .show(ui, |ui| {
@@ -3323,6 +3592,14 @@ impl ChatWindow {
             self.room_library_view(ui, intents);
             return;
         }
+        if self.ai_tab == AiTab::MoreAis {
+            self.more_ais_page(ui, intents);
+            return;
+        }
+        if self.focused_provider_tab().is_none() {
+            self.general_header(ui, intents);
+            ui.add_space(cl::space::S2);
+        }
         let Some(provider) = self.runtime.selected_provider() else {
             empty_state(
                 ui,
@@ -3405,13 +3682,16 @@ impl ChatWindow {
                         && !status.listing
                         && !self.project_input_locked
                         && provider.registration.activation.is_activated();
-                    let response = ui.add_enabled(
-                        ready,
-                        egui::Button::new(if status.loading == Some(session) {
-                            "Resuming chat..."
-                        } else {
-                            "Resume chat"
-                        }),
+                    let response = cl::tip(
+                        ui.add_enabled(
+                            ready,
+                            egui::Button::new(if status.loading == Some(session) {
+                                "Resuming chat..."
+                            } else {
+                                "Resume chat"
+                            }),
+                        ),
+                        "Pick this saved chat back up where it left off",
                     );
                     ui.pilot_track(
                         &response,
@@ -3455,6 +3735,651 @@ impl ChatWindow {
                     empty_state(ui, "No messages in this session", detail);
                 }
             });
+    }
+
+    /// General's header: Clyffy's house session, and one choice per
+    /// signed-in AI for what powers it. The choice is saved by the host in
+    /// chat settings; Clyffy's own modes and router arrive with CL1.
+    fn general_header(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        let connected = self.connected_tabs();
+        let backing = self.clyffy.backing;
+        let response = egui::Frame::new()
+            .fill(chat::panel::RAISED)
+            .stroke(Stroke::new(1.0, chat::panel::EDGE))
+            .corner_radius(CornerRadius::same(cl::RADIUS_SM))
+            .inner_margin(egui::Margin::symmetric(
+                cl::space::S3 as i8,
+                cl::space::S2 as i8,
+            ))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new("General").strong().color(cl::ink::STRONG));
+                    ui.label(
+                        RichText::new("Clyffy, DevPULSE's own chat · powered by")
+                            .small()
+                            .color(cl::ink::MUTED),
+                    );
+                    if connected.is_empty() {
+                        ui.label(
+                            RichText::new("no AI is signed in yet — sign one in under More AIs")
+                                .small()
+                                .color(Tone::Amber.color()),
+                        );
+                    }
+                    for (id, label, short_label) in connected {
+                        let chosen = backing == Some(id);
+                        let choice = cl::tip(
+                            chat_chip(ui, None, short_label, true, chosen),
+                            &format!("Power General with {label}. DevPULSE remembers your choice."),
+                        );
+                        let mut metadata = NodeMetadata::new(
+                            GENERAL_BACKING_ID.child(&PilotKey::new(id.0)),
+                            Role::Radio,
+                            format!("Power General with {label}"),
+                        );
+                        metadata.checked = Some(chosen);
+                        metadata.selected = Some(chosen);
+                        metadata.value =
+                            Some(if chosen { "selected" } else { "not selected" }.to_owned());
+                        ui.pilot_track(&choice, metadata);
+                        if choice.clicked() && !chosen {
+                            intents.push(ChatWindowIntent::AssignGeneralBacking(id));
+                        }
+                    }
+                });
+            })
+            .response;
+        let mut metadata = NodeMetadata::new(GENERAL_ID, Role::Region, "General chat");
+        metadata.value = Some(
+            backing
+                .map(|id| id.0.to_owned())
+                .unwrap_or_else(|| "no backing yet".to_owned()),
+        );
+        metadata.description =
+            Some("Clyffy's house session, powered by the signed-in AI you choose.".to_owned());
+        ui.pilot_track(&response, metadata);
+    }
+
+    /// The More AIs tab: every known AI that has not earned a tab, with its
+    /// state in plain words. One tap selects it, and its setup — the same
+    /// connection card the conversation pane has always shown — opens right
+    /// below, so the way in is the existing sign-in and install flow.
+    fn more_ais_page(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        let providers = self.runtime.provider_views();
+        let (_, rows) = tab_model(&providers);
+        ui.label(
+            RichText::new("More AIs")
+                .strong()
+                .size(18.0)
+                .color(cl::ink::STRONG),
+        );
+        ui.label(
+            RichText::new(
+                "AIs DevPULSE knows that are not ready on this computer yet. Tap one to set it up.",
+            )
+            .small()
+            .color(cl::ink::MUTED),
+        );
+        ui.separator();
+        let selected = self.runtime.selected_provider_id();
+        let list = ui
+            .vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = cl::space::S1;
+                if rows.is_empty() {
+                    ui.label(
+                        RichText::new("Every AI DevPULSE knows is signed in and has its own tab.")
+                            .small()
+                            .color(cl::ink::SUBTLE),
+                    );
+                }
+                for row in &rows {
+                    let chosen = selected == Some(row.provider);
+                    let next = match row.state {
+                        MoreAiState::SignIn => "sign in",
+                        MoreAiState::Install => "install it",
+                        MoreAiState::NotOnThisComputer => "see what it needs",
+                    };
+                    let response = cl::tip(
+                        more_ai_row(ui, row, chosen),
+                        &format!("{} — {}. Tap to {next}.", row.label, row.state.label()),
+                    );
+                    let mut metadata = NodeMetadata::new(
+                        MORE_AIS_ID.child(&PilotKey::new(row.provider.0)),
+                        Role::Button,
+                        row.label,
+                    );
+                    metadata.value = Some(row.state.label().to_owned());
+                    metadata.selected = Some(chosen);
+                    metadata.description = row.reason.clone();
+                    ui.pilot_track(&response, metadata);
+                    if response.clicked() {
+                        intents.push(ChatWindowIntent::SelectProvider(row.provider));
+                    }
+                }
+            })
+            .response;
+        let mut metadata = NodeMetadata::new(MORE_AIS_ID, Role::List, "More AIs");
+        metadata.value = Some(rows.len().to_string());
+        ui.pilot_track(&list, metadata);
+        if let Some(provider) = selected.and_then(|id| {
+            providers.iter().find(|provider| {
+                provider.registration.manifest.descriptor.id == id
+                    && !provider.registration.activation.is_activated()
+            })
+        }) {
+            ui.add_space(cl::space::S3);
+            self.provider_activation_ceremony(ui, provider, intents);
+        }
+    }
+
+    /// The composer `+` — the only plus on the composer (the way into AI
+    /// Providers is drawn as the providers' mark). A drawn plus and a word;
+    /// it says whether its menu is open.
+    fn composer_more_button(&self, ui: &mut egui::Ui) -> egui::Response {
+        let response = cl::tip(
+            icon_word_button(ui, "composer-more", "Add", true, self.composer_menu_open),
+            "Add to your message: a file, a picture or clip, a component, or your voice",
+        );
+        let mut metadata = NodeMetadata::new(COMPOSER_MORE_ID, Role::Button, "Add to message");
+        metadata.expanded = Some(self.composer_menu_open);
+        metadata.value = Some(
+            if self.composer_menu_open {
+                "open"
+            } else {
+                "closed"
+            }
+            .to_owned(),
+        );
+        metadata.description =
+            Some("Opens the menu: attach files, image or video, a component, or voice.".to_owned());
+        ui.pilot_track(&response, metadata);
+        response
+    }
+
+    /// Close the `+` popup and hand the caret back to the message.
+    fn close_composer_menu(&mut self) {
+        self.composer_menu_open = false;
+        self.composer_focus_requested = true;
+    }
+
+    /// The context row: the way into AI Providers, the observed route, the
+    /// assist toggle, the AI the message goes to and the route count.
+    ///
+    /// One line at every width. The route label is the elastic part: it
+    /// gets what the fixed controls leave and ends in "…" past that, and the
+    /// route count is shed before the route itself gets unreadable.
+    fn composer_context_row(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        ui.horizontal(|ui| {
+            let route = self.route_context.offered();
+            let route_hub = route.map_or_else(
+                || "unavailable".to_owned(),
+                |snapshot| snapshot.route.hub.0.to_owned(),
+            );
+            let route_label = route.map_or_else(
+                || "No Main route observed".to_owned(),
+                |snapshot| format!("{} / {}", snapshot.route.hub.0, snapshot.route.sub.0),
+            );
+            let assist_label = if self.assist_enabled {
+                "⚡ Assist on"
+            } else {
+                "⚡ Assist"
+            };
+            let selected = self.runtime.selected_provider();
+            let selector_label = selected.as_ref().map(|provider| {
+                format!(
+                    "{} · provider default",
+                    provider.registration.manifest.descriptor.label
+                )
+            });
+            let routes_label = format!("{} routes", self.routes.len());
+
+            // The budget, from the style's own measures.
+            let small = egui::TextStyle::Small.resolve(ui.style());
+            let pad = 2.0 * ui.spacing().button_padding.x;
+            let gap = ui.spacing().item_spacing.x;
+            let icon = ui.text_style_height(&egui::TextStyle::Small);
+            let catalog = if self.domain == ChatDomain::Ai {
+                ui.text_style_height(&egui::TextStyle::Body) + pad + gap
+            } else {
+                0.0
+            };
+            let assist = text_width(ui, assist_label, small.clone()) + pad + gap;
+            let selector = selector_label.as_deref().map_or(0.0, |label| {
+                text_width(ui, label, small.clone()) + pad + gap
+            });
+            let short_selector = selected
+                .as_ref()
+                .map(|provider| provider.registration.manifest.descriptor.short_label);
+            let selector_short = short_selector.map_or(0.0, |label| {
+                text_width(ui, label, small.clone()) + pad + gap
+            });
+            let routes = text_width(ui, &routes_label, small.clone()) + gap;
+            // The row sheds in a fixed order rather than overflow — an
+            // overflowing row widens the composer and pushes Send out: first
+            // the route count, then the selector's long name, then the route
+            // words (the route icon stays), and last the selector itself.
+            let readable_route = cl::space::S6 * 2.0;
+            let room = ui.available_width() - catalog - (icon + gap) - assist;
+            let (show_routes, selector_shown, budget) =
+                if room - selector - routes >= readable_route {
+                    (true, SelectorShown::Full, room - selector - routes)
+                } else if room - selector >= readable_route {
+                    (false, SelectorShown::Full, room - selector)
+                } else if room - selector_short >= 0.0 {
+                    (false, SelectorShown::Short, room - selector_short)
+                } else {
+                    (false, SelectorShown::Hidden, room)
+                };
+            let route_width = (text_width(ui, &route_label, small) + gap)
+                .min(budget)
+                .max(0.0);
+
+            // THE SECOND WAY INTO THE CATALOG, drawn as the providers' own
+            // mark so it never reads as the composer's `+` ("Add").
+            if self.domain == ChatDomain::Ai {
+                let catalog = cl::tip(
+                    icon_button(ui, "brain"),
+                    "AI Providers — every subscription and API endpoint",
+                );
+                let mut metadata =
+                    NodeMetadata::new(ADD_PROVIDER_ID, Role::Button, "Add a provider");
+                metadata.description = Some(
+                    "Open AI Providers: the subscriptions you hold and the API \
+                     endpoints you saved."
+                        .to_owned(),
+                );
+                ui.pilot_track(&catalog, metadata);
+                if catalog.clicked() {
+                    intents.push(ChatWindowIntent::SetOverlay(Some(
+                        DomainOverlay::ProviderCatalog,
+                    )));
+                }
+            }
+            let _ = cl::icon_label(ui, "route", icon, Tone::Cyan.color());
+            let route_response = ui
+                .allocate_ui_with_layout(
+                    egui::vec2(route_width, icon),
+                    Layout::left_to_right(Align::Center),
+                    |ui| {
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(route_label.clone())
+                                    .small()
+                                    .color(Tone::Cyan.color()),
+                            )
+                            .truncate(),
+                        )
+                    },
+                )
+                .inner;
+            let route_response = cl::tip(route_response, &route_label);
+            let mut route_metadata =
+                NodeMetadata::new(ROUTE_ID, Role::Status, "Observed Main route");
+            route_metadata.value = Some(route_hub);
+            route_metadata.description = Some(route_label);
+            ui.pilot_track(&route_response, route_metadata);
+            // ASSIST — beside the route truth it activates. Never provider-
+            // or capability-gated: one toggle, one acknowledgement, every
+            // provider.
+            let assist = ui
+                .add(
+                    egui::Button::new(assist_label)
+                        .small()
+                        .selected(self.assist_enabled),
+                )
+                .on_hover_text(
+                    "Assist mode: chat and the app work as one — chat sees your \
+                     route and open work and may offer pop-up suggestions you \
+                     approve or dismiss. One setting for every provider.",
+                );
+            let mut assist_metadata = NodeMetadata::new(ASSIST_ID, Role::Button, "Assist mode");
+            assist_metadata.value = Some(if self.assist_enabled { "on" } else { "off" }.to_owned());
+            ui.pilot_track(&assist, assist_metadata);
+            if assist.clicked() {
+                intents.push(ChatWindowIntent::ToggleAssist {
+                    enable: !self.assist_enabled,
+                });
+            }
+            if let (Some(provider), Some(selector_label), Some(short_label)) =
+                (selected, selector_label, short_selector)
+            {
+                let descriptor = provider.registration.manifest.descriptor;
+                let shown = match selector_shown {
+                    SelectorShown::Full => Some(selector_label.as_str()),
+                    SelectorShown::Short => Some(short_label),
+                    SelectorShown::Hidden => None,
+                };
+                if let Some(shown) = shown {
+                    let selector = cl::tip(
+                        ui.small_button(shown),
+                        "Which AI this message goes to — tap for its details",
+                    );
+                    let mut metadata =
+                        NodeMetadata::new(PROVIDER_MODEL_ID, Role::Button, "Provider and model");
+                    metadata.value = Some(selector_label);
+                    ui.pilot_track(&selector, metadata);
+                    if selector.clicked() {
+                        intents.push(ChatWindowIntent::SetOverlay(Some(DomainOverlay::Provider(
+                            descriptor.id,
+                        ))));
+                    }
+                }
+            }
+            if show_routes {
+                ui.label(RichText::new(routes_label).small().color(cl::ink::SUBTLE));
+            }
+        });
+    }
+
+    /// The compose row: the one `+` ("Add") and the mode chips, the chips
+    /// fitted to what the row has left.
+    fn composer_compose_row(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        ui.horizontal(|ui| {
+            // THE `+`: one popup holding the census's menu entries, beside
+            // where the operator types, as every chat client puts it.
+            let more = self.composer_more_button(ui);
+            self.composer_menu(ui, &more, intents);
+            // THE MODES: how the next turn should run. Only the AI domain has
+            // a turn to run.
+            if self.domain == ChatDomain::Ai {
+                self.mode_chips(ui, intents);
+            }
+        });
+    }
+
+    /// The composer's one popup style, shared by the `+` menu and the modes
+    /// overflow: a raised plate rising from its anchor, its entries stacked
+    /// full-width. The rise takes a short beat, or none when the style asks
+    /// for no motion (the operator's choice, or the pilot's frozen clock).
+    fn composer_popup<R>(
+        ui: &egui::Ui,
+        id: egui::Id,
+        anchor: Rect,
+        open: bool,
+        metadata: NodeMetadata,
+        add_contents: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> Option<egui::InnerResponse<R>> {
+        let duration = if ui.style().animation_time > 0.0 {
+            cl::motion::DUR_FAST
+        } else {
+            0.0
+        };
+        let t = ui.ctx().animate_bool_with_time(id, open, duration);
+        if !open {
+            return None;
+        }
+        let rise = (1.0 - t) * cl::space::S2;
+        Some(
+            egui::Area::new(id)
+                .order(egui::Order::Foreground)
+                .pivot(Align2::LEFT_BOTTOM)
+                .fixed_pos(anchor.left_top() + egui::vec2(0.0, rise - cl::space::S1))
+                .show(ui.ctx(), |ui| {
+                    ui.set_opacity(t);
+                    let panel = egui::Frame::new()
+                        .fill(chat::composer::POPUP)
+                        .stroke(Stroke::new(1.0, Tone::Cyan.color()))
+                        .corner_radius(CornerRadius::same(cl::RADIUS_SM))
+                        .inner_margin(egui::Margin::same(cl::space::S2 as i8))
+                        .show(ui, |ui| {
+                            ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
+                                ui.set_min_width(cl::space::S6 * 6.0);
+                                add_contents(ui)
+                            })
+                            .inner
+                        });
+                    ui.pilot_track(&panel.response, metadata);
+                    panel.inner
+                }),
+        )
+    }
+
+    /// The `+` popup: the census's menu entries, each with its icon, its
+    /// tooltip and its pilot id; a withheld one stays visible, disabled, and
+    /// says why.
+    ///
+    /// It closes on a pick, on Esc, or on a click elsewhere, and focus goes
+    /// back to the message. While it is open, focus stays inside it: Tab past
+    /// the last entry comes back to the first. It rises into place over a
+    /// short beat, or at once when the style asks for no motion.
+    fn composer_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        anchor: &egui::Response,
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        if anchor.clicked() {
+            if self.composer_menu_open {
+                self.close_composer_menu();
+            } else {
+                // One popup at a time: two would fight over the focus trap.
+                self.composer_menu_open = true;
+                self.mode_menu_open = false;
+            }
+        }
+        if self.composer_menu_open
+            && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.close_composer_menu();
+        }
+        let (ai, advertised) = self.advertised();
+        let rows: Vec<(&'static ComposerEntry, Option<String>)> = in_group(ComposerGroup::Menu)
+            .map(|entry| (entry, self.menu_entry_withheld(entry, ai, &advertised)))
+            .collect();
+        let focused = ui.memory(|memory| memory.focused());
+        let mut metadata = NodeMetadata::new(COMPOSER_MENU_ID, Role::Region, "Add to message");
+        metadata.value = Some(rows.len().to_string());
+        let Some(shown) = Self::composer_popup(
+            ui,
+            egui::Id::new("dpl_chat_composer_menu"),
+            anchor.rect,
+            self.composer_menu_open,
+            metadata,
+            |ui| {
+                let mut picked = None;
+                let mut entry_ids = Vec::new();
+                for (entry, withheld) in &rows {
+                    let enabled = withheld.is_none();
+                    let response = icon_word_button(ui, entry.icon, entry.label, enabled, false);
+                    let response = match withheld {
+                        Some(reason) => response.on_disabled_hover_text(reason),
+                        None => cl::tip(response, entry.tip),
+                    };
+                    let mut metadata =
+                        NodeMetadata::new(menu_entry_id(entry.slug), Role::MenuItem, entry.label);
+                    metadata.description =
+                        Some(withheld.clone().unwrap_or_else(|| entry.tip.to_owned()));
+                    ui.pilot_track(&response, metadata);
+                    if enabled {
+                        entry_ids.push(response.id);
+                    }
+                    if response.clicked() {
+                        picked = Some(entry.slug);
+                    }
+                }
+                (picked, entry_ids)
+            },
+        ) else {
+            return;
+        };
+        let (picked, entry_ids) = shown.inner;
+        trap_focus(ui, focused, &entry_ids);
+        if let Some(slug) = picked {
+            self.close_composer_menu();
+            match slug {
+                "media" => intents.push(ChatWindowIntent::SetOverlay(Some(
+                    DomainOverlay::Generation,
+                ))),
+                // The Interaction Library's first connected component: the
+                // brainstorm board (BS1).
+                "component" => intents.push(ChatWindowIntent::StartBrainstorm),
+                "attach" => {
+                    self.composer_status = Some(
+                        "Attaching files isn't connected yet — paste the text into your message for now."
+                            .to_owned(),
+                    );
+                }
+                other => {
+                    self.composer_status = Some(format!("{other} isn't connected yet."));
+                }
+            }
+        } else if shown.response.clicked_elsewhere() && !anchor.clicked() {
+            self.close_composer_menu();
+        }
+    }
+
+    /// Why a `+` entry is withheld right now, or `None` when it is offered.
+    /// Image/video is also offered when the host has image making set up,
+    /// whatever the AI advertises; a component needs the AI conversation.
+    fn menu_entry_withheld(
+        &self,
+        entry: &ComposerEntry,
+        ai: Option<&str>,
+        advertised: &[Capability],
+    ) -> Option<String> {
+        match entry.slug {
+            "media" if self.generation_status.image_available => None,
+            "component" if self.domain != ChatDomain::Ai => Some(
+                "Components live in the AI conversation — switch to the General tab.".to_owned(),
+            ),
+            _ => entry.withheld_reason(ai, advertised),
+        }
+    }
+
+    /// The mode chips, fitted to the row. Every chip that fits stands
+    /// inline at its full width; the rest collapse into one "More" chip that
+    /// opens them in the composer's popup style. A mode the AI does not
+    /// advertise stays visible, disabled, and says why in plain words.
+    fn mode_chips(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        let (ai, advertised) = self.advertised();
+        let entries: Vec<&'static ComposerEntry> = in_group(ComposerGroup::Mode).collect();
+        let gap = ui.spacing().item_spacing.x;
+        let widths: Vec<f32> = entries
+            .iter()
+            .map(|entry| chip_width(ui, Some(entry.icon), entry.label) + gap)
+            .collect();
+        let room = ui.available_width();
+        let inline = if widths.iter().sum::<f32>() <= room {
+            entries.len()
+        } else {
+            let mut used = chip_width(ui, None, MODES_MORE_LABEL) + gap;
+            widths
+                .iter()
+                .take_while(|width| {
+                    used += **width;
+                    used <= room
+                })
+                .count()
+        };
+        for entry in &entries[..inline] {
+            self.mode_chip(ui, entry, ai, &advertised, intents);
+        }
+        if inline == entries.len() {
+            self.mode_menu_open = false;
+            return;
+        }
+        let hidden = &entries[inline..];
+        let more = cl::tip(
+            chat_chip(ui, None, MODES_MORE_LABEL, true, self.mode_menu_open),
+            "More ways to run your next message",
+        );
+        let mut metadata = NodeMetadata::new(MODES_MORE_ID, Role::Button, "More modes");
+        metadata.expanded = Some(self.mode_menu_open);
+        metadata.value = Some(format!("{} more", hidden.len()));
+        metadata.description = Some(
+            hidden
+                .iter()
+                .map(|entry| entry.label)
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        ui.pilot_track(&more, metadata);
+        self.mode_overflow(ui, &more, hidden, ai, &advertised, intents);
+    }
+
+    /// The modes that did not fit, in the `+` menu's popup. It closes on Esc
+    /// or a click elsewhere, focus going back to the message; while open,
+    /// focus stays inside it. Toggling a mode leaves it open, so several can
+    /// be set in one visit.
+    fn mode_overflow(
+        &mut self,
+        ui: &mut egui::Ui,
+        anchor: &egui::Response,
+        hidden: &[&'static ComposerEntry],
+        ai: Option<&str>,
+        advertised: &[Capability],
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        if anchor.clicked() {
+            self.mode_menu_open = !self.mode_menu_open;
+            if self.mode_menu_open {
+                self.composer_menu_open = false;
+            } else {
+                self.composer_focus_requested = true;
+            }
+        }
+        if self.mode_menu_open
+            && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.mode_menu_open = false;
+            self.composer_focus_requested = true;
+        }
+        let focused = ui.memory(|memory| memory.focused());
+        let mut metadata = NodeMetadata::new(MODES_MENU_ID, Role::Region, "More modes");
+        metadata.value = Some(hidden.len().to_string());
+        let Some(shown) = Self::composer_popup(
+            ui,
+            egui::Id::new("dpl_chat_modes_menu"),
+            anchor.rect,
+            self.mode_menu_open,
+            metadata,
+            |ui| {
+                hidden
+                    .iter()
+                    .filter_map(|entry| self.mode_chip(ui, entry, ai, advertised, intents))
+                    .collect::<Vec<_>>()
+            },
+        ) else {
+            return;
+        };
+        trap_focus(ui, focused, &shown.inner);
+        if shown.response.clicked_elsewhere() && !anchor.clicked() {
+            self.mode_menu_open = false;
+            self.composer_focus_requested = true;
+        }
+    }
+
+    /// One mode chip. Returns its widget id when it can take focus.
+    fn mode_chip(
+        &self,
+        ui: &mut egui::Ui,
+        entry: &ComposerEntry,
+        ai: Option<&str>,
+        advertised: &[Capability],
+        intents: &mut Vec<ChatWindowIntent>,
+    ) -> Option<egui::Id> {
+        let withheld = entry.withheld_reason(ai, advertised);
+        let enabled = withheld.is_none();
+        let on = self.composer_modes.is_active(entry.slug);
+        let response = chat_chip(ui, Some(entry.icon), entry.label, enabled, on);
+        let response = match &withheld {
+            Some(reason) => response.on_disabled_hover_text(reason),
+            None => cl::tip(response, entry.tip),
+        };
+        let mut metadata = NodeMetadata::new(
+            MODE_ID.child(&PilotKey::new(entry.slug)),
+            Role::Button,
+            entry.label,
+        );
+        metadata.checked = Some(on);
+        metadata.value = Some(if on { "on" } else { "off" }.to_owned());
+        metadata.description = Some(withheld.unwrap_or_else(|| entry.tip.to_owned()));
+        ui.pilot_track(&response, metadata);
+        if response.clicked() {
+            intents.push(ChatWindowIntent::ToggleMode(entry.slug));
+        }
+        enabled.then_some(response.id)
     }
 
     /// Draw a past transcript. Read-only by construction: nothing on this
@@ -3642,171 +4567,18 @@ impl ChatWindow {
 
     fn composer(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
         egui::Frame::new()
-            .fill(Color32::from_rgb(8, 18, 22))
+            .fill(chat::composer::FILL)
             .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
             .corner_radius(CornerRadius::same(4))
             .inner_margin(egui::Margin::symmetric(12, 8))
             .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    let route = self.route_context.offered();
-                    let route_hub = route.map_or_else(
-                        || "unavailable".to_owned(),
-                        |snapshot| snapshot.route.hub.0.to_owned(),
-                    );
-                    let route_label = route.map_or_else(
-                        || "No Main route observed".to_owned(),
-                        |snapshot| format!("{} / {}", snapshot.route.hub.0, snapshot.route.sub.0),
-                    );
-                    // THE SECOND WAY INTO THE CATALOG. First in the row, so it
-                    // is not read as a sibling of "+ Attach" further along —
-                    // two adjacent + controls meaning different things is a
-                    // collision, and position is what separates them. The
-                    // catalog is the AI tab's, so the control lives there.
-                    if self.domain == ChatDomain::Ai {
-                        let add = cl::tip(
-                            ui.add(egui::Button::new(RichText::new("+").small())),
-                            "AI Providers — pick a subscription or add an API endpoint",
-                        );
-                        let mut add_metadata =
-                            NodeMetadata::new(ADD_PROVIDER_ID, Role::Button, "Add a provider");
-                        add_metadata.description = Some(
-                            "Open AI Providers: the subscriptions you hold and the API \
-                             endpoints you saved."
-                                .to_owned(),
-                        );
-                        ui.pilot_track(&add, add_metadata);
-                        if add.clicked() {
-                            intents.push(ChatWindowIntent::SetOverlay(Some(
-                                DomainOverlay::ProviderCatalog,
-                            )));
-                        }
-                    }
-                    let icon = ui.text_style_height(&egui::TextStyle::Small);
-                    let _ = cl::icon_label(ui, "route", icon, Tone::Cyan.color());
-                    let route_response = ui.label(
-                        RichText::new(route_label.clone())
-                            .small()
-                            .color(Tone::Cyan.color()),
-                    );
-                    let mut route_metadata =
-                        NodeMetadata::new(ROUTE_ID, Role::Status, "Observed Main route");
-                    route_metadata.value = Some(route_hub);
-                    route_metadata.description = Some(route_label);
-                    ui.pilot_track(&route_response, route_metadata);
-                    // ASSIST — beside the route truth it activates. Never
-                    // provider- or capability-gated: one toggle, one
-                    // acknowledgement, every provider.
-                    let assist_label = if self.assist_enabled {
-                        "⚡ Assist on"
-                    } else {
-                        "⚡ Assist"
-                    };
-                    let assist = ui
-                        .add(egui::Button::new(assist_label).small().selected(self.assist_enabled))
-                        .on_hover_text(
-                            "Assist mode: chat and the app work as one — chat sees your \
-                             route and open work and may offer pop-up suggestions you \
-                             approve or dismiss. One setting for every provider.",
-                        );
-                    let mut assist_metadata =
-                        NodeMetadata::new(ASSIST_ID, Role::Button, "Assist mode");
-                    assist_metadata.value =
-                        Some(if self.assist_enabled { "on" } else { "off" }.to_owned());
-                    ui.pilot_track(&assist, assist_metadata);
-                    if assist.clicked() {
-                        intents.push(ChatWindowIntent::ToggleAssist {
-                            enable: !self.assist_enabled,
-                        });
-                    }
-                    let selected = self.runtime.selected_provider();
-                    let supports = |capability| {
-                        selected.as_ref().is_some_and(|provider| {
-                            provider.registration.has_capability(capability)
-                        })
-                    };
-                    composer_capability_button(
-                        ui,
-                        ATTACHMENT_ID,
-                        None,
-                        "+ Attach",
-                        supports(Capability::Attachments),
-                        "This provider has not qualified attachment input yet.",
-                    );
-                    let media = composer_capability_button(
-                        ui,
-                        MEDIA_ID,
-                        Some("media"),
-                        "Image / video",
-                        self.generation_status.image_available
-                            || supports(Capability::Images)
-                            || supports(Capability::Video),
-                        "Image generation is not provisioned and this provider has not qualified media.",
-                    );
-                    if media.clicked() {
-                        intents.push(ChatWindowIntent::SetOverlay(Some(
-                            DomainOverlay::Generation,
-                        )));
-                    }
-                    if self.domain == ChatDomain::Ai {
-                        // The Interaction Library's first connected
-                        // component: the brainstorm board (BS1).
-                        let component = ui.add(egui::Button::new("⊞ Component"));
-                        let component = cl::tip(
-                            component,
-                            "Open a brainstorm board inline — the first governed component.",
-                        );
-                        ui.pilot_track(
-                            &component,
-                            NodeMetadata::new(
-                                INTERACTION_COMPONENT_ID,
-                                Role::Button,
-                                "Open brainstorm board",
-                            ),
-                        );
-                        if component.clicked() {
-                            intents.push(ChatWindowIntent::StartBrainstorm);
-                        }
-                    } else {
-                        composer_capability_button(
-                            ui,
-                            INTERACTION_COMPONENT_ID,
-                            None,
-                            "⊞ Component",
-                            false,
-                            "Components live in the AI conversation — switch to the AI tab.",
-                        );
-                    }
-                    composer_capability_button(
-                        ui,
-                        VOICE_ID,
-                        Some("voice"),
-                        "Voice",
-                        false,
-                        "Voice input is visible but is not qualified for this provider.",
-                    );
-                    if let Some(provider) = selected {
-                        let descriptor = provider.registration.manifest.descriptor;
-                        let selector_label = format!("{} · provider default", descriptor.label);
-                        let selector = ui.small_button(&selector_label);
-                        let mut metadata = NodeMetadata::new(
-                            PROVIDER_MODEL_ID,
-                            Role::Button,
-                            "Provider and model",
-                        );
-                        metadata.value = Some(selector_label);
-                        ui.pilot_track(&selector, metadata);
-                        if selector.clicked() {
-                            intents.push(ChatWindowIntent::SetOverlay(Some(
-                                DomainOverlay::Provider(descriptor.id),
-                            )));
-                        }
-                    }
-                    ui.label(
-                        RichText::new(format!("{} routes", self.routes.len()))
-                            .small()
-                            .color(cl::ink::SUBTLE),
-                    );
-                });
+                // Two single-line rows over the input, neither of which ever
+                // wraps: the context row (what the message is about, who
+                // answers it) and the compose row (the `+` and the modes).
+                // A wrapping row grows taller than the composer and pushes
+                // the input and Send out of the window; a budgeted row cannot.
+                self.composer_context_row(ui, intents);
+                self.composer_compose_row(ui, intents);
                 ui.horizontal(|ui| {
                     let mut draft = self.current_draft();
                     // SUBMIT ON ENTER — the convention every chat client the
@@ -3827,7 +4599,15 @@ impl ChatWindow {
                         && composer_focused
                         && ui.input_mut(take_composer_submit);
                     let editor = ui.add_sized(
-                        [(ui.available_width() - 104.0).max(160.0), 52.0],
+                        // The editor takes what Send leaves, never more, so
+                        // Send stays in the window at every width.
+                        [
+                            (ui.available_width()
+                                - SEND_SIZE.x
+                                - 2.0 * ui.spacing().item_spacing.x)
+                                .max(0.0),
+                            52.0,
+                        ],
                         egui::TextEdit::multiline(&mut draft)
                             .id(editor_id)
                             .interactive(!self.project_input_locked)
@@ -3907,9 +4687,12 @@ impl ChatWindow {
                                             .to_owned(),
                                     );
                                 }
-                                let stop = ui.add_enabled(
-                                    can_stop,
-                                    egui::Button::new("Stop").min_size(egui::vec2(86.0, 42.0)),
+                                let stop = cl::tip(
+                                    ui.add_enabled(
+                                        can_stop,
+                                        egui::Button::new("Stop").min_size(SEND_SIZE),
+                                    ),
+                                    "Stop the answer that is being written",
                                 );
                                 let mut metadata =
                                     NodeMetadata::new(STOP_ID, Role::Button, "Stop response");
@@ -3968,7 +4751,7 @@ impl ChatWindow {
                                 };
                                 let send = ui.add_enabled(
                                     enabled,
-                                    egui::Button::new("Send").min_size(egui::vec2(86.0, 42.0)),
+                                    egui::Button::new("Send").min_size(SEND_SIZE),
                                 );
                                 let send = cl::tip(send, &reason);
                                 let mut metadata =
@@ -4037,6 +4820,7 @@ impl ChatWindow {
                                             provider,
                                             session,
                                             text: draft,
+                                            modes: self.composer_modes.clone(),
                                         });
                                     }
                                 }
@@ -4047,7 +4831,7 @@ impl ChatWindow {
                                 "Content has no conversation — choose a provider under AI to ask about it.";
                             let send = ui.add_enabled(
                                 false,
-                                egui::Button::new("Send").min_size(egui::vec2(86.0, 42.0)),
+                                egui::Button::new("Send").min_size(SEND_SIZE),
                             );
                             let send = cl::tip(send, REASON);
                             let mut metadata =
@@ -4059,7 +4843,7 @@ impl ChatWindow {
                             let reason = self.social.transport().reason();
                             let send = ui.add_enabled(
                                 false,
-                                egui::Button::new("Send").min_size(egui::vec2(86.0, 42.0)),
+                                egui::Button::new("Send").min_size(SEND_SIZE),
                             );
                             let send = cl::tip(send, reason);
                             let mut metadata =
@@ -4113,7 +4897,7 @@ impl ChatWindow {
             .fixed_pos(egui::pos2(anchor.x, (anchor.y - height - 6.0).max(8.0)))
             .show(ui.ctx(), |ui| {
                 let panel = egui::Frame::new()
-                    .fill(Color32::from_rgb(7, 22, 26))
+                    .fill(chat::composer::POPUP)
                     .stroke(Stroke::new(1.0, Tone::Cyan.color()))
                     .corner_radius(CornerRadius::same(5))
                     .inner_margin(egui::Margin::symmetric(10, 8))
@@ -4174,7 +4958,7 @@ impl ChatWindow {
         let can_redo = self.brainstorm.can_redo;
         let status = self.brainstorm.status.clone();
         let panel = egui::Frame::new()
-            .fill(Color32::from_rgb(10, 25, 28))
+            .fill(chat::bubble::NOTICE)
             .stroke(Stroke::new(1.0, Tone::Amber.color()))
             .corner_radius(CornerRadius::same(4))
             .inner_margin(egui::Margin::symmetric(12, 10))
@@ -4607,7 +5391,7 @@ impl ChatWindow {
             .fixed_pos(egui::pos2(246.0, 84.0))
             .show(ui.ctx(), |ui| {
                 let response = egui::Frame::new()
-                    .fill(Color32::from_rgb(9, 28, 31))
+                    .fill(chat::panel::OVERLAY)
                     .stroke(Stroke::new(1.0, Tone::Cyan.color()))
                     .corner_radius(CornerRadius::same(5))
                     .inner_margin(egui::Margin::same(12))
@@ -4678,7 +5462,18 @@ impl ChatWindow {
                                 .color(cl::ink::SUBTLE),
                         );
                         if !provider.registration.activation.is_activated() {
-                            let continue_setup = ui.button("Continue setup in conversation");
+                            let continue_setup = cl::tip(
+                                ui.button("Continue setup in conversation"),
+                                "Finish connecting this AI in the chat",
+                            );
+                            ui.pilot_track(
+                                &continue_setup,
+                                NodeMetadata::new(
+                                    PROVIDER_OVERLAY_ID.child(&PilotKey::new("continue-setup")),
+                                    Role::Button,
+                                    "Continue setup in conversation",
+                                ),
+                            );
                             if continue_setup.clicked() {
                                 intents.push(ChatWindowIntent::SelectProvider(*provider_id));
                                 intents.push(ChatWindowIntent::SetOverlay(None));
@@ -4690,7 +5485,16 @@ impl ChatWindow {
                             let _ = cl::icon_label(ui, "diagnostics", icon, cl::ink::BASE);
                             ui.label(RichText::new("Diagnostics").color(cl::ink::BASE));
                         });
-                        if ui.button("Close").clicked() {
+                        let close = cl::tip(ui.button("Close"), "Close this card");
+                        ui.pilot_track(
+                            &close,
+                            NodeMetadata::new(
+                                PROVIDER_OVERLAY_ID.child(&PilotKey::new("close")),
+                                Role::Button,
+                                "Close provider card",
+                            ),
+                        );
+                        if close.clicked() {
                             intents.push(ChatWindowIntent::SetOverlay(None));
                         }
                     })
@@ -5071,7 +5875,7 @@ impl ChatWindow {
             .resizable(false)
             .frame(
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(7, 22, 26))
+                    .fill(chat::panel::RAISED)
                     .stroke(Stroke::new(1.0, Tone::Amber.color()))
                     .corner_radius(CornerRadius::same(5))
                     .inner_margin(egui::Margin::same(14)),
@@ -5157,9 +5961,12 @@ impl ChatWindow {
                             );
                         }
                         ui.horizontal(|ui| {
-                            let save = ui.add_enabled(
-                                validation.is_ok(),
-                                egui::Button::new("Save profile"),
+                            let save = cl::tip(
+                                ui.add_enabled(
+                                    validation.is_ok(),
+                                    egui::Button::new("Save profile"),
+                                ),
+                                "Save this endpoint so you can pick it later",
                             );
                             ui.pilot_track(
                                 &save,
@@ -5172,12 +5979,31 @@ impl ChatWindow {
                             if save.clicked() {
                                 intents.push(ChatWindowIntent::SaveProviderProfile(draft.clone()));
                             }
-                            if ui.button("Back").clicked() {
+                            let back = cl::tip(ui.button("Back"), "Back to every AI provider");
+                            ui.pilot_track(
+                                &back,
+                                NodeMetadata::new(
+                                    PROVIDER_CONFIG_ID.child(&PilotKey::new("back")),
+                                    Role::Button,
+                                    "Back to AI providers",
+                                ),
+                            );
+                            if back.clicked() {
                                 intents.push(ChatWindowIntent::SetOverlay(Some(
                                     DomainOverlay::ProviderCatalog,
                                 )));
                             }
-                            if ui.button("Cancel").clicked() {
+                            let cancel =
+                                cl::tip(ui.button("Cancel"), "Close without saving anything");
+                            ui.pilot_track(
+                                &cancel,
+                                NodeMetadata::new(
+                                    PROVIDER_CONFIG_ID.child(&PilotKey::new("cancel")),
+                                    Role::Button,
+                                    "Cancel provider setup",
+                                ),
+                            );
+                            if cancel.clicked() {
                                 intents.push(ChatWindowIntent::SetOverlay(None));
                             }
                         });
@@ -5228,7 +6054,7 @@ impl ChatWindow {
             ),
         };
         egui::Frame::new()
-            .fill(Color32::from_rgb(8, 24, 28))
+            .fill(chat::panel::CARD)
             .stroke(Stroke::new(1.0, provider_tone(descriptor.accent).color()))
             .corner_radius(CornerRadius::same(5))
             .inner_margin(egui::Margin::same(18))
@@ -5273,11 +6099,24 @@ impl ChatWindow {
             .copied()
             .unwrap_or(false);
         ui.add_space(10.0);
-        let toggle = ui.small_button(if expanded {
-            "▾ Hide activation trace"
-        } else {
-            "▸ Show activation trace"
-        });
+        let toggle = cl::tip(
+            icon_word_button(
+                ui,
+                if expanded {
+                    "group-open"
+                } else {
+                    "group-closed"
+                },
+                if expanded {
+                    "Hide activation trace"
+                } else {
+                    "Show activation trace"
+                },
+                true,
+                expanded,
+            ),
+            "What happened, step by step, while this AI was connecting",
+        );
         ui.pilot_track(
             &toggle,
             NodeMetadata::new(
@@ -5297,7 +6136,7 @@ impl ChatWindow {
             return;
         }
         egui::Frame::new()
-            .fill(Color32::from_rgb(3, 12, 14))
+            .fill(chat::panel::INSET)
             .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
             .corner_radius(CornerRadius::same(3))
             .inner_margin(egui::Margin::same(10))
@@ -5359,7 +6198,7 @@ impl ChatWindow {
                 .color(cl::ink::MUTED),
             );
             ui.horizontal(|ui| {
-                let copy = ui.button("Copy code");
+                let copy = cl::tip(ui.button("Copy code"), "Copy the sign-in code");
                 ui.pilot_track(
                     &copy,
                     NodeMetadata::new(
@@ -5371,7 +6210,10 @@ impl ChatWindow {
                 if copy.clicked() {
                     intents.push(ChatWindowIntent::CopyProviderAuthorizationCode(provider_id));
                 }
-                let reopen = ui.button("Reopen in default browser");
+                let reopen = cl::tip(
+                    ui.button("Reopen in default browser"),
+                    "Open the sign-in page again in your web browser",
+                );
                 ui.pilot_track(
                     &reopen,
                     NodeMetadata::new(
@@ -5391,7 +6233,9 @@ impl ChatWindow {
                 "Verifying {} connection…",
                 provider.registration.manifest.descriptor.short_label
             );
-            let response = ui.add_enabled(false, egui::Button::new(&label));
+            let response = ui
+                .add_enabled(false, egui::Button::new(&label))
+                .on_disabled_hover_text("Checking the account — this takes a moment");
             ui.pilot_track(
                 &response,
                 NodeMetadata::new(
@@ -5414,7 +6258,10 @@ impl ChatWindow {
                 let label = recovery
                     .map(|action| action.label.as_str())
                     .unwrap_or("Provider setup");
-                let response = ui.button(label);
+                let response = cl::tip(
+                    ui.button(label),
+                    "See how to install or update this AI on this computer",
+                );
                 ui.pilot_track(
                     &response,
                     NodeMetadata::new(
@@ -5426,7 +6273,10 @@ impl ChatWindow {
                 if response.clicked() {
                     intents.push(ChatWindowIntent::OpenProviderSetup(provider_id));
                 }
-                let refresh = ui.button("Check installation");
+                let refresh = cl::tip(
+                    ui.button("Check installation"),
+                    "Look again for this AI on this computer",
+                );
                 ui.pilot_track(
                     &refresh,
                     NodeMetadata::new(
@@ -5440,7 +6290,9 @@ impl ChatWindow {
                 }
             }
             _ if matches!(provider.registration.activation, ActivationState::SigningIn) => {
-                let response = ui.add_enabled(false, egui::Button::new("Connecting to provider…"));
+                let response = ui
+                    .add_enabled(false, egui::Button::new("Connecting to provider…"))
+                    .on_disabled_hover_text("Waiting for the AI's own sign-in to start");
                 ui.pilot_track(
                     &response,
                     NodeMetadata::new(
@@ -5478,7 +6330,7 @@ impl ChatWindow {
             .resizable(false)
             .frame(
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(7, 22, 26))
+                    .fill(chat::panel::RAISED)
                     .stroke(Stroke::new(1.0, Tone::Cyan.color()))
                     .corner_radius(CornerRadius::same(5))
                     .inner_margin(egui::Margin::same(14)),
@@ -5579,7 +6431,7 @@ impl ChatWindow {
                         }
                         for draft in &drafts {
                             let row = egui::Frame::new()
-                                .fill(Color32::from_rgb(8, 25, 29))
+                                .fill(chat::panel::CARD)
                                 .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
                                 .corner_radius(CornerRadius::same(3))
                                 .inner_margin(egui::Margin::same(8))
@@ -5618,7 +6470,10 @@ impl ChatWindow {
                                             );
                                             ui.horizontal(|ui| {
                                                 let save =
-                                                    ui.small_button("Save to library");
+                                                    cl::tip(
+                                                        ui.small_button("Save to library"),
+                                                        "Keep this picture in your library",
+                                                    );
                                                 ui.pilot_track(
                                                     &save,
                                                     NodeMetadata::new(
@@ -5636,7 +6491,10 @@ impl ChatWindow {
                                                         },
                                                     );
                                                 }
-                                                let discard = ui.small_button("Ignore");
+                                                let discard = cl::tip(
+                                                    ui.small_button("Ignore"),
+                                                    "Let this draft go",
+                                                );
                                                 ui.pilot_track(
                                                     &discard,
                                                     NodeMetadata::new(
@@ -5668,7 +6526,16 @@ impl ChatWindow {
                             ui.pilot_track(&row, row_metadata);
                         }
                         ui.add_space(6.0);
-                        if ui.button("Close").clicked() {
+                        let close = cl::tip(ui.button("Close"), "Close image making");
+                        ui.pilot_track(
+                            &close,
+                            NodeMetadata::new(
+                                GENERATION_PANEL_ID.child(&PilotKey::new("close")),
+                                Role::Button,
+                                "Close image making",
+                            ),
+                        );
+                        if close.clicked() {
                             intents.push(ChatWindowIntent::SetOverlay(None));
                         }
                     })
@@ -5704,7 +6571,16 @@ impl ChatWindow {
                 ChatDomain::Content => self.content_sidebar(ui, intents),
                 ChatDomain::Social => self.social_sidebar(ui, intents),
             }
-            if ui.button("Close picker").clicked() {
+            let close = cl::tip(ui.button("Close picker"), "Close this list");
+            ui.pilot_track(
+                &close,
+                NodeMetadata::new(
+                    PilotId::new("chat.sidebar.picker.close"),
+                    Role::Button,
+                    "Close picker",
+                ),
+            );
+            if close.clicked() {
                 intents.push(ChatWindowIntent::SetOverlay(None));
             }
         });
@@ -5729,10 +6605,10 @@ impl ChatWindow {
                 continue;
             };
             egui::Modal::new(egui::Id::new(spec.id))
-                .backdrop_color(Color32::from_black_alpha(176))
+                .backdrop_color(cl::scrim(cl::SCRIM_MEDIA_A))
                 .frame(
                     egui::Frame::new()
-                        .fill(Color32::from_rgb(9, 24, 28))
+                        .fill(chat::panel::CARD)
                         .stroke(Stroke::new(1.0, Tone::Amber.color()))
                         .corner_radius(CornerRadius::same(5))
                         .inner_margin(egui::Margin::same(18)),
@@ -5757,7 +6633,7 @@ impl ChatWindow {
                             ui.add_space(8.0);
                             ui.horizontal(|ui| {
                                 let interaction = PilotKey::new(spec.id.to_string());
-                                let approve = ui.button(approve_label);
+                                let approve = cl::tip(ui.button(approve_label), "Say yes to this");
                                 ui.pilot_track(
                                     &approve,
                                     NodeMetadata::new(
@@ -5794,7 +6670,10 @@ impl ChatWindow {
                                     }
                                 }
                                 if let Some(always_label) = always_approve_label {
-                                    let always = ui.button(always_label);
+                                    let always = cl::tip(
+                                        ui.button(always_label),
+                                        "Say yes now and from now on",
+                                    );
                                     ui.pilot_track(
                                         &always,
                                         NodeMetadata::new(
@@ -5825,7 +6704,7 @@ impl ChatWindow {
                                         }
                                     }
                                 }
-                                let reject = ui.button(reject_label);
+                                let reject = cl::tip(ui.button(reject_label), "Say no to this");
                                 ui.pilot_track(
                                     &reject,
                                     NodeMetadata::new(
@@ -6125,16 +7004,16 @@ impl ModeTab {
         let (rect, response) =
             ui.allocate_exact_size(egui::vec2(self.width, self.height), Sense::click());
         let fill = if selected {
-            Color32::from_rgb(8, 31, 36)
+            chat::tab::SELECTED
         } else if response.hovered() {
-            Color32::from_rgb(9, 25, 30)
+            chat::tab::HOVER
         } else {
-            Color32::from_rgb(4, 13, 17)
+            chat::tab::IDLE
         };
         let stroke = if response.has_focus() {
             Stroke::new(1.5, Tone::Cyan.color())
         } else if selected {
-            Stroke::new(1.0, Color32::from_rgb(24, 104, 108))
+            Stroke::new(1.0, chat::tab::SELECTED_EDGE)
         } else {
             Stroke::new(1.0, cl::surface::HAIRLINE)
         };
@@ -6196,6 +7075,9 @@ impl ModeTab {
         );
         let mut metadata = NodeMetadata::new(path, Role::Tab, label.to_owned());
         metadata.selected = Some(selected);
+        // Said in words as well as flagged, so a reader that only hears the
+        // value still hears which tab is open.
+        metadata.value = Some(if selected { "selected" } else { "not selected" }.to_owned());
         ui.pilot_track(&response, metadata);
         response
     }
@@ -6209,10 +7091,14 @@ fn window_controls(ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
     let maximized = ui
         .ctx()
         .input(|input| input.viewport().maximized.unwrap_or(false));
-    if quiet_button(
+    if quiet_icon_button(
         ui,
         MAXIMIZE_ID,
-        if maximized { "❐" } else { "□" },
+        if maximized {
+            "window-restore"
+        } else {
+            "window-maximize"
+        },
         if maximized {
             "Restore Chat"
         } else {
@@ -6261,7 +7147,7 @@ fn brand_mark(ui: &mut egui::Ui, size: f32) {
     ui.painter().rect(
         plate,
         CornerRadius::same((size / 9.0).round() as u8),
-        Color32::from_rgb(5, 24, 29),
+        chat::panel::MARK,
         Stroke::new(1.0, Tone::Cyan.color()),
         egui::StrokeKind::Inside,
     );
@@ -6323,10 +7209,9 @@ fn provider_mark(ui: &mut egui::Ui, accent: ProviderAccent) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(30.0, 30.0), Sense::hover());
     let tone = provider_tone(accent).color();
     let center = rect.center();
+    ui.painter().circle_filled(center, 14.0, chat::rail::MARK);
     ui.painter()
-        .circle_filled(center, 14.0, Color32::from_rgb(6, 22, 27));
-    ui.painter()
-        .circle_stroke(center, 14.0, Stroke::new(1.0, teal_hairline()));
+        .circle_stroke(center, 14.0, Stroke::new(1.0, chat::panel::EDGE));
     match accent {
         ProviderAccent::Cyan => {
             ui.painter().text(
@@ -6382,15 +7267,15 @@ fn provider_mark(ui: &mut egui::Ui, accent: ProviderAccent) {
 
 fn sidebar_operator_header(ui: &mut egui::Ui) {
     let response = egui::Frame::new()
-        .fill(Color32::from_rgb(8, 22, 26))
-        .stroke(Stroke::new(1.0, teal_hairline()))
+        .fill(chat::rail::HEADER)
+        .stroke(Stroke::new(1.0, chat::panel::EDGE))
         .corner_radius(CornerRadius::same(4))
         .inner_margin(egui::Margin::symmetric(9, 7))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 let (avatar, _) = ui.allocate_exact_size(egui::vec2(34.0, 34.0), Sense::hover());
                 ui.painter()
-                    .circle_filled(avatar.center(), 16.0, Color32::from_rgb(12, 38, 43));
+                    .circle_filled(avatar.center(), 16.0, chat::rail::AVATAR);
                 ui.painter().circle_stroke(
                     avatar.center(),
                     16.0,
@@ -6434,6 +7319,23 @@ fn status_dot(ui: &mut egui::Ui, color: Color32) {
     ui.painter().circle_filled(rect.center(), 3.0, color);
 }
 
+/// A window control drawn as a registry icon rather than a font glyph: the
+/// square glyphs maximize and restore used are missing from the bundled
+/// fonts and painted as empty boxes.
+fn quiet_icon_button(
+    ui: &mut egui::Ui,
+    id: PilotId,
+    icon: &'static str,
+    tooltip: &str,
+) -> egui::Response {
+    let response = cl::tip(icon_button(ui, icon), tooltip);
+    ui.pilot_track(
+        &response,
+        NodeMetadata::new(id, Role::Button, tooltip.to_owned()),
+    );
+    response
+}
+
 fn quiet_button(ui: &mut egui::Ui, id: PilotId, label: &str, tooltip: &str) -> egui::Response {
     let response = cl::tip(ui.small_button(label), tooltip);
     ui.pilot_track(
@@ -6446,14 +7348,14 @@ fn quiet_button(ui: &mut egui::Ui, id: PilotId, label: &str, tooltip: &str) -> e
 fn sidebar_row(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
     egui::Frame::new()
         .fill(if selected {
-            Color32::from_rgb(11, 48, 52)
+            chat::rail::SELECTED
         } else {
             Color32::TRANSPARENT
         })
         .stroke(Stroke::new(
             1.0,
             if selected {
-                Color32::from_rgb(20, 105, 108)
+                chat::rail::SELECTED_EDGE
             } else {
                 Color32::TRANSPARENT
             },
@@ -6547,34 +7449,6 @@ fn sidebar_destination_button(ui: &mut egui::Ui, label: &str, enabled: bool) -> 
     }
 }
 
-fn composer_capability_button(
-    ui: &mut egui::Ui,
-    id: PilotId,
-    icon: Option<&'static str>,
-    label: &str,
-    enabled: bool,
-    unavailable_reason: &str,
-) -> egui::Response {
-    let response = match icon {
-        Some(icon) => icon_word_button(ui, icon, label, enabled, false),
-        None => ui.add_enabled(enabled, egui::Button::new(RichText::new(label).small())),
-    };
-    let available = format!("{label} is available for the selected provider.");
-    let response = if enabled {
-        cl::tip(response, &available)
-    } else {
-        response.on_disabled_hover_text(unavailable_reason)
-    };
-    let mut metadata = NodeMetadata::new(id, Role::Button, label);
-    metadata.description = Some(if enabled {
-        available
-    } else {
-        unavailable_reason.to_owned()
-    });
-    ui.pilot_track(&response, metadata);
-    response
-}
-
 /// A small button carrying a registry icon ahead of its word.
 ///
 /// The icon is DRAWN — a ColdLight mesh painted into a slot the button
@@ -6605,6 +7479,161 @@ fn icon_word_button(
         cl::draw_icon(ui.painter(), icon, rect, ink);
     }
     laid.response
+}
+
+/// The pilot id a `+` entry answers to. The four the composer has always
+/// had keep their ids, so a scenario that drove them still finds them.
+fn menu_entry_id(slug: &str) -> PilotPath {
+    match slug {
+        "attach" => ATTACHMENT_ID.path(),
+        "media" => MEDIA_ID.path(),
+        "component" => INTERACTION_COMPONENT_ID.path(),
+        "voice" => VOICE_ID.path(),
+        other => COMPOSER_MENU_ID.child(&PilotKey::new(other)),
+    }
+}
+
+/// How much of the AI selector the composer's context row has room for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectorShown {
+    Full,
+    Short,
+    Hidden,
+}
+
+/// Keep focus inside an open popup: focus that is elsewhere (or nowhere)
+/// comes back to its first entry, which is also where opening it lands.
+fn trap_focus(ui: &egui::Ui, focused: Option<egui::Id>, entries: &[egui::Id]) {
+    if focused.is_none_or(|focus| !entries.contains(&focus)) {
+        if let Some(first) = entries.first() {
+            ui.memory_mut(|memory| memory.request_focus(*first));
+        }
+    }
+}
+
+/// The width [`chat_chip`] lays out at, from the style's own measures, so a
+/// row can budget its chips before drawing any of them.
+fn chip_width(ui: &egui::Ui, icon: Option<&str>, label: &str) -> f32 {
+    let small = egui::TextStyle::Small.resolve(ui.style());
+    let icon = icon.map_or(0.0, |_| {
+        ui.text_style_height(&egui::TextStyle::Small) + ui.spacing().icon_spacing
+    });
+    icon + text_width(ui, label, small) + 2.0 * ui.spacing().button_padding.x
+}
+
+/// A small button that is only a registry icon, drawn rather than typed.
+/// Callers owe the tooltip and the pilot metadata.
+fn icon_button(ui: &mut egui::Ui, icon: &'static str) -> egui::Response {
+    let slot = egui::Id::new(("chat.icon-button", icon));
+    let size = egui::Vec2::splat(ui.text_style_height(&egui::TextStyle::Body));
+    let laid = egui::Button::new(egui::Atom::custom(slot, size))
+        .small()
+        .atom_ui(ui);
+    if let Some(rect) = laid.rect(slot) {
+        let ink = if laid.response.hovered() {
+            cl::ink::STRONG
+        } else {
+            cl::ink::BASE
+        };
+        cl::draw_icon(ui.painter(), icon, rect.shrink(rect.width() * 0.15), ink);
+    }
+    laid.response
+}
+
+/// A chip in the chat's colour roles: raised when off, lit with a bright
+/// edge when on. `icon` is a registry icon drawn ahead of the word.
+fn chat_chip(
+    ui: &mut egui::Ui,
+    icon: Option<&'static str>,
+    label: &str,
+    enabled: bool,
+    on: bool,
+) -> egui::Response {
+    let slot = egui::Id::new(("chat.chip", icon, label));
+    let size = egui::Vec2::splat(ui.text_style_height(&egui::TextStyle::Small));
+    let word = RichText::new(label).small().color(if on {
+        cl::ink::STRONG
+    } else if enabled {
+        cl::ink::BASE
+    } else {
+        cl::ink::SUBTLE
+    });
+    let (fill, edge) = if on {
+        (chat::chip::ON, chat::chip::ON_EDGE)
+    } else {
+        (chat::chip::IDLE, chat::panel::EDGE)
+    };
+    let laid = ui
+        .add_enabled_ui(enabled, |ui| match icon {
+            Some(_) => egui::Button::new((egui::Atom::custom(slot, size), word))
+                .fill(fill)
+                .stroke(Stroke::new(1.0, edge))
+                .corner_radius(CornerRadius::same(cl::RADIUS_SM))
+                .small()
+                .atom_ui(ui),
+            None => egui::Button::new(word)
+                .fill(fill)
+                .stroke(Stroke::new(1.0, edge))
+                .corner_radius(CornerRadius::same(cl::RADIUS_SM))
+                .small()
+                .atom_ui(ui),
+        })
+        .inner;
+    if let (Some(icon), Some(rect)) = (icon, laid.rect(slot)) {
+        let ink = if on {
+            Tone::Cyan.color()
+        } else if enabled {
+            cl::ink::BASE
+        } else {
+            cl::ink::SUBTLE
+        };
+        cl::draw_icon(ui.painter(), icon, rect, ink);
+    }
+    laid.response
+}
+
+/// One row of the More AIs page: the AI's name, and its state in the tone
+/// that state reads in — amber to sign in, cyan to install, quiet when there
+/// is nothing to do here yet.
+fn more_ai_row(ui: &mut egui::Ui, row: &MoreAiRow, chosen: bool) -> egui::Response {
+    let state_tone = match row.state {
+        MoreAiState::SignIn => Tone::Amber.color(),
+        MoreAiState::Install => Tone::Cyan.color(),
+        MoreAiState::NotOnThisComputer => cl::ink::SUBTLE,
+    };
+    egui::Frame::new()
+        .fill(if chosen {
+            chat::rail::SELECTED
+        } else {
+            chat::rail::FILL
+        })
+        .stroke(Stroke::new(
+            1.0,
+            if chosen {
+                chat::rail::SELECTED_EDGE
+            } else {
+                chat::panel::EDGE
+            },
+        ))
+        .corner_radius(CornerRadius::same(cl::RADIUS_SM))
+        .inner_margin(egui::Margin::symmetric(
+            cl::space::S3 as i8,
+            cl::space::S2 as i8,
+        ))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(row.label).strong().color(cl::ink::STRONG));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(RichText::new(row.state.label()).small().color(state_tone));
+                });
+            });
+            if let Some(reason) = &row.reason {
+                ui.label(RichText::new(reason).small().color(cl::ink::MUTED));
+            }
+        })
+        .response
+        .interact(Sense::click())
 }
 
 fn micro_heading(ui: &mut egui::Ui, text: &str) {
@@ -6665,7 +7694,7 @@ fn event_row(ui: &mut egui::Ui, content: &ChatEventContent) {
         }
     };
     egui::Frame::new()
-        .fill(Color32::from_rgba_unmultiplied(11, 22, 26, 224))
+        .fill(chat::bubble::FILL)
         .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
         .corner_radius(CornerRadius::same(4))
         .inner_margin(egui::Margin::symmetric(12, 9))
@@ -6680,7 +7709,7 @@ fn conversation_message(ui: &mut egui::Ui, initials: &str, role: &str, body: &st
     ui.horizontal_top(|ui| {
         let (avatar, _) = ui.allocate_exact_size(egui::vec2(28.0, 28.0), Sense::hover());
         ui.painter()
-            .circle_filled(avatar.center(), 13.0, Color32::from_rgb(8, 28, 32));
+            .circle_filled(avatar.center(), 13.0, chat::bubble::AVATAR);
         ui.painter()
             .circle_stroke(avatar.center(), 13.0, Stroke::new(1.0, tone.color()));
         ui.painter().text(
@@ -6701,7 +7730,7 @@ fn conversation_message(ui: &mut egui::Ui, initials: &str, role: &str, body: &st
 
 fn social_message_row(ui: &mut egui::Ui, message: &dpl_chat_social::SocialMessage) {
     egui::Frame::new()
-        .fill(Color32::from_rgba_unmultiplied(11, 23, 26, 224))
+        .fill(chat::bubble::FILL)
         .stroke(Stroke::new(1.0, cl::surface::HAIRLINE))
         .corner_radius(CornerRadius::same(4))
         .inner_margin(egui::Margin::symmetric(12, 9))
@@ -6732,7 +7761,7 @@ fn compact_interaction(
 ) -> Option<egui::Response> {
     let mut action_response = None;
     egui::Frame::new()
-        .fill(Color32::from_rgb(10, 25, 28))
+        .fill(chat::bubble::NOTICE)
         .stroke(Stroke::new(1.0, tone.color()))
         .corner_radius(CornerRadius::same(4))
         .inner_margin(egui::Margin::symmetric(12, 8))
@@ -6939,12 +7968,8 @@ fn activation_color(state: &ActivationState, provider_tone: Tone) -> Color32 {
     }
 }
 
-fn teal_hairline() -> Color32 {
-    Color32::from_rgb(20, 69, 73)
-}
-
 fn paint_shell_backplate(painter: &egui::Painter, rect: Rect) {
-    painter.rect_filled(rect, CornerRadius::ZERO, Color32::from_rgb(3, 9, 12));
+    painter.rect_filled(rect, CornerRadius::ZERO, chat::panel::BACKPLATE);
     let bands = 24;
     for index in 0..bands {
         let t = index as f32 / bands as f32;
@@ -6953,12 +7978,9 @@ fn paint_shell_backplate(painter: &egui::Painter, rect: Rect) {
             rect.bottom()..=rect.top(),
             (index + 1) as f32 / bands as f32,
         );
-        let color = Color32::from_rgba_unmultiplied(
-            4,
-            (31.0 - 20.0 * t) as u8,
-            (35.0 - 22.0 * t) as u8,
-            190,
-        );
+        // The glow rises from the floor and fades toward the top: two
+        // colour roles, blended per band.
+        let color = chat::panel::GLOW_LOW.lerp_to_gamma(chat::panel::GLOW_HIGH, t);
         painter.rect_filled(
             Rect::from_min_max(egui::pos2(rect.left(), y1), egui::pos2(rect.right(), y0)),
             CornerRadius::ZERO,
@@ -6981,7 +8003,7 @@ fn paint_shell_backplate(painter: &egui::Painter, rect: Rect) {
                 egui::lerp(rect.top()..=rect.bottom(), y),
             ),
             radius,
-            Color32::from_rgba_unmultiplied(245, 126, 38, alpha),
+            chat::panel::EMBER.gamma_multiply_u8(alpha),
         );
     }
 }
@@ -6989,6 +8011,7 @@ fn paint_shell_backplate(painter: &egui::Painter, rect: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dpl_ai_core::activation::RecoveryAction;
     use dpl_ai_core::capability::Capability;
     use dpl_ai_core::provider::{ProviderDescriptor, ProviderManifest, ProviderProfileId};
     use dpl_ai_core::registration::ProviderRegistration;
@@ -7360,7 +8383,7 @@ mod tests {
         );
         harness.run_steps(2);
         let tabs: Vec<egui::Rect> = [
-            "AI", "Codex", "Claude", "Gemini", "Grok", "Content", "Social",
+            "General", "Codex", "Claude", "Gemini", "Grok", "More AIs", "Content", "Social",
         ]
         .into_iter()
         .map(|label| {
@@ -7378,7 +8401,7 @@ mod tests {
             );
         }
         let controls = harness.get_by_label("Show Main").rect();
-        let last = tabs.last().expect("seven tabs");
+        let last = tabs.last().expect("eight tabs");
         assert!(
             last.right() < controls.left(),
             "Social {last:?} reaches under the window controls {controls:?}"
@@ -8898,5 +9921,456 @@ mod tests {
         let (submitted, survives) = enter_with(egui::Modifiers::COMMAND);
         assert!(submitted, "Ctrl/Cmd+Enter must send");
         assert!(!survives, "and must not also leave a newline behind");
+    }
+
+    // ── C2b: the tab model, General, More AIs, the `+` menu and modes ────
+
+    fn registration_in(
+        manifest: ProviderManifest,
+        activation: ActivationState,
+    ) -> ProviderRegistration {
+        let mut registration = ProviderRegistration::planned(manifest);
+        registration.activation = activation;
+        registration
+    }
+
+    #[test]
+    fn the_tab_model_splits_ready_ais_from_more_ais() {
+        let manifests = [
+            tab_manifest("codex", "ChatGPT / Codex", "Codex"),
+            tab_manifest("gemini", "Gemini CLI", "Gemini"),
+            tab_manifest("grok", "Grok Build", "Grok"),
+            tab_manifest("kimi", "Kimi Code", "Kimi"),
+            tab_manifest("claude", "Claude Code", "Claude"),
+            tab_manifest("qwen", "Qwen Code", "Qwen"),
+            tab_manifest("hermes", "Hermes", "Hermes"),
+        ];
+        let runtime = ChatRuntime::try_from_registrations([
+            registration_in(manifests[0], ActivationState::Ready),
+            registration_in(
+                manifests[1],
+                ActivationState::Experimental {
+                    reason: "fixture".into(),
+                    recovery: Vec::new(),
+                },
+            ),
+            registration_in(
+                manifests[2],
+                ActivationState::SignedOut {
+                    reason: "Signed out".into(),
+                    recovery: vec![RecoveryAction::new(RecoveryActionKind::SignIn, "Log in")],
+                },
+            ),
+            registration_in(
+                manifests[3],
+                ActivationState::NotInstalled {
+                    reason: "Kimi is not installed".into(),
+                    recovery: vec![RecoveryAction::new(
+                        RecoveryActionKind::InstallInstructions,
+                        "Install Kimi",
+                    )],
+                },
+            ),
+            registration_in(
+                manifests[4],
+                ActivationState::Blocked {
+                    reason: "No qualified adapter".into(),
+                    recovery: Vec::new(),
+                },
+            ),
+            registration_in(
+                manifests[5],
+                ActivationState::NotInstalled {
+                    reason: "Nothing can run it here".into(),
+                    recovery: Vec::new(),
+                },
+            ),
+            registration_in(
+                manifests[6],
+                ActivationState::Failed {
+                    reason: "The sign-in stopped".into(),
+                    recovery: vec![RecoveryAction::new(RecoveryActionKind::Retry, "Try again")],
+                },
+            ),
+        ])
+        .expect("runtime");
+        let (ready, more) = tab_model(&runtime.provider_views());
+        assert_eq!(
+            ready,
+            vec![ProviderId("codex"), ProviderId("gemini")],
+            "Ready and Experimental earn a tab, in registration order"
+        );
+        let states: Vec<(&str, MoreAiState)> =
+            more.iter().map(|row| (row.provider.0, row.state)).collect();
+        assert_eq!(
+            states,
+            vec![
+                ("grok", MoreAiState::SignIn),
+                ("kimi", MoreAiState::Install),
+                ("claude", MoreAiState::NotOnThisComputer),
+                ("qwen", MoreAiState::NotOnThisComputer),
+                ("hermes", MoreAiState::SignIn),
+            ]
+        );
+        assert_eq!(more[0].reason.as_deref(), Some("Signed out"));
+        assert_eq!(MoreAiState::Install.label(), "Install");
+        assert_eq!(
+            MoreAiState::NotOnThisComputer.label(),
+            "Not on this computer"
+        );
+    }
+
+    #[test]
+    fn more_ais_is_a_tab_and_one_tap_opens_the_existing_setup() {
+        use egui_kittest::kittest::Queryable;
+        let mut harness = Harness::builder()
+            .with_size([1280.0, 800.0])
+            .build_ui_state(
+                |ui, window: &mut ChatWindow| {
+                    for intent in window.ui(ui) {
+                        let _ = window.apply(intent);
+                    }
+                },
+                ready_and_signed_out_window(),
+            );
+        harness.run_steps(2);
+        harness.get_by_label("More AIs").click();
+        harness.run_steps(2);
+        assert_eq!(harness.state().ai_tab(), AiTab::MoreAis);
+        // The signed-out AI is listed there, and only there.
+        harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, "Second AI")
+            .click();
+        harness.run_steps(2);
+        assert_eq!(
+            harness.state().runtime.selected_provider_id(),
+            Some(SECOND_PROVIDER)
+        );
+        assert_eq!(
+            harness.state().ai_tab(),
+            AiTab::MoreAis,
+            "the setup opens on the same page, not somewhere else"
+        );
+        // General is the way back, and it speaks through what backs it.
+        harness.get_by_label("General").click();
+        harness.run_steps(2);
+        assert_eq!(harness.state().ai_tab(), AiTab::General);
+    }
+
+    #[test]
+    fn general_is_backed_only_by_a_signed_in_ai() {
+        let mut window = ready_and_signed_out_window();
+        // A signed-out AI cannot back General: nothing changes, nothing
+        // reaches the host.
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::AssignGeneralBacking(SECOND_PROVIDER))
+                .expect("a refused backing is not an error"),
+            None
+        );
+        assert_eq!(window.clyffy().backing, None);
+        // A signed-in one does, and the host is asked to save it.
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::AssignGeneralBacking(PROVIDER))
+                .expect("assign"),
+            Some(HostIntent::AssignGeneralBacking(PROVIDER))
+        );
+        assert_eq!(window.clyffy().backing, Some(PROVIDER));
+        assert_eq!(window.runtime.selected_provider_id(), Some(PROVIDER));
+    }
+
+    #[test]
+    fn the_general_tab_speaks_through_its_backing() {
+        let mut window = multi_provider_window();
+        window.observe_clyffy(ClyffyView {
+            present: true,
+            active: true,
+            backing: Some(SECOND_PROVIDER),
+            events: 0,
+        });
+        window
+            .apply(ChatWindowIntent::SelectProviderTab(PROVIDER))
+            .expect("provider tab");
+        assert_eq!(window.runtime.selected_provider_id(), Some(PROVIDER));
+        assert_eq!(
+            window
+                .apply(ChatWindowIntent::SelectDomain(ChatDomain::Ai))
+                .expect("general"),
+            Some(HostIntent::ProviderSelected(SECOND_PROVIDER))
+        );
+        assert_eq!(window.ai_tab(), AiTab::General);
+        assert_eq!(window.runtime.selected_provider_id(), Some(SECOND_PROVIDER));
+    }
+
+    /// Two ready AIs whose manifests DECLARE Tools, so a test can qualify it
+    /// later — the runtime refuses a capability the manifest never declared.
+    fn mode_window() -> ChatWindow {
+        const MODE_CAPABILITIES: &[Capability] = &[
+            Capability::ReadSessions,
+            Capability::StartSession,
+            Capability::StreamTurns,
+            Capability::InterruptTurn,
+            Capability::Approvals,
+            Capability::Tools,
+        ];
+        let mut first = ProviderRegistration::planned(ProviderManifest {
+            target_capabilities: MODE_CAPABILITIES,
+            ..MANIFEST
+        });
+        first.activation = ActivationState::Ready;
+        let mut second = ProviderRegistration::planned(SECOND_MANIFEST);
+        second.activation = ActivationState::Ready;
+        let mut runtime = ChatRuntime::try_from_registrations([first, second]).expect("runtime");
+        for provider in [PROVIDER, SECOND_PROVIDER] {
+            runtime
+                .qualify_capabilities(provider, CAPABILITIES.iter().copied())
+                .expect("capabilities");
+        }
+        ChatWindow::new(
+            runtime,
+            ROUTE,
+            &HistoryCatalog::default(),
+            vec![("Library".into(), ROUTE)],
+        )
+    }
+
+    #[test]
+    fn a_mode_is_offered_only_when_the_ai_advertises_it_and_rides_the_send() {
+        let mut window = mode_window();
+        // The fixture advertises no Modes, Plans or Tools: Thinking, Plan
+        // first and Web search are refused; Brainstorm is ours.
+        for refused in ["thinking", "plan", "web-search"] {
+            window
+                .apply(ChatWindowIntent::ToggleMode(refused))
+                .expect("toggle");
+            assert!(
+                !window.composer_modes().is_active(refused),
+                "{refused} must not stand against an AI that does not offer it"
+            );
+        }
+        window
+            .apply(ChatWindowIntent::ToggleMode("brainstorm"))
+            .expect("toggle");
+        assert!(window.composer_modes().is_active("brainstorm"));
+
+        // An AI that advertises Tools offers Web search.
+        window
+            .runtime
+            .qualify_capabilities(PROVIDER, [Capability::Tools])
+            .expect("qualify");
+        window
+            .apply(ChatWindowIntent::ToggleMode("web-search"))
+            .expect("toggle");
+        assert!(window.composer_modes().is_active("web-search"));
+
+        // The send carries exactly what stands, to the host, unchanged.
+        let modes = window.composer_modes().clone();
+        let out = window
+            .apply(ChatWindowIntent::SendTurn {
+                provider: PROVIDER,
+                session: ChatSessionId(1),
+                text: "hello".into(),
+                modes: modes.clone(),
+            })
+            .expect("send");
+        assert_eq!(
+            out,
+            Some(HostIntent::SendTurn {
+                provider: PROVIDER,
+                session: ChatSessionId(1),
+                text: "hello".into(),
+                modes,
+            })
+        );
+
+        // Switching to an AI without Tools drops Web search and says so.
+        window
+            .apply(ChatWindowIntent::SelectProviderTab(SECOND_PROVIDER))
+            .expect("tab");
+        assert!(!window.composer_modes().is_active("web-search"));
+        assert!(window.composer_modes().is_active("brainstorm"));
+        assert!(window
+            .composer_status()
+            .is_some_and(|status| status.contains("Web search")));
+    }
+
+    #[test]
+    fn the_plus_menu_lists_the_census_and_closes_on_escape_back_to_the_input() {
+        use egui_kittest::kittest::Queryable;
+        let mut harness = Harness::builder()
+            .with_size([1280.0, 800.0])
+            .build_ui_state(
+                |ui, window: &mut ChatWindow| {
+                    for intent in window.ui(ui) {
+                        let _ = window.apply(intent);
+                    }
+                },
+                multi_provider_window(),
+            );
+        harness.run_steps(2);
+        assert_eq!(harness.query_all_by_label("Attach files").count(), 0);
+        harness.get_by_label("Add to message").click();
+        harness.run_steps(3);
+        assert!(harness.state().composer_menu_open);
+        for entry in ["Attach files", "Image / video", "Component", "Voice"] {
+            assert!(
+                harness.query_all_by_label(entry).count() >= 1,
+                "the menu lost {entry}"
+            );
+        }
+        harness.key_press(egui::Key::Escape);
+        harness.run_steps(3);
+        assert!(!harness.state().composer_menu_open, "Esc closes the menu");
+        assert_eq!(harness.query_all_by_label("Attach files").count(), 0);
+        assert!(
+            harness
+                .ctx
+                .memory(|memory| memory.has_focus(egui::Id::new("dpl_chat_composer"))),
+            "focus returns to the message"
+        );
+    }
+
+    #[test]
+    fn picking_component_from_the_menu_opens_the_board_and_closes_the_menu() {
+        use egui_kittest::kittest::Queryable;
+        let mut harness = Harness::builder()
+            .with_size([1280.0, 800.0])
+            .build_ui_state(
+                |ui, window: &mut ChatWindow| {
+                    let intents = window.ui(ui);
+                    let started = intents
+                        .iter()
+                        .any(|intent| matches!(intent, ChatWindowIntent::StartBrainstorm));
+                    if started {
+                        window.set_composer_status("board asked for");
+                    }
+                    for intent in intents {
+                        let _ = window.apply(intent);
+                    }
+                },
+                multi_provider_window(),
+            );
+        harness.run_steps(2);
+        harness.get_by_label("Add to message").click();
+        harness.run_steps(3);
+        harness.get_by_label("Component").click();
+        harness.run_steps(3);
+        assert!(
+            !harness.state().composer_menu_open,
+            "a pick closes the menu"
+        );
+        assert_eq!(harness.state().composer_status(), Some("board asked for"));
+    }
+
+    /// The compact window (720×560): the composer's rows are budgeted, so the
+    /// input and Send always stay in the window, every chip that is shown
+    /// is inside it at no less than its own label's width, and any mode the
+    /// row had no room for sits behind the "More" chip instead of being
+    /// squeezed.
+    #[test]
+    fn the_composer_fits_the_compact_window() {
+        use egui_kittest::kittest::Queryable;
+        let size = egui::vec2(720.0, 560.0);
+        let mut harness = Harness::builder().with_size(size).build_ui_state(
+            |ui, window: &mut ChatWindow| {
+                for intent in window.ui(ui) {
+                    let _ = window.apply(intent);
+                }
+            },
+            mode_window(),
+        );
+        harness.run_steps(2);
+        let bounds = Rect::from_min_size(egui::Pos2::ZERO, size);
+        for control in ["Message composer", "Send message", "Add to message"] {
+            let rect = harness.get_by_label(control).rect();
+            assert!(
+                bounds.contains_rect(rect) && rect.width() > 0.0 && rect.height() > 0.0,
+                "{control} {rect:?} must lie inside the {size:?} window"
+            );
+        }
+        let small = egui::TextStyle::Small.resolve(&harness.ctx.global_style());
+        let mut hidden = Vec::new();
+        for entry in in_group(ComposerGroup::Mode) {
+            let nodes: Vec<Rect> = harness
+                .query_all_by_label(entry.label)
+                .map(|node| node.rect())
+                .collect();
+            let Some(rect) = nodes.first().copied() else {
+                hidden.push(entry.label);
+                continue;
+            };
+            let label = harness.ctx.fonts_mut(|fonts| {
+                fonts
+                    .layout_no_wrap(entry.label.to_owned(), small.clone(), cl::ink::BASE)
+                    .size()
+                    .x
+            });
+            assert!(
+                bounds.contains_rect(rect),
+                "the {} chip {rect:?} must lie inside the window",
+                entry.label
+            );
+            assert!(
+                rect.width() >= label,
+                "the {} chip is {} wide, narrower than its label ({label})",
+                entry.label,
+                rect.width()
+            );
+        }
+        if !hidden.is_empty() {
+            let more = harness.get_by_label("More modes").rect();
+            assert!(
+                bounds.contains_rect(more),
+                "the More chip {more:?} holding {hidden:?} must lie inside the window"
+            );
+        }
+    }
+
+    /// The modes the row had no room for open from the "More" chip in the
+    /// composer's popup, and Esc hands focus back to the message.
+    #[test]
+    fn the_modes_that_do_not_fit_open_from_more() {
+        use egui_kittest::kittest::Queryable;
+        // Narrower than the window allows by hand, so the row cannot hold
+        // all four chips and the overflow has to carry the rest.
+        let size = egui::vec2(420.0, 560.0);
+        let mut harness = Harness::builder().with_size(size).build_ui_state(
+            |ui, window: &mut ChatWindow| {
+                for intent in window.ui(ui) {
+                    let _ = window.apply(intent);
+                }
+            },
+            mode_window(),
+        );
+        harness.run_steps(2);
+        let shown_before = in_group(ComposerGroup::Mode)
+            .filter(|entry| harness.query_all_by_label(entry.label).count() > 0)
+            .count();
+        let bounds = Rect::from_min_size(egui::Pos2::ZERO, size);
+        for control in ["Message composer", "Send message", "More modes"] {
+            let rect = harness.get_by_label(control).rect();
+            assert!(
+                bounds.contains_rect(rect),
+                "{control} {rect:?} must stay inside even this narrow window"
+            );
+        }
+        assert!(shown_before < 4, "420 px cannot hold every chip inline");
+        harness.get_by_label("More modes").click();
+        harness.run_steps(3);
+        assert!(harness.state().mode_menu_open);
+        for entry in in_group(ComposerGroup::Mode) {
+            assert!(
+                harness.query_all_by_label(entry.label).count() >= 1,
+                "{} is reachable",
+                entry.label
+            );
+        }
+        harness.key_press(egui::Key::Escape);
+        harness.run_steps(3);
+        assert!(!harness.state().mode_menu_open);
+        assert!(harness
+            .ctx
+            .memory(|memory| memory.has_focus(egui::Id::new("dpl_chat_composer"))));
     }
 }

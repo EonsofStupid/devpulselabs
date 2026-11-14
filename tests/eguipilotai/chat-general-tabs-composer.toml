@@ -1,0 +1,646 @@
+# C2b proof: Chat opens on General, then one tab per ready AI, then More AIs;
+# the composer carries one `+` menu and mode chips. Every step asserts the
+# accessibility checklist as it goes: the control's role and name (located by
+# them), its value or selected state, the popup's focus trap and focus return.
+#
+# `chat-authored` is deterministic: Codex is Ready and Gemini Experimental
+# (both earn a tab), Claude is Blocked and Grok is signed out (both live under
+# More AIs). The fixture's Codex advertises Tools, Plans, Attachments and
+# Images but not Modes, so Thinking is withheld and Web search is offered.
+#
+# Nothing here signs in or sends: the Grok sign-in button is only asserted
+# present, and no message is typed.
+id = "chat-general-tabs-composer"
+fixture = "chat-authored"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.overlay/interaction-1003/reject"
+
+# General is first and open: a tab by role and name, saying it is selected.
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "tab"
+name = "General"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "selected"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.ai"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.general"
+
+# Its backing is chosen from the signed-in AIs only: Codex and Gemini, never
+# the signed-out Grok.
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "radio"
+name = "Power General with ChatGPT / Codex"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.general.backing/gemini"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.general.backing/grok"
+
+# The ready AIs have tabs; the others do not.
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "tab"
+name = "Codex"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.provider/gemini"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.provider/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.provider/claude"
+
+# MORE AIS — a tab page listing every other AI with its state.
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "tab"
+name = "More AIs"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "not selected"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.more-ais"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.mode.more-ais"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "selected"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.more-ais"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "not selected"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.ai"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "list"
+name = "More AIs"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "Sign in"
+
+[steps.expectation.target]
+id = "chat.primary/chat.more-ais/grok"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "Not on this computer"
+
+[steps.expectation.target]
+id = "chat.primary/chat.more-ais/claude"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.more-ais/codex"
+
+# One tap leads into the existing setup flow: the connection card and its
+# sign-in button appear on the same page. The button is NOT pressed.
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.more-ais/grok"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.login/grok"
+
+# A READY TAB — the rail scopes to it and the tab says so.
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.mode.provider/codex"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "selected"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.provider/codex"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "not selected"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.more-ais"
+
+# THE `+` MENU — one control, closed until asked.
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "button"
+name = "Add to message"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "closed"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.more"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.menu"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.composer.more"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.menu"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "open"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.more"
+
+# The census, by role and name; Voice is shown but withheld.
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "menu-item"
+name = "Attach files"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "menu-item"
+name = "Image / video"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "menu-item"
+name = "Component"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "menu-item"
+name = "Voice"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "disabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.voice"
+
+# The trap: opening the menu puts focus on its first entry, and Tab
+# walks the entries in reading order.
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "focused"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.attachment"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "press"
+key = "Tab"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 150
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "focused"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.media"
+
+# Esc closes it and hands focus back to the message.
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "press"
+key = "Escape"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.menu"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "closed"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.more"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "focused"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer"
+
+# THE MODES — Codex does not advertise thinking modes, so Thinking is
+# withheld with a reason; Web search is offered, and toggles.
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "disabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.mode/thinking"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "enabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.mode/web-search"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "off"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.mode/web-search"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+role = "button"
+name = "Web search"
+
+[steps.action.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "on"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.mode/web-search"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.composer.mode/web-search"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "off"
+
+[steps.expectation.target]
+id = "chat.primary/chat.composer.mode/web-search"
+
+# General is the way back.
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.mode.ai"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "selected"
+
+[steps.expectation.target]
+id = "chat.primary/chat.mode.ai"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "close-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"

@@ -832,9 +832,9 @@ for the look.
 | Look and accessibility | ColdLight `roles.json` chat surface (K2) + C2a patterns | Raw colour leaves `chat/window`. An accessibility checklist goes into every pilot scenario. |
 
 #### 4.8.4 Passes, in order (one PR each; recording-for-AI alternates)
-1. **KB** — the chat defects: Codex Ready, Grok sign-in, the compact tab bar.
-2. **C2b** — general chat by default, the tab model, the composer + menu with
-   modes, the ColdLight chat surface, and the accessibility checklist.
+1. **KB** (landed, #326) — the chat defects: Codex Ready, Grok sign-in, the compact tab bar.
+2. **C2b** (landed) — general chat by default, the tab model, the composer + menu
+   with modes, the ColdLight chat surface, and the accessibility checklist.
 3. **AH1** — the AI catalog as data (ACP registry), installed / running /
    signed-in detection, desktop tells, and the trust prompt.
 4. **ST4** — chats, logs, context and media in the library, grouped per project.

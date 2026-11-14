@@ -2433,4 +2433,5 @@ Source: operator session, 2026-11-14, answering "What should passive mean?".
 - **Where chats, logs, context and images live:** "<library>/.usr/.ai/" — the reserved `.aidata` becomes `.usr/.ai`, grouped per project.
 - **Desktop AIs:** "CLIs in the depot": chat runs through each vendor's official CLI on the operator's own login, pinned and hash-checked; desktop apps are detected and offered launch or focus.
 - **Order:** "Approve the order": KB, C2b, AH1, ST4, A2b/CW2, DV1, RM2–RM4, RM1b, CL1–CL3, A2UI1, each with its own pass plan and OK.
-
+- **C2b tabs:** "Ready AIs + More" — General, a tab per installed and signed-in AI, then More AIs with every other AI's state.
+- **C2b plan:** "Approve + captures OK" (2026-11-14), with chat-window captures on a scratch library for this pass.

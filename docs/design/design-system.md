@@ -171,7 +171,7 @@ one file), `crates/doc/src/lib.rs`, and every call site in `crates/`.
 
 | today | why it is wrong | correct name | owner file | sites |
 |---|---|---|---|---|
-| `Tone` (6-variant enum) | **collides with (b).** Material 3 defines *tone* as a **lightness step**; ours picks a **hue family**. Our lightness step is separately called `step`. Two industries' meanings crossed in one type. | **`Accent`** — six semantic accent roles selected from the 53-hue pool; `HueId` stays the pool index | `coldlight/src/hue.rs` | **358** |
+| `Tone` (6-variant enum) | **collides with (b).** Material 3 defines *tone* as a **lightness step**; ours picks a **hue family**. Our lightness step is separately called `step`. Two industries' meanings crossed in one type. | **`Accent`** — six semantic accent roles selected from the 54-hue pool; `HueId` stays the pool index | `coldlight/src/hue.rs` | **358** |
 | `TraitDef`, `tokens/traits.json`, `compose()` | **PRIMARY: it is a second compositor.** The matrix superseded it, and `Dress` exists only to bridge the two. **SECONDARY (naming, and only that):** `trait` is a strict Rust keyword — not an egui concern, egui has no opinion on the word. It compiles fine as `TraitDef`, but it forced four prefixed identifiers (`trait_ids` `build.rs:169`, `trait_def` `lib.rs:487`, `trait_id` `lib.rs:844`, `trait_name` fabric), and `TraitState` misreads in a Rust file. The rename comes **free with the deletion**; it would not justify one. | **deleted.** The 5 traits become 5 `Preset`s (named `Coordinate`s) — the `vibron_the_coordinate_paints_vibron_the_trait` test already proves this is a reclassification | `coldlight/tokens/presets.json` | 7 |
 | `Dress` (`Trait \| Coord`) | a bridge that exists only because two compositors do | **deleted** with the trait path | — | — |
 | `AncestralPreset` | qualified by a facet name, leaking the taxonomy into the type | **`Preset`** — the one preset in the design system: a named `Coordinate` + `Accent` | `coldlight/src/preset.rs` | — |
@@ -195,7 +195,7 @@ sites do not move and chrome does not start jittering:
 |---|---|---|
 | `cl::space::S1..S6` (hardcoded `f32`) | parallel to `Fluid::sp_1..sp_8` | **generated from `tokens/fluid.json` at its nominal rem.** One authored ramp. Law: **fixed `space::*` for chrome, `Fluid::sp_*` for stage content** — chrome must not resize with the slide. (260 sites unchanged) |
 | `cl::RADIUS`, `RADIUS_SM`, `RADIUS_LG` | parallel to `StructureDef.radius` | **generated from `tokens/fluid.json`**, same law. (105 sites unchanged) |
-| `cl::surface::*`, `cl::ink::*` (raw hex) | the ONLY colours in the app outside the 53-hue pool — and the reason `paper`/`plate` materials are hue-independent | authored as a **`neutral` ramp in `tokens/hues.json`**; `build.rs` generates the same const names from pool steps. (792 sites unchanged) |
+| `cl::surface::*`, `cl::ink::*` (raw hex) | the ONLY colours in the app outside the 54-hue pool — and the reason `paper`/`plate` materials are hue-independent | authored as a **`neutral` ramp in `tokens/hues.json`**; `build.rs` generates the same const names from pool steps. (792 sites unchanged) |
 
 ### 0.6.3 Terms that are already right — do not touch
 
@@ -299,6 +299,16 @@ one binding and every `Danger` control in the app moves.
 coordinate — `wiredfront.chrome`. All four defaults and the other two surfaces
 are still trait refs. **The matrix paints exactly one thing in the whole app.**
 Completing that migration is §7.3.
+
+**Color roles** *(added 2026-11-14, C2b; Material's term, used with its
+meaning)*. A surface may also state `colors` in `roles.json`: named planes it
+paints (`chat.panel.well`, `chat.tab.selected`), each bound to one step of the
+hue pool plus an optional alpha. `build.rs` checks every ref against
+`hues.json` and generates `cl::color_roles::<surface>::<group>::<SLOT>`
+consts, so a misspelt role fails to compile. An intent says how a control is
+*dressed*; a color role says which *plane* a pixel belongs to. The chat window
+is the first surface painted entirely this way (its raw colours went to zero,
+held by a test); its teal-black planes are the authored `abyss` ladder.
 
 ---
 

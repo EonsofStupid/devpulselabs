@@ -3,6 +3,7 @@
 //! This crate deliberately knows nothing about egui, provider processes,
 //! filesystem discovery, or transport protocols.
 
+pub mod composer;
 pub mod rooms;
 
 use dpl_ai_core::activation::{

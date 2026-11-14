@@ -35,6 +35,53 @@
       "chrome": {
         "trait": "vibron"
       }
+    },
+    "chat": {
+      "colors": {
+        "$comment": "Chat's COLOR ROLES: what each painted plane of the chat window MEANS, bound to a step of the hue pool (plus an optional alpha). The window names a role; which colour answers is this data. Every ref is checked at build time against hues.json.",
+        "panel": {
+          "backplate": { "hue": "abyss", "step": 975 },
+          "glow-low": { "hue": "abyss", "step": 600, "alpha": 190 },
+          "glow-high": { "hue": "abyss", "step": 950, "alpha": 190 },
+          "ember": { "hue": "orange", "step": 500 },
+          "strip": { "hue": "abyss", "step": 900 },
+          "well": { "hue": "abyss", "step": 950 },
+          "inset": { "hue": "abyss", "step": 950 },
+          "raised": { "hue": "abyss", "step": 800 },
+          "card": { "hue": "abyss", "step": 700 },
+          "overlay": { "hue": "abyss", "step": 600 },
+          "mark": { "hue": "abyss", "step": 700 },
+          "edge": { "hue": "abyss", "step": 300 }
+        },
+        "rail": {
+          "fill": { "hue": "abyss", "step": 900 },
+          "header": { "hue": "abyss", "step": 800 },
+          "avatar": { "hue": "abyss", "step": 500 },
+          "selected": { "hue": "abyss", "step": 400 },
+          "selected-edge": { "hue": "abyss", "step": 200 },
+          "mark": { "hue": "abyss", "step": 800 }
+        },
+        "tab": {
+          "idle": { "hue": "abyss", "step": 950 },
+          "hover": { "hue": "abyss", "step": 700 },
+          "selected": { "hue": "abyss", "step": 600 },
+          "selected-edge": { "hue": "abyss", "step": 200 }
+        },
+        "chip": {
+          "idle": { "hue": "abyss", "step": 800 },
+          "on": { "hue": "abyss", "step": 400 },
+          "on-edge": { "hue": "abyss", "step": 200 }
+        },
+        "bubble": {
+          "fill": { "hue": "abyss", "step": 800, "alpha": 224 },
+          "avatar": { "hue": "abyss", "step": 600 },
+          "notice": { "hue": "abyss", "step": 700 }
+        },
+        "composer": {
+          "fill": { "hue": "abyss", "step": 900 },
+          "popup": { "hue": "abyss", "step": 800 }
+        }
+      }
     }
   }
 }

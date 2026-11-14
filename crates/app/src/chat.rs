@@ -165,6 +165,8 @@ struct Shared {
     codex_attempt: Option<ActivationAttemptId>,
     imagine: ImagineState,
     assist: AssistPolicy,
+    /// Chat settings — what powers General.
+    chat_settings: ChatSettings,
     provider_events: ProviderReceiver,
     provider_runtime_enabled: bool,
     auth_browser: BrowserAuthCoordinator,
@@ -304,6 +306,35 @@ impl AssistPolicy {
         let temporary = userdata.join(format!("{ASSIST_POLICY_FILE}.tmp"));
         std::fs::write(&temporary, bytes)?;
         std::fs::rename(temporary, userdata.join(ASSIST_POLICY_FILE))
+    }
+}
+
+/// Chat's own settings: which signed-in AI powers General (Clyffy). The
+/// assist-policy file shape — infallible load failing closed to Default,
+/// tmp-then-rename save; authored fixtures never touch disk.
+const CHAT_SETTINGS_FILE: &str = "chat-settings.json";
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct ChatSettings {
+    /// The provider id the operator chose to power General.
+    #[serde(default)]
+    general_backing: Option<String>,
+}
+
+impl ChatSettings {
+    fn load(userdata: &std::path::Path) -> Self {
+        std::fs::read(userdata.join(CHAT_SETTINGS_FILE))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    fn save(&self, userdata: &std::path::Path) -> std::io::Result<()> {
+        let userdata = &dpl_roots::writable(userdata).map_err(std::io::Error::other)?;
+        let bytes = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
+        let temporary = userdata.join(format!("{CHAT_SETTINGS_FILE}.tmp"));
+        std::fs::write(&temporary, bytes)?;
+        std::fs::rename(temporary, userdata.join(CHAT_SETTINGS_FILE))
     }
 }
 
@@ -1021,6 +1052,12 @@ impl ChatWindowCoordinator {
             AssistPolicy::default()
         };
         window.set_assist(assist.enabled);
+        // Chat settings, the same way: authored fixtures run on defaults.
+        let chat_settings = if provider_runtime_enabled {
+            ChatSettings::load(&dpl_roots::userdata_root())
+        } else {
+            ChatSettings::default()
+        };
         let mut shared = Shared {
             native: native::State::default(),
             project: project::State::new(project_storage_enabled, provider_runtime_enabled),
@@ -1047,6 +1084,7 @@ impl ChatWindowCoordinator {
             codex_attempt: None,
             imagine,
             assist,
+            chat_settings,
             provider_events: fabric.subscribe_providers(),
             provider_runtime_enabled,
             auth_browser: BrowserAuthCoordinator::new(),
@@ -1795,6 +1833,7 @@ fn apply_host_intent_inner(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, int
             provider,
             session,
             text,
+            modes,
         } => {
             let mut state = lock(shared);
             if !project::require_ready(&mut state) {
@@ -1813,6 +1852,17 @@ fn apply_host_intent_inner(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, int
             } else {
                 tracing::warn!(%provider, "live turn runtime is not qualified");
                 return;
+            }
+            // The modes rode the send this far. No AI's wire carries them yet
+            // (Codex's is pass A2b), so the turn went out exactly as before —
+            // and the operator is told, rather than left believing otherwise.
+            if !modes.is_empty() {
+                tracing::info!(%provider, modes = ?modes.slugs(), "turn sent with composer modes");
+                let named: Vec<_> = modes.active().iter().map(|entry| entry.label).collect();
+                state.window.set_composer_status(format!(
+                    "Sent. {} — this AI doesn't take modes yet, so it gets your message as usual.",
+                    named.join(", ")
+                ));
             }
             ctx.request_repaint();
         }
@@ -1952,6 +2002,13 @@ fn apply_host_intent_inner(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, int
         HostIntent::Command { draft, synthetic } => {
             let mut state = lock(shared);
             dispatch_command(&mut state, &draft, synthetic);
+            ctx.request_repaint();
+        }
+        HostIntent::AssignGeneralBacking(provider) => {
+            let mut state = lock(shared);
+            set_clyffy_backing(&mut state, provider);
+            state.chat_settings.general_backing = Some(provider.0.to_owned());
+            save_chat_settings(&state);
             ctx.request_repaint();
         }
         HostIntent::SelectClyffy => {
@@ -2651,6 +2708,17 @@ fn resolve_assist_acknowledgement(state: &mut Shared, accepted: bool) {
     state.window.set_assist(state.assist.enabled);
 }
 
+/// Persist chat settings — never in authored fixtures, like the assist
+/// policy below.
+fn save_chat_settings(state: &Shared) {
+    if !state.provider_runtime_enabled {
+        return;
+    }
+    if let Err(error) = state.chat_settings.save(&dpl_roots::userdata_root()) {
+        tracing::warn!(%error, "chat settings could not be persisted");
+    }
+}
+
 /// Persist the assist policy — never in authored fixtures (they run on
 /// in-memory defaults and must not touch Ring-0).
 fn save_assist(state: &Shared) {
@@ -2719,9 +2787,25 @@ fn sync_clyffy(state: &mut Shared) {
             events: Vec::new(),
         });
     }
+    // The operator's saved choice binds whenever that AI is registered —
+    // signed in or not, because presence may not have answered yet and an
+    // inactive binding is shown, never erased. Otherwise the first
+    // signed-in AI.
+    let saved = state
+        .chat_settings
+        .general_backing
+        .as_deref()
+        .and_then(|id| {
+            state
+                .window
+                .provider_capabilities()
+                .into_iter()
+                .find(|provider| provider.id.0 == id)
+                .map(|provider| provider.id)
+        });
     let session = state.clyffy.as_mut().expect("minted above");
     if session.backing.is_none() {
-        session.backing = activated.first().copied();
+        session.backing = saved.or_else(|| activated.first().copied());
     }
     let active = session.is_active(&activated);
     let view = dpl_chat_window::ClyffyView {
@@ -5553,15 +5637,25 @@ fn utility_ui(
                     }
                     match record.attachment {
                         Some(WindowAttachment::Snapped { .. }) => {
-                            if utility_button(ui, "chat.utility.detach", "□", "Detach utility")
-                                .clicked()
+                            if utility_icon_button(
+                                ui,
+                                "chat.utility.detach",
+                                "utility-detach",
+                                "Detach utility",
+                            )
+                            .clicked()
                             {
                                 action = Some(UtilityAction::Detach);
                             }
                         }
                         Some(WindowAttachment::Detached) | None => {
-                            if utility_button(ui, "chat.utility.redock", "▥", "Re-dock utility")
-                                .clicked()
+                            if utility_icon_button(
+                                ui,
+                                "chat.utility.redock",
+                                "utility-redock",
+                                "Re-dock utility",
+                            )
+                            .clicked()
                             {
                                 action = Some(UtilityAction::Redock);
                             }
@@ -5659,6 +5753,30 @@ fn utility_button(
     description: &str,
 ) -> egui::Response {
     let response = ui.small_button(label).on_hover_text(description);
+    ui.pilot_track(
+        &response,
+        NodeMetadata::new(PilotId::new(id), Role::Button, description),
+    );
+    response
+}
+
+/// A utility control drawn as a registry icon: the square glyphs these used
+/// are missing from the bundled fonts and painted as empty boxes.
+fn utility_icon_button(
+    ui: &mut egui::Ui,
+    id: &'static str,
+    icon: &'static str,
+    description: &str,
+) -> egui::Response {
+    let slot = egui::Id::new(("chat.utility.icon", icon));
+    let size = egui::Vec2::splat(ui.text_style_height(&egui::TextStyle::Body));
+    let laid = egui::Button::new(egui::Atom::custom(slot, size))
+        .small()
+        .atom_ui(ui);
+    if let Some(rect) = laid.rect(slot) {
+        dpl_coldlight::draw_icon(ui.painter(), icon, rect, dpl_coldlight::ink::BASE);
+    }
+    let response = dpl_coldlight::tip(laid.response, description);
     ui.pilot_track(
         &response,
         NodeMetadata::new(PilotId::new(id), Role::Button, description),

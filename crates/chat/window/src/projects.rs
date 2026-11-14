@@ -80,7 +80,7 @@ impl ChatWindow {
         self.history_focus = None;
         self.history_page = None;
         self.composer_status = None;
-        self.provider_tab = None;
+        self.ai_tab = AiTab::General;
         Ok(())
     }
 
@@ -89,7 +89,7 @@ impl ChatWindow {
         self.history_focus = None;
         self.history_page = None;
         self.composer_status = None;
-        self.provider_tab = None;
+        self.ai_tab = AiTab::General;
     }
 
     pub fn project_provider_views(&self) -> Vec<ProviderView> {

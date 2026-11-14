@@ -433,7 +433,7 @@ fn step_on(hue: &str, step: u32) -> Color32 {
 impl ColorRef {
     /// Resolve against ANY hue in the generated pool.
     ///
-    /// `Tone` names six hues; `hues.json` authors **53**. Everything below
+    /// `Tone` names six hues; `hues.json` authors **54**. Everything below
     /// this line was already string-addressed — `Tone::hue_id()` returns a
     /// `&str` and [`step_on`] looks it up by name — so the six were never a
     /// limit of the engine, only of the enum in front of it. A surface that
@@ -948,6 +948,14 @@ impl Binding {
 }
 
 include!(concat!(env!("OUT_DIR"), "/roles_gen.rs"));
+
+/// Per-surface COLOR ROLES (`tokens/roles.json`, a surface's `colors`): the
+/// named planes a surface paints — `chat::panel::WELL`, `chat::tab::SELECTED`
+/// — each bound in data to one step of the hue pool. A surface reaches for a
+/// role and never for a colour, so re-dressing it is a data change.
+pub mod color_roles {
+    include!(concat!(env!("OUT_DIR"), "/color_roles_gen.rs"));
+}
 
 /// The binding for a role on a surface: the surface's own if it states one,
 /// otherwise the default. A surface therefore declares only what it CHANGES.
@@ -1755,7 +1763,7 @@ pub mod matrix {
     ///
     /// An unknown facet degrades to the ancestor's native rather than
     /// panicking — the `compose()` precedent.
-    /// Resolve a coordinate against ANY of the 53 authored hues.
+    /// Resolve a coordinate against ANY of the 54 authored hues.
     ///
     /// The matrix classifies the LOOK; the hue is the one axis left free, and
     /// restricting it to the six `Tone` variants was an accident of the enum,
@@ -2031,13 +2039,13 @@ pub mod matrix {
             }
         }
 
-        /// THE UNLOCK. `Tone` names six hues; `hues.json` authors 53, and the
+        /// THE UNLOCK. `Tone` names six hues; `hues.json` authors 54, and the
         /// resolver was string-addressed the whole way down — so the six were
         /// a limit of the enum, never of the engine. Every authored hue must
         /// resolve through a coordinate, or the "colour" knob is a lie about
         /// the size of the pool it draws from.
         #[test]
-        fn a_coordinate_resolves_on_every_one_of_the_53_hues() {
+        fn a_coordinate_resolves_on_every_one_of_the_54_hues() {
             let c = Coordinate::native("brutalist").expect("brutalist is authored");
             let mut n = 0usize;
             for (_, ids) in crate::HUE_GROUPS.iter() {
@@ -2840,8 +2848,8 @@ mod tests {
     #[test]
     fn the_pool_is_the_whole_registry_not_a_seed() {
         // The disease this crate exists to cure: hand-seeding a handful of
-        // tones and calling it a system. The vendored registry carries 53.
-        assert_eq!(HUE_COUNT, 53, "the generated pool must match hues.json");
+        // tones and calling it a system. The vendored registry carries 54.
+        assert_eq!(HUE_COUNT, 54, "the generated pool must match hues.json");
         let listed: usize = HUE_GROUPS.iter().map(|(_, ids)| ids.len()).sum();
         assert_eq!(listed, HUE_COUNT);
     }
@@ -3341,7 +3349,25 @@ mod tests {
         ];
         // The chat composer and provider card draw these as icons because
         // the glyphs they replaced are missing from the bundled fonts.
-        const CHAT_ICONS: &[&str] = &["route", "media", "voice", "diagnostics"];
+        const CHAT_ICONS: &[&str] = &[
+            "route",
+            "media",
+            "voice",
+            "diagnostics",
+            // C2b: the window controls, the composer `+` and its modes, and
+            // the utility window's dock controls.
+            "window-maximize",
+            "window-restore",
+            "composer-more",
+            "attach",
+            "component",
+            "mode-thinking",
+            "mode-plan",
+            "mode-web",
+            "mode-brainstorm",
+            "utility-detach",
+            "utility-redock",
+        ];
         for id in EDITOR_ICONS.iter().chain(CHAT_ICONS) {
             let def = icon_def(id)
                 .unwrap_or_else(|| panic!("{id} must be authored in tokens/icons.json"));
@@ -3357,6 +3383,36 @@ mod tests {
             "the registry is the 25 chrome ids plus the editor and chat sets — \
              update this count deliberately when any grows"
         );
+    }
+
+    /// A colour role is a STEP OF THE POOL, not a colour of its own: the
+    /// generated const must equal the ramp step roles.json names. Pinned on
+    /// a few chat roles, including one with an authored alpha.
+    #[test]
+    fn chat_colour_roles_resolve_to_pool_steps() {
+        let abyss = ramp("abyss").expect("abyss is authored in hues.json");
+        let step = |s: u32| abyss.steps[step_index(s).expect("a ladder step")];
+        assert_eq!(color_roles::chat::panel::BACKPLATE, step(975));
+        assert_eq!(color_roles::chat::panel::WELL, step(950));
+        assert_eq!(color_roles::chat::rail::FILL, step(900));
+        assert_eq!(color_roles::chat::tab::SELECTED, step(600));
+        assert_eq!(color_roles::chat::panel::EDGE, step(300));
+        let bubble = step(800);
+        assert_eq!(
+            color_roles::chat::bubble::FILL,
+            Color32::from_rgba_unmultiplied(bubble.r(), bubble.g(), bubble.b(), 224)
+        );
+        let orange = ramp("orange").expect("orange is authored");
+        assert_eq!(
+            color_roles::chat::panel::EMBER,
+            orange.steps[step_index(500).expect("500")]
+        );
+        const {
+            assert!(
+                color_roles::COUNT >= 30,
+                "the chat surface binds its planes"
+            )
+        };
     }
 
     #[test]
