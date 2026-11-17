@@ -18,7 +18,7 @@ unfinished, by name.
 | 2 | The touched crates were `cargo clean -p`'d first | a warm gate passes on CACHED clippy verdicts (twice this week) |
 | 3 | The release exe rebuilt and its mtime moved | the operator double-clicks the exe; an unbuilt exe is an unshipped pass |
 | 4 | The claim is proven by an ARTIFACT, opened and looked at | "exit 0" and "png written" have both lied |
-| 5 | Merged only on DOUBLE-GREEN, both lanes COMPLETED SUCCESS | a running check is a red check |
+| 5 | Merged after the full local gate, and `main`'s hosted run read afterwards (R304) | a red lane on `main` is the next work |
 | 6 | A plan exists before code, ground-truthed by reading real files | never code from memory or a summary |
 | 7 | Anything left undone is stated plainly, not implied | scaling scope down is the operator's call |
 

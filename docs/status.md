@@ -36,7 +36,9 @@ not measured yet. See `docs/research/recording-for-ai/training-python-vs-rust.md
 **Public repository setup (R293).** Public visibility is verified and both
 estate runner registrations are removed. Green now targets GitHub-hosted
 Windows 2025 and Ubuntu 24.04, with pinned actions and read-only PR tokens.
-Every PR runs both required checks, including documentation-only changes.
+Every PR and every `main` commit runs both hosted lanes. Since R304
+(2026-11-15) `main` only blocks force pushes and deletion, and a PR merges
+once the local gate passes.
 Secret scanning, push protection, dependency alerts/security updates and private
 vulnerability reporting are enabled. All external fork workflows need approval.
 Main protection requires PRs, resolved conversations and both green checks;
@@ -353,8 +355,8 @@ release) are still to come.
 ## Hazards outside this repo
 
 - **Public CI uses hosted runners.** Both estate registrations were removed
-  on 2026-10-30. Never reconnect them to public PR workflows. Merge requires
-  successful hosted Windows and Linux checks (the double-green law).
+  on 2026-10-30. Never reconnect them to public PR workflows. Merges no
+  longer wait for the hosted checks (R304); `main`'s run is read afterwards.
 
 - **`D:\localdev\platform_devpulse`'s `cargo xtask run-dev`** (often a
   parallel Claude session) runs `taskkill /F /T` on **every** `xtask.exe` at

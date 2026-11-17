@@ -53,15 +53,17 @@ The tool depot is staged beside it from
   milestone it belongs to, never its own PR. Keep one PR open at a time, so
   a merge never forces another PR to rebuild. The gate itself is never
   reduced to save time.
-- **MERGE ONLY ON DOUBLE-GREEN** (2026-07-29 incident law): never merge a
-  PR until BOTH Actions lanes (`green-windows` + `green-linux`) are
-  COMPLETED SUCCESS. Use `gh pr merge <n> --auto --squash` (R300): GitHub
-  merges it only once both required checks pass. The
-  local pre-push gate only proves the pusher's own OS; #139 merged with
-  Windows red (unconditional x11rb → `xcb.lib` link death), #142 merged
-  mid-run and turned the Linux lane red (clippy in a linux-only file).
-  A running check is a red check. Corollary: before authoring any fix,
-  `gh pr list` — parallel sessions fix the same defect (it happened
+- **Merge on the local gate** (R304, until the first official release):
+  `main` is unprotected. Once the full `cargo green` passes on this
+  machine, merge the milestone's PR at once with
+  `gh pr merge <n> --squash --delete-branch`; do not wait for the hosted
+  lanes. Both lanes still run on the PR and again on `main` after the
+  merge. Read `main`'s run (`gh run list --branch main --limit 1`); a red
+  lane is the next work, ahead of anything new. The local gate proves
+  only this machine's OS: #139 broke Windows (unconditional x11rb →
+  `xcb.lib`) and #142 broke Linux (clippy in a linux-only file), so take
+  extra care with platform-only files. Corollary: before authoring any
+  fix, `gh pr list` — parallel sessions fix the same defect (it happened
   twice in one hour); an open PR for the defect means adopt it, not
   duplicate it.
 - **The product is the EXPERIENCE, not the feature list.** Layman-friendly,
@@ -144,11 +146,10 @@ The tool depot is staged beside it from
 - The toolchain is pinned by `rust-toolchain.toml` (1.97.1 since #177), so
   an image's preinstalled Rust cannot silently become the lane's compiler.
 - `concurrency: cancel-in-progress` supersedes a stale run when a PR is
-  updated. Required checks remain `green-windows` and `green-linux`;
-  neither a queued run nor a running check satisfies the double-green law.
-- Keep `main` protected: PRs, resolved review conversations and both green
-  checks are required; force pushes and branch deletion are disabled.
-  Verify completed checks with `gh pr checks <n> --watch` before merging.
+  updated; every `main` commit's run completes.
+- `main`'s protection (R304) only blocks force pushes and branch deletion.
+  It requires no PR, checks or review, and binds no admin rules. Work still
+  lands by PR; GitHub deletes the branch on merge.
 - Nightly builds are manual (R295): `gh workflow run nightly` publishes the
   rolling `nightly` release.
 - Workflow tokens have read-only default permissions and cannot approve

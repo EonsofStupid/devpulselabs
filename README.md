@@ -166,9 +166,9 @@ change its license or contribution policy.
 If you are working in it:
 
 1. Plan before code — every pass gets a document.
-2. Branch, open a PR, and **merge only on double-green** — both
-   `green-linux` and `green-windows` COMPLETED SUCCESS. A running check is a
-   red check.
+2. Branch, open a PR, and merge once the full local `cargo green` passes.
+   The hosted `green-linux` and `green-windows` lanes run on the PR and on
+   `main`; a red lane is fixed before new work.
 3. Never bypass the gate with `--no-verify`.
 
 ---
