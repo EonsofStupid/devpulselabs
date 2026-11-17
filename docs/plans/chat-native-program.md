@@ -891,7 +891,8 @@ Each pass gets its own pass plan and the operator's OK before code.
 - Gaps are named in §8.
 
 Each pass:
-- `cargo green` locally, then **both** CI lanes green before merge.
+- `cargo green` locally, then merge (R304); `main`'s hosted run is read
+  after the merge, and a red lane is fixed next.
 - Real-exe shots at **1100×700 and maximized**.
 - Pilot scenarios for every new control (R37).
 - An orphan-process check before and after.

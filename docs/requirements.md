@@ -2435,3 +2435,12 @@ Source: operator session, 2026-11-14, answering "What should passive mean?".
 - **Order:** "Approve the order": KB, C2b, AH1, ST4, A2b/CW2, DV1, RM2–RM4, RM1b, CL1–CL3, A2UI1, each with its own pass plan and OK.
 - **C2b tabs:** "Ready AIs + More" — General, a tab per installed and signed-in AI, then More AIs with every other AI's state.
 - **C2b plan:** "Approve + captures OK" (2026-11-14), with chat-window captures on a scratch library for this pass.
+- **AH1 plan:** "Approve, two PRs" (2026-11-16): AH1a the catalog and detection, AH1b the trust prompt. Captures: "Yes, scratch library". Trust switches: "All off" by default.
+
+### R304 · 2026-11-15
+
+> look i need you to stop protecting main, we do not have an official release yet and i fear yo uare not properly merging all of our branches, deleting them upon merge and getting this moving forward
+
+Source: operator session, 2026-11-15. **Operator rulings 2026-11-15:**
+- **Main's protection:** removed: no required PR, checks, conversation resolution or admin enforcement. Force pushes and deletion stay blocked.
+- **How work lands:** "PR, merge right away": each milestone still gets a branch and a PR, merged as soon as the full local gate passes, without waiting for the hosted lanes. A red lane afterwards is the next work.
