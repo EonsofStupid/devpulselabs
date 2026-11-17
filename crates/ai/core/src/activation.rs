@@ -205,6 +205,9 @@ pub enum RecoveryActionKind {
     Retry,
     UpdateProvider,
     OpenDiagnostics,
+    /// Open a desktop app the scan found (or bring it to the front: a
+    /// single-instance app focuses its window when opened again).
+    OpenApp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

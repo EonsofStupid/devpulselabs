@@ -1482,7 +1482,7 @@ fn structure_audit() -> Result<(), String> {
         ("dpl-tools-deps", &["serde", "serde_json", "sha2"]),
         ("dpl-roots", &["serde", "serde_json", "toml"]),
         ("dpl-chat-projects", &["serde", "serde_json"]),
-        ("dpl-ai-core", &["serde"]),
+        ("dpl-ai-core", &["serde", "serde_json"]),
         ("dpl-landing", &["serde", "serde_json"]),
         ("dpl-estate", &["fjall", "moka", "serde", "serde_json"]),
         ("dpl-intent", &[]),
@@ -2447,6 +2447,105 @@ fn sweep(args: &[String]) -> Result<(), String> {
     }
 }
 
+/// `cargo xtask ai-catalog refresh` — replace the vendored ACP registry with
+/// the live one (AH1a, chat plan §4.8.2 rule 1).
+///
+/// The app never fetches the registry; it reads only the copy compiled into
+/// `dpl-ai-core`. This task downloads the live index once, proves the AI
+/// catalog still parses with it, then writes the bytes and their sha256 into
+/// the repo. The PR that carries the diff is the review.
+fn ai_catalog(arguments: &[String]) -> Result<(), String> {
+    const SOURCE: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
+    if arguments.first().map(String::as_str) != Some("refresh") {
+        return Err("usage: cargo xtask ai-catalog refresh".into());
+    }
+    let dir = workspace_root().join("crates/ai/core/catalog");
+    let vendored = dir.join("acp-registry.json");
+    let overlay_path = dir.join("devpulse.json");
+    let download = dir.join("acp-registry.json.download");
+    // curl, with arguments as a list (never a shell). It ships with Windows
+    // 10+ and every Linux the lanes run.
+    let status = Command::new("curl")
+        .args(["--fail", "--silent", "--show-error", "--location"])
+        .args(["--max-time", "60", "--proto", "=https", "--output"])
+        .arg(&download)
+        .arg(SOURCE)
+        .status()
+        .map_err(|error| format!("curl could not start: {error}"))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&download);
+        return Err(format!("downloading {SOURCE} failed ({status})"));
+    }
+    let fresh = std::fs::read_to_string(&download)
+        .map_err(|error| format!("reading the download: {error}"))?;
+    let overlay = std::fs::read_to_string(&overlay_path)
+        .map_err(|error| format!("reading {}: {error}", overlay_path.display()))?;
+    let old = dpl_ai_core::catalog::parse(dpl_ai_core::catalog::ACP_REGISTRY, &overlay)?;
+    let new = match dpl_ai_core::catalog::parse(&fresh, &overlay) {
+        Ok(new) => new,
+        Err(error) => {
+            let _ = std::fs::remove_file(&download);
+            return Err(format!(
+                "the live registry no longer fits the AI catalog: {error}"
+            ));
+        }
+    };
+    let sha256 = dpl_tools_deps::sha256_file(&download)
+        .map_err(|error| format!("hashing the download: {error}"))?;
+    let fetched = today_utc();
+    let updated = overlay
+        .replacen(
+            &format!("\"sha256\": \"{}\"", old.pin.sha256),
+            &format!("\"sha256\": \"{sha256}\""),
+            1,
+        )
+        .replacen(
+            &format!("\"fetched\": \"{}\"", old.pin.fetched),
+            &format!("\"fetched\": \"{fetched}\""),
+            1,
+        );
+    std::fs::rename(&download, &vendored)
+        .map_err(|error| format!("replacing {}: {error}", vendored.display()))?;
+    std::fs::write(&overlay_path, updated)
+        .map_err(|error| format!("writing {}: {error}", overlay_path.display()))?;
+
+    let ids = |catalog: &dpl_ai_core::catalog::Catalog| -> std::collections::BTreeSet<String> {
+        catalog
+            .entries
+            .iter()
+            .map(|entry| entry.id().0.to_owned())
+            .collect()
+    };
+    let (before, after) = (ids(&old), ids(&new));
+    println!("ai-catalog: {} AIs, was {}", after.len(), before.len());
+    for added in after.difference(&before) {
+        println!("  + {added}");
+    }
+    for removed in before.difference(&after) {
+        println!("  - {removed}");
+    }
+    println!("ai-catalog: pinned sha256 {sha256}, fetched {fetched}. Review the diff in a PR.");
+    Ok(())
+}
+
+/// Today's date (UTC) as `YYYY-MM-DD`, from the system clock alone.
+fn today_utc() -> String {
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs() / 86_400);
+    // Howard Hinnant's civil-from-days, for the proleptic Gregorian calendar.
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
 fn main() -> ExitCode {
     let mut arguments = std::env::args().skip(1);
     let task = arguments.next().unwrap_or_else(|| "green".into());
@@ -2473,6 +2572,7 @@ fn main() -> ExitCode {
         "move-library" => move_library(&arguments),
         "adopt-tool" => adopt_tool(&arguments),
         "vendor-schema" => vendor_schema(&arguments),
+        "ai-catalog" => ai_catalog(&arguments),
         "update-tool-deps" => update_tool_dependencies(&arguments),
         // The dev run (R278): develop on a running
         // debug app, not only the release exe.
@@ -2490,7 +2590,7 @@ fn main() -> ExitCode {
             )
         }),
         other => Err(format!(
-            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, stage-roots, move-library, adopt-tool, update-tool-deps, vendor-schema, dev, fix"
+            "unknown task \"{other}\" — tasks: green, sweep, docs-status, structure, coverage, smoke, lock, stage-tool-deps, stage-roots, move-library, adopt-tool, update-tool-deps, vendor-schema, ai-catalog, dev, fix"
         )),
     };
     match result {
@@ -2499,6 +2599,19 @@ fn main() -> ExitCode {
             eprintln!("xtask: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod ai_catalog_tests {
+    use super::today_utc;
+
+    #[test]
+    fn today_is_a_real_iso_date() {
+        let today = today_utc();
+        let parts: Vec<u32> = today.split('-').map(|p| p.parse().unwrap()).collect();
+        assert_eq!(today.len(), 10, "{today}");
+        assert!(parts[0] >= 2026 && (1..=12).contains(&parts[1]) && (1..=31).contains(&parts[2]));
     }
 }
 

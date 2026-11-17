@@ -1,0 +1,242 @@
+{
+  "schema": "dpl.ai-catalog/1",
+  "acp_registry": {
+    "file": "acp-registry.json",
+    "source": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
+    "fetched": "2026-11-17",
+    "sha256": "a22a5823aa21d0166c05ea365f851b7cb085c638842d914ef38197339b911fd6"
+  },
+  "entries": [
+    {
+      "id": "codex",
+      "note": "Sign-in read off codex login status 0.163.0: only a ChatGPT login is signed in; API-key billing is signed out. Since: OpenAI founded 11 December 2015.",
+      "acp": "codex-acp",
+      "kind": "agent",
+      "label": "ChatGPT / Codex",
+      "short_label": "Codex",
+      "glyph": "C",
+      "accent": "cyan",
+      "summary": "OpenAI coding agent through the official app-server client protocol.",
+      "since": "2015-12-11",
+      "profile": "codex-default",
+      "capabilities": [
+        "read-sessions", "page-history", "start-session", "resume-session", "fork-session",
+        "stream-turns", "interrupt-turn", "steer-turn", "approvals", "tools", "diffs", "plans",
+        "attachments", "images", "video", "models", "modes", "rate-limits",
+        "subscription-auth", "device-code-auth", "headless"
+      ],
+      "delivery_slice": "CH4",
+      "evidence": "docs/research/chat-provider-capabilities.md#codex",
+      "adapter": "codex",
+      "homepage": "https://developers.openai.com/codex/cli",
+      "presence": {
+        "program": "codex",
+        "args": ["login", "status"],
+        "signed_in": ["logged in using chatgpt"],
+        "signed_out": ["not logged in", "logged in using api key", "logged in with api key"],
+        "login": []
+      },
+      "installs": [
+        { "os": "windows", "path": "%LOCALAPPDATA%/Programs/OpenAI/Codex/bin/codex.exe", "verified": true }
+      ],
+      "tells": [
+        { "os": "windows", "process": "codex.exe", "path_contains": ["/openai/codex/", "/.codex/packages/"], "verified": true }
+      ]
+    },
+    {
+      "id": "claude",
+      "note": "claude auth status prints JSON (loggedIn, authMethod, plan); verified against Claude Code 2.1.220. Since: Anthropic founded 2021.",
+      "acp": "claude-acp",
+      "kind": "agent",
+      "label": "Claude Code",
+      "short_label": "Claude",
+      "glyph": "A",
+      "accent": "amber",
+      "summary": "Anthropic coding agent through its documented structured CLI stream.",
+      "since": "2021-01-28",
+      "profile": "claude-default",
+      "capabilities": [
+        "read-sessions", "page-history", "start-session", "resume-session", "stream-turns",
+        "interrupt-turn", "approvals", "tools", "diffs", "plans", "attachments", "images",
+        "video", "models", "modes", "subscription-auth", "headless"
+      ],
+      "delivery_slice": "CH5",
+      "evidence": "docs/research/chat-provider-capabilities.md#claude",
+      "homepage": "https://docs.anthropic.com/en/docs/claude-code/setup",
+      "presence": {
+        "program": "claude",
+        "args": ["auth", "status"],
+        "signed_in": ["\"loggedin\": true"],
+        "signed_out": ["\"loggedin\": false"],
+        "login": ["auth", "login"]
+      },
+      "installs": [
+        { "os": "windows", "path": "%USERPROFILE%/.local/bin/claude.exe", "verified": false },
+        { "os": "linux", "path": "~/.local/bin/claude", "verified": false },
+        { "os": "macos", "path": "~/.local/bin/claude", "verified": false }
+      ],
+      "tells": [
+        { "os": "windows", "process": "claude.exe", "path_contains": ["/anthropic.claude-code-", "/.local/bin/"], "verified": true }
+      ]
+    },
+    {
+      "id": "cursor",
+      "note": "Sign-in words NOT verified: cursor-agent is not installed on the operator's machine, so the check reports Not installed until it is. Since: Anysphere founded 2022, day unknown.",
+      "acp": "cursor",
+      "kind": "agent",
+      "label": "Cursor",
+      "short_label": "Cursor",
+      "glyph": "▮",
+      "accent": "cyan",
+      "summary": "Cursor's agent CLI, carrying the same subscription as the editor.",
+      "since": "2022-01-01",
+      "profile": "cursor-default",
+      "capabilities": [
+        "read-sessions", "start-session", "resume-session", "stream-turns", "interrupt-turn",
+        "tools", "diffs", "plans", "models", "subscription-auth", "headless"
+      ],
+      "delivery_slice": "A1",
+      "evidence": "https://cursor.com/docs/cli/using",
+      "homepage": "https://cursor.com/docs/cli/using",
+      "presence": {
+        "program": "cursor-agent",
+        "args": ["status"],
+        "signed_in": ["logged in", "signed in"],
+        "signed_out": ["not logged in", "not signed in", "run `cursor-agent login`"],
+        "login": ["login"]
+      }
+    },
+    {
+      "id": "gemini",
+      "note": "Sign-in words and verb NOT verified: Gemini CLI is only an npm shim here, which presence cannot run. Since: Gemini's public launch.",
+      "acp": "gemini",
+      "kind": "agent",
+      "label": "Gemini",
+      "short_label": "Gemini",
+      "glyph": "G",
+      "accent": "violet",
+      "summary": "Google coding agent through Gemini CLI's official ACP mode.",
+      "since": "2023-12-06",
+      "profile": "gemini-default",
+      "capabilities": [
+        "read-sessions", "start-session", "resume-session", "stream-turns", "interrupt-turn",
+        "approvals", "tools", "attachments", "images", "video", "models", "modes",
+        "subscription-auth", "headless"
+      ],
+      "delivery_slice": "CH6",
+      "evidence": "docs/research/chat-provider-capabilities.md#gemini",
+      "homepage": "https://github.com/google-gemini/gemini-cli",
+      "presence": {
+        "program": "gemini",
+        "args": ["--version"],
+        "signed_in": ["gemini"],
+        "signed_out": ["not authenticated", "please sign in"],
+        "login": []
+      }
+    },
+    {
+      "id": "grok",
+      "note": "Grok has no status command; grok models names the signed-in account. Signed in verified against 0.2.117, signed out against the depot 0.2.112. Since: xAI announced 12 July 2023.",
+      "acp": "grok-build",
+      "kind": "agent",
+      "label": "Grok",
+      "short_label": "Grok",
+      "glyph": "X",
+      "accent": "magenta",
+      "summary": "xAI coding agent through Grok Build's documented ACP mode.",
+      "since": "2023-07-12",
+      "profile": "grok-default",
+      "capabilities": [
+        "read-sessions", "start-session", "resume-session", "stream-turns", "interrupt-turn",
+        "approvals", "tools", "diffs", "plans", "attachments", "images", "video", "models",
+        "modes", "subscription-auth", "device-code-auth", "headless"
+      ],
+      "delivery_slice": "CH7",
+      "evidence": "docs/research/chat-provider-capabilities.md#grok",
+      "adapter": "grok",
+      "homepage": "https://docs.x.ai/build/overview",
+      "presence": {
+        "program": "grok",
+        "args": ["models"],
+        "signed_in": ["you are logged in with"],
+        "signed_out": ["not logged in", "please log in", "run `grok login`", "you are not authenticated"],
+        "login": ["login"]
+      },
+      "tells": [
+        { "os": "windows", "process": "grok.exe", "path_contains": [], "verified": false }
+      ]
+    },
+    {
+      "id": "claude-desktop",
+      "kind": "desktop",
+      "label": "Claude (desktop app)",
+      "short_label": "Claude app",
+      "glyph": "A",
+      "accent": "amber",
+      "summary": "Anthropic's desktop app. DevPULSE can open it; chat goes through Claude Code.",
+      "homepage": "https://claude.ai/download",
+      "installs": [
+        { "os": "windows", "path": "%LOCALAPPDATA%/Microsoft/WindowsApps/claude-desktop.exe", "verified": true },
+        { "os": "macos", "path": "/Applications/Claude.app", "verified": false }
+      ],
+      "tells": [
+        { "os": "windows", "process": "claude.exe", "path_contains": ["/windowsapps/claude_"], "verified": true },
+        { "os": "macos", "process": "claude", "path_contains": ["/applications/claude.app/"], "verified": false }
+      ]
+    },
+    {
+      "id": "chatgpt-desktop",
+      "kind": "desktop",
+      "label": "ChatGPT (desktop app)",
+      "short_label": "ChatGPT app",
+      "glyph": "C",
+      "accent": "cyan",
+      "summary": "OpenAI's desktop app. DevPULSE can open it; chat goes through Codex.",
+      "homepage": "https://openai.com/chatgpt/download/",
+      "installs": [
+        { "os": "windows", "path": "%LOCALAPPDATA%/Microsoft/WindowsApps/chatgpt-desktop.exe", "verified": true },
+        { "os": "macos", "path": "/Applications/ChatGPT.app", "verified": false }
+      ],
+      "tells": [
+        { "os": "windows", "process": "chatgpt.exe", "path_contains": ["/windowsapps/openai."], "verified": true },
+        { "os": "macos", "process": "chatgpt", "path_contains": ["/applications/chatgpt.app/"], "verified": false }
+      ]
+    },
+    {
+      "id": "grok-bot",
+      "kind": "desktop",
+      "label": "Grok (desktop app)",
+      "short_label": "Grok app",
+      "glyph": "X",
+      "accent": "magenta",
+      "summary": "xAI's desktop app. DevPULSE can open it; chat goes through Grok Build.",
+      "homepage": "https://grok.com/download",
+      "installs": [
+        { "os": "windows", "path": "%ProgramFiles%/Grok Bot/Grok Bot.exe", "verified": true }
+      ],
+      "tells": [
+        { "os": "windows", "process": "grok bot.exe", "path_contains": [], "verified": true }
+      ]
+    },
+    {
+      "id": "meta-ai",
+      "kind": "desktop",
+      "label": "Meta AI",
+      "short_label": "Meta AI",
+      "glyph": "M",
+      "accent": "violet",
+      "summary": "Meta's assistant. DevPULSE does not recognise it on a computer yet.",
+      "homepage": "https://www.meta.ai/"
+    },
+    {
+      "id": "hermes",
+      "kind": "desktop",
+      "label": "Hermes",
+      "short_label": "Hermes",
+      "glyph": "H",
+      "accent": "lime",
+      "summary": "Nous Research's Hermes models. DevPULSE does not recognise it on a computer yet.",
+      "homepage": "https://nousresearch.com/"
+    }
+  ]
+}

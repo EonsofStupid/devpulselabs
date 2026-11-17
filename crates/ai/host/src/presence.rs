@@ -236,15 +236,10 @@ pub fn begin_sign_in(
     Ok(receiver)
 }
 
-/// The providers that can answer for themselves, in rail order.
+/// Every AI whose own tool can say whether the operator is signed in, in
+/// catalog order (the AI catalog, AH1a).
 pub fn specs() -> Vec<(ProviderId, PresenceSpec)> {
-    vec![
-        (dpl_ai_codex::PROVIDER, CODEX),
-        (dpl_ai_claude::PROVIDER, dpl_ai_claude::PRESENCE),
-        (dpl_ai_grok::PROVIDER, dpl_ai_grok::PRESENCE),
-        (dpl_ai_cursor::PROVIDER, dpl_ai_cursor::PRESENCE),
-        (dpl_ai_gemini::PROVIDER, dpl_ai_gemini::PRESENCE),
-    ]
+    dpl_ai_core::catalog::catalog().presence_specs()
 }
 
 /// The client presence asks for a provider DevPULSE launches itself: the
@@ -263,32 +258,19 @@ fn qualified_client(provider: ProviderId) -> Option<std::path::PathBuf> {
     }
 }
 
-/// Codex already owns a full activation coordinator with its own launcher and
-/// runtime; this spec exists so the ROSTER can answer for Codex on the same
-/// footing as the rest without going through that ceremony.
-const CODEX: PresenceSpec = PresenceSpec {
-    program: "codex",
-    args: &["login", "status"],
-    // Only a ChatGPT login is signed in for this tab, exactly as the Codex
-    // coordinator reads `codex login status`: API-key billing is the
-    // coordinator's SignedOut, so it is signed out here too, never "Ready".
-    signed_in: &["logged in using chatgpt"],
-    signed_out: &[
-        "not logged in",
-        "logged in using api key",
-        "logged in with api key",
-    ],
-    // Codex's own coordinator owns its login ceremony (device code + system
-    // browser); the roster only needs to READ its presence, so no sign-in
-    // verb is declared here and `activate_provider` keeps routing Codex to
-    // that coordinator.
-    login: &[],
-};
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Instant;
+
+    /// A catalog AI's sign-in check, as the probe reads it.
+    fn spec_of(provider: ProviderId) -> PresenceSpec {
+        specs()
+            .into_iter()
+            .find(|(id, _)| *id == provider)
+            .map(|(_, spec)| spec)
+            .expect("the catalog declares this AI's sign-in check")
+    }
 
     const FIXTURE_SPEC: PresenceSpec = PresenceSpec {
         program: "presence-test-fixture",
@@ -477,21 +459,24 @@ mod tests {
         // The words `codex login status` 0.163.0 prints. Only a ChatGPT
         // login is signed in; API-key billing is signed out for this tab.
         assert_eq!(
-            CODEX.classify("Logged in using ChatGPT"),
+            spec_of(dpl_ai_codex::PROVIDER).classify("Logged in using ChatGPT"),
             PresenceVerdict::SignedIn
         );
         assert_eq!(
-            CODEX.classify("Logged in using API key - sk-...abcd"),
+            spec_of(dpl_ai_codex::PROVIDER).classify("Logged in using API key - sk-...abcd"),
             PresenceVerdict::SignedOut
         );
-        assert_eq!(CODEX.classify("Not logged in"), PresenceVerdict::SignedOut);
+        assert_eq!(
+            spec_of(dpl_ai_codex::PROVIDER).classify("Not logged in"),
+            PresenceVerdict::SignedOut
+        );
     }
 
     #[test]
     fn grok_presence_reads_the_depot_build_signed_out_words() {
         // `grok models` from the depot's 0.2.112 when nobody is signed in.
         assert_eq!(
-            dpl_ai_grok::PRESENCE.classify(
+            spec_of(dpl_ai_grok::PROVIDER).classify(
                 "You are not authenticated.
 
 Default model: grok-4.5
@@ -501,7 +486,7 @@ Available models:"
             PresenceVerdict::SignedOut
         );
         assert_eq!(
-            dpl_ai_grok::PRESENCE.classify("You are logged in with grok.com."),
+            spec_of(dpl_ai_grok::PROVIDER).classify("You are logged in with grok.com."),
             PresenceVerdict::SignedIn
         );
     }
@@ -570,7 +555,7 @@ Available models:"
     #[test]
     fn every_registered_provider_declares_a_probe() {
         let specs = specs();
-        assert_eq!(specs.len(), 5, "codex, claude, grok, cursor, gemini");
+        assert_eq!(specs.len(), 5, "codex, claude, cursor, gemini, grok");
         for (provider, spec) in specs {
             assert!(
                 !spec.program.is_empty() && !spec.signed_in.is_empty(),

@@ -9,6 +9,7 @@ use dpl_ai_core::approval::PermissionMode;
 use dpl_ai_core::capability::Capability;
 use dpl_ai_core::event::{ChatEventContent, EventPresentation};
 use dpl_ai_core::provider::{ProviderAccent, ProviderId};
+use dpl_ai_core::registration::OnMachine;
 use dpl_ai_core::turn::TurnId;
 use dpl_ai_profiles::{
     CatalogSupplement, CatalogSupplementAction, ProviderConfigurationKind, ProviderProfile,
@@ -260,6 +261,9 @@ pub enum AiTab {
 pub enum MoreAiState {
     /// Installed; it needs the operator to sign in.
     SignIn,
+    /// A desktop app the scan found: DevPULSE can open it (or bring it to
+    /// the front).
+    Open,
     /// There is a way to install (or update) it from here.
     Install,
     /// Nothing on this computer can run it yet.
@@ -270,8 +274,20 @@ impl MoreAiState {
     pub const fn label(self) -> &'static str {
         match self {
             Self::SignIn => "Sign in",
+            Self::Open => "Open app",
             Self::Install => "Install",
             Self::NotOnThisComputer => "Not on this computer",
+        }
+    }
+
+    /// The order More AIs lists its rows in: what the operator can act on
+    /// first, then what needs an install, then what this computer cannot run.
+    const fn rank(self) -> u8 {
+        match self {
+            Self::SignIn => 0,
+            Self::Open => 1,
+            Self::Install => 2,
+            Self::NotOnThisComputer => 3,
         }
     }
 
@@ -294,6 +310,7 @@ impl MoreAiState {
             }
             _ => match first {
                 Some(RecoveryActionKind::SignIn | RecoveryActionKind::Retry) => Self::SignIn,
+                Some(RecoveryActionKind::OpenApp) => Self::Open,
                 Some(
                     RecoveryActionKind::InstallInstructions | RecoveryActionKind::UpdateProvider,
                 ) => Self::Install,
@@ -311,11 +328,38 @@ pub struct MoreAiRow {
     pub state: MoreAiState,
     /// The provider's own words for why it is not ready, when it gave any.
     pub reason: Option<String>,
+    /// What the scan of this computer saw ("On this computer · running now"),
+    /// once it has answered.
+    pub on_machine: Option<&'static str>,
+}
+
+/// What the machine scan saw, in plain words. `None` when it saw nothing
+/// worth saying, so a row never claims a fact the scan did not find.
+pub fn on_machine_words(on_machine: Option<OnMachine>) -> Option<&'static str> {
+    match on_machine? {
+        OnMachine {
+            installed: true,
+            running: true,
+        } => Some("On this computer · running now"),
+        OnMachine {
+            installed: true,
+            running: false,
+        } => Some("On this computer"),
+        OnMachine {
+            installed: false,
+            running: true,
+        } => Some("Running now"),
+        OnMachine {
+            installed: false,
+            running: false,
+        } => None,
+    }
 }
 
 /// The tab model, pure: the ready AIs that earn a tab (registration order,
 /// so the strip never reshuffles under a finger) and every other AI, which
-/// More AIs lists.
+/// More AIs lists grouped by what the operator can do (catalog order within
+/// a group).
 pub fn tab_model(providers: &[ProviderView]) -> (Vec<ProviderId>, Vec<MoreAiRow>) {
     let mut ready = Vec::new();
     let mut more = Vec::new();
@@ -330,9 +374,11 @@ pub fn tab_model(providers: &[ProviderView]) -> (Vec<ProviderId>, Vec<MoreAiRow>
                 label: descriptor.label,
                 state: MoreAiState::of(activation),
                 reason: activation.reason().map(str::to_owned),
+                on_machine: on_machine_words(provider.registration.on_machine),
             });
         }
     }
+    more.sort_by_key(|row| row.state.rank());
     (ready, more)
 }
 
@@ -505,6 +551,8 @@ pub enum ChatWindowIntent {
     ActivateProvider(ProviderId),
     OpenProviderAuthorization(ProviderId),
     OpenProviderSetup(ProviderId),
+    /// Open a desktop app the machine scan found.
+    OpenProviderApp(ProviderId),
     RefreshProvider(ProviderId),
     CopyProviderAuthorizationCode(ProviderId),
     SetProviderTraceExpanded {
@@ -710,6 +758,7 @@ pub enum HostIntent {
     ActivateProvider(ProviderId),
     OpenProviderAuthorization(ProviderId),
     OpenProviderSetup(ProviderId),
+    OpenProviderApp(ProviderId),
     RefreshProvider(ProviderId),
     ProviderSelected(ProviderId),
     SaveProviderProfile(ProviderProfileDraft),
@@ -1650,6 +1699,9 @@ impl ChatWindow {
             ChatWindowIntent::OpenProviderSetup(provider) => {
                 Ok(Some(HostIntent::OpenProviderSetup(provider)))
             }
+            ChatWindowIntent::OpenProviderApp(provider) => {
+                Ok(Some(HostIntent::OpenProviderApp(provider)))
+            }
             ChatWindowIntent::RefreshProvider(provider) => {
                 Ok(Some(HostIntent::RefreshProvider(provider)))
             }
@@ -1831,6 +1883,16 @@ impl ChatWindow {
         activation: ActivationState,
     ) -> Result<(), ChatWindowError> {
         self.runtime.set_activation(provider, activation)?;
+        Ok(())
+    }
+
+    /// What the machine scan saw for a provider (AH1a).
+    pub fn set_provider_on_machine(
+        &mut self,
+        provider: ProviderId,
+        on_machine: OnMachine,
+    ) -> Result<(), ChatWindowError> {
+        self.runtime.set_on_machine(provider, on_machine)?;
         Ok(())
     }
 
@@ -3803,8 +3865,9 @@ impl ChatWindow {
 
     /// The More AIs tab: every known AI that has not earned a tab, with its
     /// state in plain words. One tap selects it, and its setup — the same
-    /// connection card the conversation pane has always shown — opens right
-    /// below, so the way in is the existing sign-in and install flow.
+    /// connection card the conversation pane has always shown — opens directly
+    /// under that row, so the way in is the existing sign-in and install flow
+    /// and it is never below fifty other rows, out of sight.
     fn more_ais_page(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
         let providers = self.runtime.provider_views();
         let (_, rows) = tab_model(&providers);
@@ -3823,54 +3886,74 @@ impl ChatWindow {
         );
         ui.separator();
         let selected = self.runtime.selected_provider_id();
-        let list = ui
-            .vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = cl::space::S1;
-                if rows.is_empty() {
-                    ui.label(
-                        RichText::new("Every AI DevPULSE knows is signed in and has its own tab.")
+        // About fifty AIs: the list scrolls, so none is clipped out of reach.
+        let list = egui::ScrollArea::vertical()
+            .id_salt("chat.more-ais.scroll")
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = cl::space::S1;
+                    if rows.is_empty() {
+                        ui.label(
+                            RichText::new(
+                                "Every AI DevPULSE knows is signed in and has its own tab.",
+                            )
                             .small()
                             .color(cl::ink::SUBTLE),
-                    );
-                }
-                for row in &rows {
-                    let chosen = selected == Some(row.provider);
-                    let next = match row.state {
-                        MoreAiState::SignIn => "sign in",
-                        MoreAiState::Install => "install it",
-                        MoreAiState::NotOnThisComputer => "see what it needs",
-                    };
-                    let response = cl::tip(
-                        more_ai_row(ui, row, chosen),
-                        &format!("{} — {}. Tap to {next}.", row.label, row.state.label()),
-                    );
-                    let mut metadata = NodeMetadata::new(
-                        MORE_AIS_ID.child(&PilotKey::new(row.provider.0)),
-                        Role::Button,
-                        row.label,
-                    );
-                    metadata.value = Some(row.state.label().to_owned());
-                    metadata.selected = Some(chosen);
-                    metadata.description = row.reason.clone();
-                    ui.pilot_track(&response, metadata);
-                    if response.clicked() {
-                        intents.push(ChatWindowIntent::SelectProvider(row.provider));
+                        );
                     }
-                }
+                    for row in &rows {
+                        let chosen = selected == Some(row.provider);
+                        let next = match row.state {
+                            MoreAiState::SignIn => "sign in",
+                            MoreAiState::Open => "open it",
+                            MoreAiState::Install => "install it",
+                            MoreAiState::NotOnThisComputer => "see what it needs",
+                        };
+                        let response = cl::tip(
+                            more_ai_row(ui, row, chosen),
+                            &format!("{} — {}. Tap to {next}.", row.label, row.state.label()),
+                        );
+                        let mut metadata = NodeMetadata::new(
+                            MORE_AIS_ID.child(&PilotKey::new(row.provider.0)),
+                            Role::Button,
+                            row.label,
+                        );
+                        metadata.value = Some(row.state.label().to_owned());
+                        metadata.selected = Some(chosen);
+                        metadata.description = match (row.on_machine, &row.reason) {
+                            (Some(seen), Some(reason)) => Some(format!("{seen}. {reason}")),
+                            (Some(seen), None) => Some(seen.to_owned()),
+                            (None, reason) => reason.clone(),
+                        };
+                        ui.pilot_track(&response, metadata);
+                        if response.clicked() {
+                            intents.push(ChatWindowIntent::SelectProvider(row.provider));
+                            // Its setup card opens under it next frame; bring the
+                            // row to the top so the card has room to be seen.
+                            response.scroll_to_me(Some(Align::Min));
+                        }
+                        if chosen {
+                            if let Some(provider) = providers.iter().find(|provider| {
+                                provider.registration.manifest.descriptor.id == row.provider
+                            }) {
+                                ui.indent(
+                                    MORE_AIS_ID.child(&PilotKey::new(row.provider.0)),
+                                    |ui| {
+                                        self.provider_activation_ceremony(ui, provider, intents);
+                                    },
+                                );
+                                ui.add_space(cl::space::S2);
+                            }
+                        }
+                    }
+                })
+                .response
             })
-            .response;
+            .inner;
         let mut metadata = NodeMetadata::new(MORE_AIS_ID, Role::List, "More AIs");
         metadata.value = Some(rows.len().to_string());
         ui.pilot_track(&list, metadata);
-        if let Some(provider) = selected.and_then(|id| {
-            providers.iter().find(|provider| {
-                provider.registration.manifest.descriptor.id == id
-                    && !provider.registration.activation.is_activated()
-            })
-        }) {
-            ui.add_space(cl::space::S3);
-            self.provider_activation_ceremony(ui, provider, intents);
-        }
     }
 
     /// The composer `+` — the only plus on the composer (the way into AI
@@ -6254,6 +6337,26 @@ impl ChatWindow {
                     .unwrap_or("Log in");
                 provider_sign_in_button(ui, provider_id, label, intents);
             }
+            Some(RecoveryActionKind::OpenApp) => {
+                let label = recovery
+                    .map(|action| action.label.as_str())
+                    .unwrap_or("Open app");
+                let response = cl::tip(
+                    ui.button(label),
+                    "Open this app on your computer, or bring it to the front if it is already open",
+                );
+                ui.pilot_track(
+                    &response,
+                    NodeMetadata::new(
+                        PROVIDER_SETUP_ID.child(&PilotKey::new(provider_id.0)),
+                        Role::Button,
+                        label,
+                    ),
+                );
+                if response.clicked() {
+                    intents.push(ChatWindowIntent::OpenProviderApp(provider_id));
+                }
+            }
             Some(RecoveryActionKind::InstallInstructions | RecoveryActionKind::UpdateProvider) => {
                 let label = recovery
                     .map(|action| action.label.as_str())
@@ -7598,6 +7701,7 @@ fn chat_chip(
 fn more_ai_row(ui: &mut egui::Ui, row: &MoreAiRow, chosen: bool) -> egui::Response {
     let state_tone = match row.state {
         MoreAiState::SignIn => Tone::Amber.color(),
+        MoreAiState::Open => Tone::Lime.color(),
         MoreAiState::Install => Tone::Cyan.color(),
         MoreAiState::NotOnThisComputer => cl::ink::SUBTLE,
     };
@@ -7628,6 +7732,9 @@ fn more_ai_row(ui: &mut egui::Ui, row: &MoreAiRow, chosen: bool) -> egui::Respon
                     ui.label(RichText::new(row.state.label()).small().color(state_tone));
                 });
             });
+            if let Some(seen) = row.on_machine {
+                ui.label(RichText::new(seen).small().color(Tone::Lime.color()));
+            }
             if let Some(reason) = &row.reason {
                 ui.label(RichText::new(reason).small().color(cl::ink::MUTED));
             }
@@ -10006,17 +10113,141 @@ mod tests {
             states,
             vec![
                 ("grok", MoreAiState::SignIn),
+                ("hermes", MoreAiState::SignIn),
                 ("kimi", MoreAiState::Install),
                 ("claude", MoreAiState::NotOnThisComputer),
                 ("qwen", MoreAiState::NotOnThisComputer),
-                ("hermes", MoreAiState::SignIn),
-            ]
+            ],
+            "grouped by what the operator can do, registration order within a group"
         );
         assert_eq!(more[0].reason.as_deref(), Some("Signed out"));
         assert_eq!(MoreAiState::Install.label(), "Install");
         assert_eq!(
             MoreAiState::NotOnThisComputer.label(),
             "Not on this computer"
+        );
+    }
+
+    /// The real AI catalog in More AIs: every AI is listed, and the setup of
+    /// the LAST one opens where it can be seen in a compact window, instead
+    /// of under fifty other rows.
+    #[test]
+    fn the_whole_catalog_scrolls_and_the_last_ais_setup_is_in_view() {
+        use egui_kittest::kittest::Queryable;
+        let catalog = dpl_ai_core::catalog::catalog();
+        let registrations = catalog.entries.iter().enumerate().map(|(index, entry)| {
+            let mut registration = ProviderRegistration::planned(entry.manifest);
+            registration.activation = if index == 0 {
+                ActivationState::Ready
+            } else {
+                ActivationState::NotInstalled {
+                    reason: "fixture".into(),
+                    recovery: vec![RecoveryAction::new(
+                        RecoveryActionKind::InstallInstructions,
+                        format!("Set up {}", entry.manifest.descriptor.label),
+                    )],
+                }
+            };
+            registration
+        });
+        let runtime = ChatRuntime::try_from_registrations(registrations).expect("runtime");
+        let (_, rows) = tab_model(&runtime.provider_views());
+        assert_eq!(
+            rows.len(),
+            catalog.entries.len() - 1,
+            "every other AI is listed"
+        );
+        let first = rows.first().expect("rows").label;
+        let last = rows.last().expect("rows").label;
+        let window = ChatWindow::new(
+            runtime,
+            ROUTE,
+            &HistoryCatalog::default(),
+            vec![("Library".into(), ROUTE)],
+        );
+        let mut harness = Harness::builder().with_size([720.0, 560.0]).build_ui_state(
+            |ui, window: &mut ChatWindow| {
+                for intent in window.ui(ui) {
+                    let _ = window.apply(intent);
+                }
+            },
+            window,
+        );
+        harness.run_steps(2);
+        harness.get_by_label("More AIs").click();
+        harness.run_steps(2);
+        // Scroll to the end, as a person would, then tap the last AI.
+        let list = harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, first)
+            .rect();
+        harness
+            .input_mut()
+            .events
+            .push(egui::Event::PointerMoved(list.center()));
+        harness.input_mut().events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -100_000.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        harness.run_steps(4);
+        harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, last)
+            .click();
+        harness.run_steps(4);
+        let setup_label = format!("Set up {last}");
+        let rect = harness.get_by_label(&setup_label).rect();
+        assert!(
+            rect.min.y >= 0.0 && rect.max.y <= 560.0,
+            "the last AI's setup is in view at 720x560, not clipped: {rect:?}"
+        );
+    }
+
+    #[test]
+    fn a_found_desktop_app_offers_open_and_says_what_the_scan_saw() {
+        let open = ActivationState::Blocked {
+            reason: "Running now.".into(),
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::OpenApp,
+                "Bring Claude app to the front",
+            )],
+        };
+        assert_eq!(MoreAiState::of(&open), MoreAiState::Open);
+        assert_eq!(MoreAiState::Open.label(), "Open app");
+        let mut found = registration_in(tab_manifest("claude-desktop", "Claude", "Claude"), open);
+        found.on_machine = Some(OnMachine {
+            installed: true,
+            running: true,
+        });
+        let runtime = ChatRuntime::try_from_registrations([found]).expect("runtime");
+        let (_, more) = tab_model(&runtime.provider_views());
+        assert_eq!(more[0].state, MoreAiState::Open);
+        assert_eq!(more[0].on_machine, Some("On this computer · running now"));
+    }
+
+    #[test]
+    fn the_scan_never_claims_what_it_did_not_see() {
+        assert_eq!(on_machine_words(None), None, "no scan answer yet");
+        assert_eq!(
+            on_machine_words(Some(OnMachine {
+                installed: false,
+                running: false
+            })),
+            None
+        );
+        assert_eq!(
+            on_machine_words(Some(OnMachine {
+                installed: true,
+                running: false
+            })),
+            Some("On this computer")
+        );
+        assert_eq!(
+            on_machine_words(Some(OnMachine {
+                installed: false,
+                running: true
+            })),
+            Some("Running now")
         );
     }
 

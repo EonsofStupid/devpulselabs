@@ -9,12 +9,24 @@ use crate::capability::Capability;
 use crate::provider::ProviderManifest;
 use std::collections::BTreeSet;
 
+/// What a scan of this computer saw for a provider (AH1a). Sign-in is not
+/// here: it is the vendor's own answer, carried by the activation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OnMachine {
+    /// One of the install locations the catalog names exists.
+    pub installed: bool,
+    /// A process matching one of its tells is running.
+    pub running: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct ProviderRegistration {
     pub manifest: ProviderManifest,
     pub activation: ActivationState,
     pub qualified_capabilities: BTreeSet<Capability>,
     pub account: Option<AccountSummary>,
+    /// `None` until the machine scan has answered for this provider.
+    pub on_machine: Option<OnMachine>,
 }
 
 impl ProviderRegistration {
@@ -36,6 +48,7 @@ impl ProviderRegistration {
             manifest,
             qualified_capabilities: BTreeSet::new(),
             account: None,
+            on_machine: None,
         }
     }
 

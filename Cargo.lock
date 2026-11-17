@@ -1964,6 +1964,8 @@ name = "dpl-ai-core"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -2006,6 +2008,7 @@ dependencies = [
  "dpl-ai-gemini",
  "dpl-ai-grok",
  "dpl-proc",
+ "sysinfo",
  "tracing",
 ]
 
@@ -9468,6 +9471,7 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "dpl-ai-codex",
+ "dpl-ai-core",
  "dpl-doc",
  "dpl-roots",
  "dpl-tools-deps",
