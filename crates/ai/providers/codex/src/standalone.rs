@@ -6,7 +6,9 @@ mod process;
 
 use crate::{CodexRuntimeProfile, CodexVersion};
 use dpl_ai_core::approval::PermissionMode;
-use dpl_chat_projects::{CodexProfileCandidate, ProfileGeneration, ProjectId, Registry};
+use dpl_chat_projects::profile::{CodexProfileCandidate, ProfileGeneration};
+use dpl_chat_projects::registry::Registry;
+use dpl_chat_projects::ProjectId;
 use std::io::{self, IsTerminal};
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};

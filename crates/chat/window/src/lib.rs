@@ -27,6 +27,7 @@ use dpl_chat_interactions::{
     InteractionContent, InteractionId, InteractionLifecycle, InteractionPlacement,
     InteractionProvenance, InteractionRegistry, InteractionSpec, OverlayCoordinator, OverlayEntry,
 };
+use dpl_chat_projects::trust::Grant;
 use dpl_chat_runtime::{ChatRuntime, ProviderView, RegistryError};
 use dpl_chat_social::{
     Presence, SocialConversationId, SocialModel, SocialModelError, SocialThreadKind,
@@ -65,6 +66,22 @@ pub const AI_MODE_ID: PilotId = PilotId::new("chat.mode.ai");
 pub const MORE_AIS_TAB_ID: PilotId = PilotId::new("chat.mode.more-ais");
 /// The More AIs page; each row is `chat.more-ais/<provider>`.
 pub const MORE_AIS_ID: PilotId = PilotId::new("chat.more-ais");
+/// The trust dialog (AH1b) and its parts: `chat.trust/read|change|run|allow|deny`.
+pub const TRUST_ID: PilotId = PilotId::new("chat.trust");
+/// The "Trust…" button in an AI's header: `chat.trust.edit/<provider>`.
+pub const TRUST_EDIT_ID: PilotId = PilotId::new("chat.trust.edit");
+/// The strip shown while an AI is not allowed in the project:
+/// `chat.trust.blocked/<provider>`.
+pub const TRUST_BLOCKED_ID: PilotId = PilotId::new("chat.trust.blocked");
+
+/// The open trust dialog: which AI, which project, and the switches as the
+/// operator has set them so far.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TrustDialog {
+    provider: ProviderId,
+    project: String,
+    draft: Grant,
+}
 /// The General tab's header: Clyffy's house session and what backs it.
 pub const GENERAL_ID: PilotId = PilotId::new("chat.general");
 /// One "backed by" choice per signed-in AI: `chat.general.backing/<provider>`.
@@ -589,6 +606,16 @@ pub enum ChatWindowIntent {
         provider: ProviderId,
         mode: PermissionMode,
     },
+    /// Open the trust dialog for an AI in the active project (AH1b).
+    EditTrust(ProviderId),
+    /// The operator answered the trust dialog: a grant (all off is Don't
+    /// allow), or `None` when the dialog was closed without an answer.
+    AnswerTrust {
+        provider: ProviderId,
+        grant: Option<Grant>,
+    },
+    /// A switch in the open trust dialog changed.
+    SetTrustDraft(Grant),
     /// Show or hide the Rooms & roles library.
     ToggleRoomLibrary,
     /// Open the folder where the operator's own roles and rooms live.
@@ -790,6 +817,13 @@ pub enum HostIntent {
         provider: ProviderId,
         mode: PermissionMode,
     },
+    /// Ask the operator what an AI may do in the active project (AH1b).
+    EditTrust(ProviderId),
+    /// Save the operator's answer for an AI in the active project.
+    AnswerTrust {
+        provider: ProviderId,
+        grant: Option<Grant>,
+    },
     /// Open (creating it if needed) the operator's role and room folder.
     OpenRoomLibraryFolder,
     RequestImageGeneration {
@@ -938,6 +972,12 @@ pub struct ChatWindow {
     provider_permissions: HashMap<InteractionId, ProviderPermissionBinding>,
     /// Providers offered a permission selector, with their current mode.
     permission_modes: BTreeMap<ProviderId, PermissionMode>,
+    /// What each AI is trusted with in the active project (AH1b): `None`
+    /// means asked and not allowed; a missing key means trust does not
+    /// apply to it (no project, or not an AI that works in one).
+    trust: BTreeMap<ProviderId, Option<PermissionMode>>,
+    /// The open trust dialog, if any.
+    trust_dialog: Option<TrustDialog>,
     /// The roles and rooms the operator can use (built-ins plus their own).
     room_library: dpl_chat_core::rooms::Library,
     /// Is the Rooms & roles library showing in the AI pane?
@@ -1108,6 +1148,8 @@ impl ChatWindow {
             pending_focus_return: None,
             provider_permissions: HashMap::new(),
             permission_modes: BTreeMap::new(),
+            trust: BTreeMap::new(),
+            trust_dialog: None,
             room_library: dpl_chat_core::rooms::Library::builtin(),
             library_open: false,
             library_room_filter: None,
@@ -1759,6 +1801,17 @@ impl ChatWindow {
                 self.permission_modes.insert(provider, mode);
                 Ok(Some(HostIntent::SetPermissionMode { provider, mode }))
             }
+            ChatWindowIntent::EditTrust(provider) => Ok(Some(HostIntent::EditTrust(provider))),
+            ChatWindowIntent::AnswerTrust { provider, grant } => {
+                self.trust_dialog = None;
+                Ok(Some(HostIntent::AnswerTrust { provider, grant }))
+            }
+            ChatWindowIntent::SetTrustDraft(grant) => {
+                if let Some(dialog) = self.trust_dialog.as_mut() {
+                    dialog.draft = grant;
+                }
+                Ok(None)
+            }
             ChatWindowIntent::ToggleRoomLibrary => {
                 self.library_open = !self.library_open;
                 Ok(None)
@@ -1865,6 +1918,7 @@ impl ChatWindow {
         );
 
         self.project_popup(ui, &mut intents);
+        self.trust_dialog_view(ui, &mut intents);
         if !self.project_input_locked {
             self.provider_hover_overlay(ui, &mut intents);
             self.provider_catalog_overlay(ui, &mut intents);
@@ -1884,6 +1938,38 @@ impl ChatWindow {
     ) -> Result<(), ChatWindowError> {
         self.runtime.set_activation(provider, activation)?;
         Ok(())
+    }
+
+    /// What an AI is trusted with in the active project (AH1b): `Some(None)`
+    /// asked and not allowed, `Some(Some(ceiling))` allowed up to `ceiling`,
+    /// `None` trust does not apply.
+    pub fn set_provider_trust(
+        &mut self,
+        provider: ProviderId,
+        trust: Option<Option<PermissionMode>>,
+    ) {
+        match trust {
+            Some(ceiling) => {
+                self.trust.insert(provider, ceiling);
+            }
+            None => {
+                self.trust.remove(&provider);
+            }
+        }
+    }
+
+    /// Open the trust dialog for an AI in the active project, starting from
+    /// what is granted now (everything off for an AI never asked).
+    pub fn request_trust(&mut self, provider: ProviderId, project: String, current: Grant) {
+        self.trust_dialog = Some(TrustDialog {
+            provider,
+            project,
+            draft: current,
+        });
+    }
+
+    pub fn trust_dialog_open(&self) -> Option<ProviderId> {
+        self.trust_dialog.as_ref().map(|dialog| dialog.provider)
     }
 
     /// What the machine scan saw for a provider (AH1a).
@@ -3693,8 +3779,33 @@ impl ChatWindow {
                         .small()
                         .color(Tone::Cyan.color()),
                 );
+                let ceiling = self.trust.get(&descriptor.id).copied();
+                if let Some(Some(_)) = ceiling {
+                    let response = cl::tip(
+                        ui.small_button("Trust…"),
+                        "Change what this AI may do in this project",
+                    );
+                    ui.pilot_track(
+                        &response,
+                        NodeMetadata::new(
+                            TRUST_EDIT_ID.child(&PilotKey::new(descriptor.id.0)),
+                            Role::Button,
+                            format!("{} trust in this project", descriptor.label),
+                        ),
+                    );
+                    if response.clicked() {
+                        intents.push(ChatWindowIntent::EditTrust(descriptor.id));
+                    }
+                }
                 if let Some(current) = offered {
-                    permission_selector(ui, descriptor.id, descriptor.label, current, intents);
+                    permission_selector(
+                        ui,
+                        descriptor.id,
+                        descriptor.label,
+                        current,
+                        ceiling.flatten(),
+                        intents,
+                    );
                 }
             });
         });
@@ -3705,6 +3816,7 @@ impl ChatWindow {
             ui.label(RichText::new(&session.title).small().color(cl::ink::MUTED));
         }
         ui.separator();
+        self.trust_blocked_strip(ui, &provider, intents);
 
         // A transcript already on this machine outranks the live stream: the
         // operator picked one specific past conversation, and the pane must
@@ -3861,6 +3973,196 @@ impl ChatWindow {
         metadata.description =
             Some("Clyffy's house session, powered by the signed-in AI you choose.".to_owned());
         ui.pilot_track(&response, metadata);
+    }
+
+    /// The trust dialog (AH1b): before an AI works in a project folder, the
+    /// operator says what it may do there. Every switch starts off, Allow needs
+    /// Read. Don't allow is remembered and keeps the AI stopped; Esc closes the
+    /// dialog and changes nothing.
+    fn trust_dialog_view(&self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
+        let Some(dialog) = &self.trust_dialog else {
+            return;
+        };
+        let label = self
+            .runtime
+            .provider_views()
+            .iter()
+            .find(|view| view.registration.manifest.descriptor.id == dialog.provider)
+            .map_or(dialog.provider.0, |view| {
+                view.registration.manifest.descriptor.label
+            });
+        let provider = dialog.provider;
+        let mut draft = dialog.draft;
+        let modal = egui::Modal::new(egui::Id::new(("dpl_chat_trust", provider.0)))
+            .backdrop_color(cl::scrim(cl::SCRIM_MEDIA_A))
+            .frame(
+                egui::Frame::new()
+                    .fill(chat::panel::CARD)
+                    .stroke(Stroke::new(1.0, Tone::Amber.color()))
+                    .corner_radius(CornerRadius::same(5))
+                    .inner_margin(egui::Margin::same(18)),
+            )
+            .show(ui.ctx(), |ui| {
+                ui.set_width(440.0);
+                ui.label(
+                    RichText::new(format!("Let {label} work in “{}”?", dialog.project))
+                        .strong()
+                        .size(17.0)
+                        .color(cl::ink::STRONG),
+                );
+                ui.add_space(cl::space::S1);
+                ui.label(
+                    RichText::new(
+                        "Nothing of this AI runs in the project folder until you allow it. \
+                         You can change this later from its tab.",
+                    )
+                    .small()
+                    .color(cl::ink::MUTED),
+                );
+                ui.add_space(cl::space::S2);
+                let switches = [
+                    (
+                        "read",
+                        "Read files",
+                        "It can open and read the files in this project's folder.",
+                        &mut draft.read,
+                    ),
+                    (
+                        "change",
+                        "Change files",
+                        "It can create and edit files in this project's folder.",
+                        &mut draft.change,
+                    ),
+                    (
+                        "run",
+                        "Run commands",
+                        "It can run programs and commands in this project's folder.",
+                        &mut draft.run,
+                    ),
+                ];
+                for (key, name, tip, value) in switches {
+                    let response = cl::tip(ui.checkbox(value, name), tip);
+                    let mut metadata = NodeMetadata::new(
+                        TRUST_ID.child(&PilotKey::new(key)),
+                        Role::Checkbox,
+                        name,
+                    );
+                    metadata.selected = Some(*value);
+                    ui.pilot_track(&response, metadata);
+                }
+                if draft != dialog.draft {
+                    intents.push(ChatWindowIntent::SetTrustDraft(draft));
+                }
+                if (draft.change || draft.run) && !draft.read {
+                    ui.label(
+                        RichText::new("Changing or running needs Read files too.")
+                            .small()
+                            .color(Tone::Amber.color()),
+                    );
+                }
+                if draft.read && draft.change != draft.run {
+                    ui.label(
+                        RichText::new(
+                            "It will ask you before it changes a file or runs a command: \
+                             an AI cannot be allowed one without the other.",
+                        )
+                        .small()
+                        .color(cl::ink::MUTED),
+                    );
+                }
+                ui.add_space(cl::space::S3);
+                ui.horizontal(|ui| {
+                    let allow = cl::tip(
+                        ui.add_enabled(draft.read, egui::Button::new("Allow")),
+                        "Save these choices for this AI in this project",
+                    );
+                    ui.pilot_track(
+                        &allow,
+                        NodeMetadata::new(
+                            TRUST_ID.child(&PilotKey::new("allow")),
+                            Role::Button,
+                            "Allow",
+                        ),
+                    );
+                    if allow.clicked() {
+                        intents.push(ChatWindowIntent::AnswerTrust {
+                            provider,
+                            grant: Some(draft),
+                        });
+                    }
+                    let deny = cl::tip(
+                        ui.button("Don't allow"),
+                        "Keep this AI stopped in this project. You can allow it later from its tab.",
+                    );
+                    ui.pilot_track(
+                        &deny,
+                        NodeMetadata::new(
+                            TRUST_ID.child(&PilotKey::new("deny")),
+                            Role::Button,
+                            "Don't allow",
+                        ),
+                    );
+                    if deny.clicked() {
+                        intents.push(ChatWindowIntent::AnswerTrust {
+                            provider,
+                            grant: Some(Grant::default()),
+                        });
+                    }
+                });
+            });
+        ui.pilot_track(
+            &modal.response,
+            NodeMetadata::new(TRUST_ID, Role::Dialog, format!("Trust {label}")),
+        );
+        if modal.should_close() {
+            intents.push(ChatWindowIntent::AnswerTrust {
+                provider,
+                grant: None,
+            });
+        }
+    }
+
+    /// While an AI is not allowed in the project, its pane says so and offers
+    /// the dialog, so a stopped AI is never a mystery.
+    fn trust_blocked_strip(
+        &self,
+        ui: &mut egui::Ui,
+        provider: &ProviderView,
+        intents: &mut Vec<ChatWindowIntent>,
+    ) {
+        let descriptor = provider.registration.manifest.descriptor;
+        if self.trust.get(&descriptor.id) != Some(&None) {
+            return;
+        }
+        let tone = provider_tone(descriptor.accent);
+        cl::vibron(tone, cl::TraitState::Idle).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new(format!(
+                        "{} is not allowed in this project yet",
+                        descriptor.short_label
+                    ))
+                    .strong()
+                    .color(cl::ink::STRONG),
+                );
+                let response = cl::tip(
+                    ui.button("Choose what it may do"),
+                    "Open the trust choices for this AI in this project",
+                );
+                ui.pilot_track(
+                    &response,
+                    NodeMetadata::new(
+                        TRUST_BLOCKED_ID.child(&PilotKey::new(descriptor.id.0)),
+                        Role::Button,
+                        format!("Allow {} in this project", descriptor.short_label),
+                    ),
+                );
+                if response.clicked() {
+                    intents.push(ChatWindowIntent::EditTrust(descriptor.id));
+                }
+            });
+        });
     }
 
     /// The More AIs tab: every known AI that has not earned a tab, with its
@@ -8015,12 +8317,18 @@ fn permission_selector(
     provider: ProviderId,
     label: &str,
     current: PermissionMode,
+    ceiling: Option<PermissionMode>,
     intents: &mut Vec<ChatWindowIntent>,
 ) {
     let response = egui::ComboBox::from_id_salt(("dpl_chat_permission_mode", provider.0))
         .selected_text(RichText::new(current.label()).small())
         .show_ui(ui, |ui| {
-            for mode in PermissionMode::ALL {
+            // The project's trust grant is the ceiling (ruling 2026-11-16):
+            // a mode it does not allow is not offered.
+            for mode in PermissionMode::ALL
+                .into_iter()
+                .filter(|mode| ceiling.is_none_or(|ceiling| mode.within(ceiling)))
+            {
                 let option = cl::tip(
                     ui.selectable_label(mode == current, mode.label()),
                     mode.tooltip(),
@@ -10200,6 +10508,87 @@ mod tests {
         assert!(
             rect.min.y >= 0.0 && rect.max.y <= 560.0,
             "the last AI's setup is in view at 720x560, not clipped: {rect:?}"
+        );
+    }
+
+    /// The trust dialog (AH1b): everything starts off, Allow needs Read, the
+    /// answer carries exactly what was ticked, and Don't allow is an answer.
+    #[test]
+    fn the_trust_dialog_allows_only_what_was_ticked() {
+        use egui_kittest::kittest::Queryable;
+        let mut window = ready_and_signed_out_window();
+        window.request_trust(PROVIDER, "Lesson 12".into(), Grant::default());
+        let answers = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let seen = std::rc::Rc::clone(&answers);
+        let mut harness = Harness::builder()
+            .with_size([1100.0, 700.0])
+            .build_ui_state(
+                move |ui, window: &mut ChatWindow| {
+                    for intent in window.ui(ui) {
+                        if let ChatWindowIntent::AnswerTrust { grant, .. } = &intent {
+                            seen.borrow_mut().push(*grant);
+                        }
+                        let _ = window.apply(intent);
+                    }
+                },
+                window,
+            );
+        harness.run_steps(2);
+        assert_eq!(harness.state().trust_dialog_open(), Some(PROVIDER));
+        harness.get_by_label("Allow").click();
+        harness.run_steps(2);
+        assert!(
+            answers.borrow().is_empty(),
+            "Allow does nothing until Read is ticked"
+        );
+        harness.get_by_label("Read files").click();
+        harness.run_steps(2);
+        harness.get_by_label("Change files").click();
+        harness.run_steps(2);
+        harness.get_by_label("Allow").click();
+        harness.run_steps(2);
+        assert_eq!(
+            answers.borrow().as_slice(),
+            [Some(Grant {
+                read: true,
+                change: true,
+                run: false,
+            })]
+        );
+        assert_eq!(harness.state().trust_dialog_open(), None);
+
+        harness
+            .state_mut()
+            .request_trust(PROVIDER, "Lesson 12".into(), Grant::default());
+        harness.run_steps(2);
+        harness.get_by_label("Don't allow").click();
+        harness.run_steps(2);
+        assert_eq!(answers.borrow().last(), Some(&Some(Grant::default())));
+    }
+
+    #[test]
+    fn a_trust_grant_is_the_ceiling_of_the_permission_picker() {
+        let mut window = ready_and_signed_out_window();
+        window.set_provider_trust(PROVIDER, Some(Some(PermissionMode::ReadOnly)));
+        assert_eq!(
+            window.trust.get(&PROVIDER),
+            Some(&Some(PermissionMode::ReadOnly))
+        );
+        let offered: Vec<_> = PermissionMode::ALL
+            .into_iter()
+            .filter(|mode| mode.within(PermissionMode::ReadOnly))
+            .collect();
+        assert_eq!(offered, [PermissionMode::ReadOnly]);
+        window.set_provider_trust(PROVIDER, Some(None));
+        assert_eq!(
+            window.trust.get(&PROVIDER),
+            Some(&None),
+            "asked, not allowed"
+        );
+        window.set_provider_trust(PROVIDER, None);
+        assert!(
+            window.trust.is_empty(),
+            "outside a project trust does not apply"
         );
     }
 

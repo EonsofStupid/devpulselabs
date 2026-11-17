@@ -2436,6 +2436,7 @@ Source: operator session, 2026-11-14, answering "What should passive mean?".
 - **C2b tabs:** "Ready AIs + More" — General, a tab per installed and signed-in AI, then More AIs with every other AI's state.
 - **C2b plan:** "Approve + captures OK" (2026-11-14), with chat-window captures on a scratch library for this pass.
 - **AH1 plan:** "Approve, two PRs" (2026-11-16): AH1a the catalog and detection, AH1b the trust prompt. Captures: "Yes, scratch library". Trust switches: "All off" by default.
+- **Trust and the permission picker:** "Grant is the ceiling" (2026-11-16): a project's trust grant sets the most an AI may do there, and the existing per-AI picker offers only what the grant allows.
 
 ### R304 · 2026-11-15
 

@@ -1,6 +1,7 @@
 //! Project persistence and activation belong to the host, never the paint path.
 use super::*;
-use dpl_chat_projects::{Binding, Project, ProjectId, Registry};
+use dpl_chat_projects::registry::{Binding, Registry};
+use dpl_chat_projects::{Project, ProjectId};
 use dpl_chat_window::{ProjectChoice, ProjectView};
 use serde_json::Value;
 use std::sync::mpsc::{self, Receiver};
@@ -488,6 +489,8 @@ fn activate(state: &mut Shared, registry: Registry, prepared: Prepared, choices:
     state.project.offline = false;
     state.project.switching = false;
     state.project.message = "Project archive connected. Saved chats are available to read.".into();
+    // This project's trust answers, before any runtime can start in it.
+    super::trust::load(state);
     let _ = state.window.set_provider_activation(
         dpl_ai_codex::PROVIDER,
         state.codex_activation.activation().clone(),
@@ -743,6 +746,14 @@ pub(super) fn live_session(state: &Shared, provider: ProviderId, session: ChatSe
                 .iter()
                 .any(|((owner, _), bound)| *owner == provider && *bound == session)
         }
+}
+
+/// Where the active project's trust answers are kept, and its id (AH1b).
+pub(super) fn trust_store(state: &Shared) -> Option<(&Registry, &dpl_chat_projects::ProjectId)> {
+    Some((
+        state.project.registry.as_ref()?,
+        state.project.active.as_ref()?.id(),
+    ))
 }
 
 pub(super) fn workspace_label(state: &Shared) -> String {

@@ -1,0 +1,140 @@
+# AH1b live drill (this machine only; absolute scratch paths). Run with
+# DPL_CHAT_STATE_HOME set to a scratch folder so the operator's own project
+# registry is never touched. Sets up a scratch project; the trust dialog must
+# appear before any AI starts in it; Don't allow keeps it stopped.
+id = "chat-trust-drill"
+fixture = "chat-peer"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 1500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.projects"
+
+[[steps]]
+kind = "wait"
+milliseconds = 500
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = "Trust drill"
+
+[steps.action.target]
+id = "chat.primary/chat.projects.label"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "fill"
+text = 'D:\.usr\Temp\claude\f18a7a41acccd86f\118c278c-2ffa-4b17-b233-8fb26c79b7d5\scratchpad\ah1b-drill\work'
+
+[steps.action.target]
+id = "chat.primary/chat.projects.workspace"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.projects.setup"
+
+[[steps]]
+kind = "wait"
+milliseconds = 6000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.trust"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "disabled"
+
+[steps.expectation.target]
+id = "chat.primary/chat.trust/allow"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.trust/deny"
+
+[[steps]]
+kind = "wait"
+milliseconds = 3000
+
+# The second AI asks next, one dialog at a time.
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.trust"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.trust/deny"
+
+[[steps]]
+kind = "wait"
+milliseconds = 3000
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.trust"

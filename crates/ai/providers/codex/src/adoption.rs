@@ -315,7 +315,7 @@ impl Inspector for SystemInspector {
     }
 
     fn version(&self, executable: &Path) -> Result<CodexVersion, String> {
-        probe_version(executable, &std::env::temp_dir()).map_err(|error| error.to_string())
+        probe_version(executable).map_err(|error| error.to_string())
     }
 
     fn protocol(&self, executable: &Path) -> Result<Protocol, String> {
@@ -337,8 +337,7 @@ impl Inspector for SystemInspector {
 /// `schema_dir`. `cargo xtask vendor-schema codex` runs it; the census tests
 /// then check the adapter against what was written.
 pub fn vendor_schema(executable: &Path, schema_dir: &Path) -> Result<CodexVersion, String> {
-    let version =
-        probe_version(executable, &std::env::temp_dir()).map_err(|error| error.to_string())?;
+    let version = probe_version(executable).map_err(|error| error.to_string())?;
     let out = std::env::temp_dir().join(format!("dpl-codex-vendor-{}", std::process::id()));
     let protocol = generate_protocol(executable, &out);
     let _ = fs::remove_dir_all(&out);

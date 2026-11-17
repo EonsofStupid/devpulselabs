@@ -67,14 +67,14 @@ pub struct CodexRuntimeProfile {
     executable: PathBuf,
     version: CodexVersion,
     working_directory: PathBuf,
-    candidate: Option<std::sync::Arc<dpl_chat_projects::CandidateLease>>,
+    candidate: Option<std::sync::Arc<dpl_chat_projects::profile::CandidateLease>>,
 }
 
 impl CodexRuntimeProfile {
     pub fn discover(working_directory: impl AsRef<Path>) -> Result<Self, CodexDiscoveryError> {
         let working_directory = canonical_directory(working_directory.as_ref())?;
         let executable = discover_executable()?;
-        let version = probe_version(&executable, &working_directory)?;
+        let version = probe_version(&executable)?;
         if !version.is_activation_supported() {
             return Err(CodexDiscoveryError::VersionUnsupported(version));
         }
@@ -89,7 +89,7 @@ impl CodexRuntimeProfile {
     /// An explicit disposable/setup candidate, never an automatic migration.
     /// The lease stays alive with every clone and every owned provider child.
     pub fn discover_candidate(
-        candidate: std::sync::Arc<dpl_chat_projects::CandidateLease>,
+        candidate: std::sync::Arc<dpl_chat_projects::profile::CandidateLease>,
     ) -> Result<Self, CodexDiscoveryError> {
         candidate
             .verify()
@@ -341,7 +341,7 @@ impl CodexStatusRequest for PendingStatus {
 #[derive(Debug)]
 pub struct CodexActivationCoordinator {
     discovery_root: Option<PathBuf>,
-    discovery_candidate: Option<std::sync::Arc<dpl_chat_projects::CandidateLease>>,
+    discovery_candidate: Option<std::sync::Arc<dpl_chat_projects::profile::CandidateLease>>,
     profile: Result<CodexRuntimeProfile, CodexDiscoveryError>,
     state: ActivationState,
     launcher: Box<dyn CodexLoginLauncher>,
@@ -397,7 +397,7 @@ impl CodexActivationCoordinator {
 
     /// Status, login and runtime discovery share the same explicit leased home.
     pub fn discover_candidate(
-        candidate: std::sync::Arc<dpl_chat_projects::CandidateLease>,
+        candidate: std::sync::Arc<dpl_chat_projects::profile::CandidateLease>,
     ) -> Self {
         let profile = CodexRuntimeProfile::discover_candidate(std::sync::Arc::clone(&candidate));
         let state = activation_from_discovery(&profile);
@@ -624,11 +624,15 @@ pub(crate) fn discover_executable() -> Result<PathBuf, CodexDiscoveryError> {
         .map_err(|error| CodexDiscoveryError::EmbeddedDependency(error.to_string()))
 }
 
-pub(crate) fn probe_version(
-    executable: &Path,
-    working_directory: &Path,
-) -> Result<CodexVersion, CodexDiscoveryError> {
-    let mut command = profiled_command(executable, working_directory);
+/// Where a short check or the sign-in runs: beside the client itself, never in
+/// the project folder. Only the long-lived runtime works in the project, and
+/// only once the operator has trusted it there (AH1b).
+pub(crate) fn outside_project(executable: &Path) -> &Path {
+    executable.parent().unwrap_or(executable)
+}
+
+pub(crate) fn probe_version(executable: &Path) -> Result<CodexVersion, CodexDiscoveryError> {
+    let mut command = profiled_command(executable, outside_project(executable));
     probe_command_version(&mut command)
 }
 
@@ -654,6 +658,7 @@ fn probe_command_version(command: &mut Command) -> Result<CodexVersion, CodexDis
 fn probe_login_status(profile: &CodexRuntimeProfile) -> Result<CodexLoginStatus, io::Error> {
     let mut command = profile.command()?;
     command
+        .current_dir(outside_project(profile.executable()))
         .args(["login", "status"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -703,6 +708,7 @@ fn bounded_output(output: &Output) -> String {
 fn login_command(profile: &CodexRuntimeProfile) -> io::Result<Command> {
     let mut command = profile.command()?;
     command
+        .current_dir(outside_project(profile.executable()))
         .arg("login")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -1092,7 +1098,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn candidate_commands_share_explicit_home_and_revalidate_before_launch() {
-        use dpl_chat_projects::{CodexProfileCandidate, Project, Registry};
+        use dpl_chat_projects::profile::CodexProfileCandidate;
+        use dpl_chat_projects::registry::Registry;
+        use dpl_chat_projects::Project;
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -1107,7 +1115,17 @@ mod tests {
         let mut profile = fixture_profile();
         profile.working_directory = workspace;
         profile.candidate = Some(Arc::clone(&lease));
-        for command in [profile.command().unwrap(), login_command(&profile).unwrap()] {
+        let login = login_command(&profile).unwrap();
+        assert_eq!(
+            login.get_current_dir(),
+            Some(outside_project(profile.executable())),
+            "sign-in never runs in the project folder"
+        );
+        assert_ne!(
+            login.get_current_dir(),
+            Some(profile.working_directory.as_path())
+        );
+        for command in [profile.command().unwrap(), login] {
             let explicit_home = command
                 .get_envs()
                 .find(|(key, _)| *key == OsStr::new("CODEX_HOME"));

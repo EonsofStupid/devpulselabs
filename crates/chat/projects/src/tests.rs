@@ -1,4 +1,5 @@
 use super::*;
+use crate::registry::Registry;
 use serde_json::json;
 
 fn scratch() -> PathBuf {

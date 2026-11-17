@@ -301,6 +301,18 @@ impl fmt::Display for GrokRuntimeSendError {
 
 impl std::error::Error for GrokRuntimeSendError {}
 
+/// What the operator's trust grant lets Grok do in the project (AH1b).
+/// Reading is implied: without it the runtime is never started. Grok's ACP
+/// client advertises only these, and refuses any request it did not
+/// advertise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct GrokClientGrant {
+    /// Write files in the workspace.
+    pub change: bool,
+    /// Run terminal commands in the workspace.
+    pub run: bool,
+}
+
 #[derive(Debug)]
 pub struct GrokAcpRuntime {
     commands: Sender<GrokRuntimeCommand>,
@@ -310,7 +322,7 @@ pub struct GrokAcpRuntime {
 }
 
 impl GrokAcpRuntime {
-    pub fn start(profile: GrokRuntimeProfile) -> io::Result<Self> {
+    pub fn start(profile: GrokRuntimeProfile, grant: GrokClientGrant) -> io::Result<Self> {
         let launch = GrokLaunchSpec::from_profile(&profile);
         let working_directory = profile.working_directory().to_owned();
         let (command_tx, command_rx) = async_channel::bounded(COMMAND_CAPACITY);
@@ -320,8 +332,15 @@ impl GrokAcpRuntime {
             .name("devpulse-grok-acp".to_owned())
             .spawn(move || {
                 async_io::block_on(async move {
-                    production_worker(launch, working_directory, command_rx, shutdown_rx, event_tx)
-                        .await;
+                    production_worker(
+                        launch,
+                        working_directory,
+                        grant,
+                        command_rx,
+                        shutdown_rx,
+                        event_tx,
+                    )
+                    .await;
                 });
             })?;
         Ok(Self {
@@ -368,6 +387,7 @@ impl Drop for GrokAcpRuntime {
 async fn production_worker(
     launch: GrokLaunchSpec,
     working_directory: PathBuf,
+    grant: GrokClientGrant,
     commands: Receiver<GrokRuntimeCommand>,
     shutdown: Receiver<()>,
     events: Sender<GrokRuntimeEvent>,
@@ -397,7 +417,10 @@ async fn production_worker(
             startup_stage.store(GrokStartupStage::TransportReady as u8, Ordering::SeqCst);
             run_connection(
                 ByteStreams::new(stdin, stdout),
-                working_directory,
+                ClientScope {
+                    working_directory,
+                    grant,
+                },
                 commands,
                 shutdown,
                 events.clone(),
@@ -425,6 +448,22 @@ async fn production_worker(
     events.close();
 }
 
+/// What DevPULSE's ACP client offers Grok: reading always (a runtime only
+/// starts once reading is granted), writing and terminals only as granted.
+fn client_capabilities(grant: GrokClientGrant) -> ClientCapabilities {
+    ClientCapabilities::new()
+        .fs(FileSystemCapabilities::new()
+            .read_text_file(true)
+            .write_text_file(grant.change))
+        .terminal(grant.run)
+}
+
+/// The refusals Grok receives for what the project's trust grant withheld.
+const NOT_GRANTED_CHANGE: &str =
+    "changing files is not allowed in this project; the operator has not granted it";
+const NOT_GRANTED_RUN: &str =
+    "running commands is not allowed in this project; the operator has not granted it";
+
 async fn terminate_and_reap(child: &mut Child) {
     if child.try_status().ok().flatten().is_none() {
         let _ = child.kill();
@@ -432,15 +471,25 @@ async fn terminate_and_reap(child: &mut Child) {
     let _ = child.status().await;
 }
 
+/// The folder Grok works in, and what the trust grant lets it do there.
+struct ClientScope {
+    working_directory: PathBuf,
+    grant: GrokClientGrant,
+}
+
 async fn run_connection(
     transport: impl ConnectTo<Client> + 'static,
-    working_directory: PathBuf,
+    scope: ClientScope,
     commands: Receiver<GrokRuntimeCommand>,
     shutdown: Receiver<()>,
     events: Sender<GrokRuntimeEvent>,
     terminal_failure_emitted: Arc<AtomicBool>,
     startup_stage: Arc<AtomicU8>,
 ) -> Result<(), Error> {
+    let ClientScope {
+        working_directory,
+        grant,
+    } = scope;
     let notification_events = events.clone();
     let permission_events = events.clone();
     let pending_permissions = Arc::new(Mutex::new(BTreeMap::<u64, PendingPermission>::new()));
@@ -526,7 +575,12 @@ async fn run_connection(
             async move |request: WriteTextFileRequest,
                         responder: Responder<WriteTextFileResponse>,
                         _connection: ConnectionTo<Agent>| {
-                match write_workspace_text(&write_root, &request) {
+                let written = if grant.change {
+                    write_workspace_text(&write_root, &request)
+                } else {
+                    Err(NOT_GRANTED_CHANGE.to_owned())
+                };
+                match written {
                     Ok(()) => responder.respond(WriteTextFileResponse::new()),
                     Err(error) => responder.respond_with_internal_error(error),
                 }
@@ -537,7 +591,12 @@ async fn run_connection(
             async move |request: CreateTerminalRequest,
                         responder: Responder<CreateTerminalResponse>,
                         _connection: ConnectionTo<Agent>| {
-                match create_terminals.create(request) {
+                let created = if grant.run {
+                    create_terminals.create(request)
+                } else {
+                    Err(NOT_GRANTED_RUN.to_owned())
+                };
+                match created {
                     Ok(response) => responder.respond(response),
                     Err(error) => responder.respond_with_internal_error(error),
                 }
@@ -590,13 +649,7 @@ async fn run_connection(
         )
         .connect_with(transport, async move |connection| {
             let initialize = InitializeRequest::new(ProtocolVersion::V1)
-                .client_capabilities(
-                    ClientCapabilities::new()
-                        .fs(FileSystemCapabilities::new()
-                            .read_text_file(true)
-                            .write_text_file(true))
-                        .terminal(true),
-                )
+                .client_capabilities(client_capabilities(grant))
                 .client_info(
                     Implementation::new(CLIENT_NAME, env!("CARGO_PKG_VERSION"))
                         .title("DevPULSE Chat"),
@@ -1496,6 +1549,19 @@ mod tests {
     }
 
     #[test]
+    fn grok_is_offered_only_what_the_trust_grant_allows() {
+        let none = client_capabilities(GrokClientGrant::default());
+        assert!(none.fs.read_text_file);
+        assert!(!none.fs.write_text_file, "no writes without Change");
+        assert!(!none.terminal, "no terminals without Run");
+        let all = client_capabilities(GrokClientGrant {
+            change: true,
+            run: true,
+        });
+        assert!(all.fs.write_text_file && all.terminal);
+    }
+
+    #[test]
     fn protocol_peer_proves_list_new_stream_and_cancel() {
         async_io::block_on(async {
             let cancelled = Arc::new(AtomicBool::new(false));
@@ -1738,7 +1804,13 @@ mod tests {
             };
             let runtime = run_connection(
                 agent,
-                std::env::current_dir().expect("current directory"),
+                ClientScope {
+                    working_directory: std::env::current_dir().expect("current directory"),
+                    grant: GrokClientGrant {
+                        change: true,
+                        run: true,
+                    },
+                },
                 commands_rx,
                 shutdown_rx,
                 events_tx,
