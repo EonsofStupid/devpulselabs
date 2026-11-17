@@ -5,22 +5,22 @@
 //! four crates.
 //!
 //! Adding the next provider is three steps and the census enforces the
-//! third: implement `ProviderUsage` in its crate, add its manifest to the
-//! app's provider list, add it HERE. Miss the last one and
+//! third: implement `ProviderUsage` in its crate, add its entry to the
+//! AI catalog, add it HERE. Miss the last one and
 //! `every_provider_has_a_usage_adapter` fails — the "grow as the releases
 //! come out" property is a test, not a hope.
 
-use dpl_ai_core::provider::{ProviderId, ProviderManifest};
+use dpl_ai_core::provider::ProviderId;
 use dpl_ai_core::usage::{ProviderUsage, UsageReporting};
 
-/// Every provider manifest the app ships. The census pins the usage
-/// registry against THIS list, so a new provider cannot arrive with its
-/// accounting silently missing.
-pub const PROVIDER_MANIFESTS: &[ProviderManifest] = &[
-    dpl_ai_codex::MANIFEST,
-    dpl_ai_claude::MANIFEST,
-    dpl_ai_grok::MANIFEST,
-    dpl_ai_gemini::MANIFEST,
+/// Every AI with a provider crate that accounts for usage. The census pins
+/// the usage registry against THIS list, so a new provider cannot arrive
+/// with its accounting silently missing.
+pub const USAGE_PROVIDERS: &[ProviderId] = &[
+    dpl_ai_codex::PROVIDER,
+    dpl_ai_claude::PROVIDER,
+    dpl_ai_grok::PROVIDER,
+    dpl_ai_gemini::PROVIDER,
 ];
 
 /// Every provider's usage adapter, one per major.
@@ -81,15 +81,16 @@ pub fn reporting_summary(reports: UsageReporting) -> String {
 /// for their tokens and which do not — so an empty cost column reads as
 /// "Gemini does not report usage" rather than "the analytics are broken".
 pub fn log_census() {
-    // Walk the MANIFESTS, not the adapters: the manifest list is the
+    // Walk the PROVIDERS, not the adapters: the provider list is the
     // anchor, so a provider that shipped without an adapter shows up here
     // as a loud gap instead of simply being absent from the log.
-    for manifest in PROVIDER_MANIFESTS {
-        let id = manifest.descriptor.id;
+    for &id in USAGE_PROVIDERS {
+        let label =
+            dpl_ai_core::catalog::manifest(id).map_or(id.0, |manifest| manifest.descriptor.label);
         let Some(adapter) = usage_for(id) else {
             tracing::warn!(
                 provider = %id,
-                label = manifest.descriptor.label,
+                label,
                 "provider has NO usage adapter — its tokens and cost are invisible",
             );
             continue;
@@ -97,7 +98,7 @@ pub fn log_census() {
         let reports = adapter.reports();
         tracing::info!(
             provider = %id,
-            label = manifest.descriptor.label,
+            label,
             reports = %reporting_summary(reports),
             backfill = reports.history_backfill,
             "provider usage accounting",
@@ -136,8 +137,7 @@ mod tests {
 
     #[test]
     fn every_provider_has_a_usage_adapter() {
-        for manifest in PROVIDER_MANIFESTS {
-            let id = manifest.descriptor.id;
+        for &id in USAGE_PROVIDERS {
             assert!(
                 usage_for(id).is_some(),
                 "provider `{id}` ships with no usage adapter — implement \
@@ -158,7 +158,7 @@ mod tests {
         }
         assert_eq!(
             seen.len(),
-            PROVIDER_MANIFESTS.len(),
+            USAGE_PROVIDERS.len(),
             "the usage registry and the manifest list have drifted"
         );
     }

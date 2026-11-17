@@ -37,8 +37,9 @@ side rails         dpl-fabric (signals) · dpl-seam (agent HTTP) ·
 `ai/*` owns every provider and subscription concern (chat plan §4.3, R301).
 `dpl-ai-core` (`crates/ai/core`) is the provider vocabulary: identities,
 capabilities, presence, activation, approval, usage, events, history
-decoding, the runtime adapter contract and the provider registration. It is
-engine-free pure data (its exact deps are in §2). The provider crates
+decoding, the runtime adapter contract, the provider registration, and the
+AI catalog (every AI DevPULSE knows, as data). It is engine-free pure data
+(its exact deps are in §2). The provider crates
 `dpl-ai-<vendor>` under `crates/ai/providers/`, plus `dpl-ai-accounts`,
 `dpl-ai-profiles`, `dpl-ai-browser-auth` and `dpl-ai-imagine`, are engines.
 `dpl-ai-host` (`crates/ai/host`) holds host work that spans providers:
@@ -82,7 +83,7 @@ brainstorm board document and emits its typed ops; the host owns all IO.
 | dpl-tools-deps | serde, serde_json, sha2 | the depot resolver trusts nothing else |
 | dpl-roots | serde, serde_json, toml | portable library configuration, identity and layout; no capture, egui, volume FFI or process dependencies |
 | dpl-chat-projects | serde, serde_json | project identities, archives and owned candidate profile links/leases; no egui, provider process, credential inspection or ambient workspace discovery |
-| dpl-ai-core | serde | the provider vocabulary stays pure data: no IO, egui, engine, process or chat dependency; chat depends on it, never the reverse |
+| dpl-ai-core | serde, serde_json | the provider vocabulary stays pure data: no IO, egui, engine, process or chat dependency; chat depends on it, never the reverse. `serde_json` parses the AI catalog it embeds (AH1a): the vendored ACP registry and DevPULSE's own entries, compiled in, never read from disk or the network |
 | dpl-landing | serde, serde_json | the landing policy is shared pure data |
 | dpl-estate | fjall, moka, serde, serde_json | Ring-0 persistence, no app types |
 | dpl-intent | ∅ | the operator-intent proof must never learn to serialize, clone, or arrive over a wire (signal-ledger plan §9.3) |

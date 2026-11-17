@@ -90,10 +90,21 @@ pub enum ChatProofMode {
     Library,
     Projects,
     ProjectsCompact,
+    /// The More AIs tab at 1100x700 (AH1a). View-only, so it also runs live,
+    /// on this machine's real catalog and scan.
+    MoreAis,
+    /// The More AIs tab at the 720x560 minimum.
+    MoreAisCompact,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
 impl ChatProofMode {
+    /// A state that only arranges the view, so it may run without the
+    /// authored fixture: it cannot activate a provider or reach Social.
+    pub const fn view_only(self) -> bool {
+        matches!(self, Self::MoreAis | Self::MoreAisCompact)
+    }
+
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "approval" => Some(Self::Approval),
@@ -115,6 +126,8 @@ impl ChatProofMode {
             "library" => Some(Self::Library),
             "projects" => Some(Self::Projects),
             "projects-compact" => Some(Self::ProjectsCompact),
+            "more-ais" => Some(Self::MoreAis),
+            "more-ais-compact" => Some(Self::MoreAisCompact),
             _ => None,
         }
     }
@@ -195,6 +208,12 @@ struct Shared {
     /// the operator is already signed in. Polled from the frame loop and
     /// dropped once it lands.
     presence: Option<std::sync::mpsc::Receiver<Vec<dpl_ai_host::presence::Presence>>>,
+    /// The one-shot machine scan (AH1a): which catalog AIs are installed and
+    /// running here. Polled from the frame loop and dropped once it lands.
+    machine: Option<std::sync::mpsc::Receiver<Vec<dpl_ai_host::machine::Sighting>>>,
+    /// Where the scan found each desktop app, so Open app launches exactly
+    /// what was found and nothing else.
+    found_apps: std::collections::BTreeMap<ProviderId, std::path::PathBuf>,
     /// Where the roster is remembered between launches (ADR-017 §2). `None`
     /// when the estate failed to open; the roster is derived, so the only
     /// cost is that the platform starts empty instead of remembered.
@@ -489,6 +508,127 @@ fn drain_presence(state: &mut Shared) {
     }
 }
 
+/// Take the machine scan's answer when it lands (AH1a).
+fn drain_machine(state: &mut Shared) {
+    let Some(receiver) = state.machine.as_ref() else {
+        return;
+    };
+    let found = match receiver.try_recv() {
+        Ok(found) => found,
+        Err(std::sync::mpsc::TryRecvError::Empty) => return,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            state.machine = None;
+            return;
+        }
+    };
+    state.machine = None;
+    for sighting in &found {
+        tracing::info!(
+            provider = %sighting.provider,
+            installed = sighting.installed_at.is_some(),
+            running = sighting.running,
+            "AI on this computer"
+        );
+        apply_sighting(state, sighting);
+    }
+}
+
+/// Fold one sighting into the window. Every AI shows what the scan saw; only
+/// a desktop app's activation changes, because sign-in for everything else
+/// is its own tool's answer (presence), never inferred from a process.
+fn apply_sighting(state: &mut Shared, sighting: &dpl_ai_host::machine::Sighting) {
+    use dpl_ai_core::registration::OnMachine;
+
+    let on_machine = OnMachine {
+        installed: sighting.installed_at.is_some(),
+        running: sighting.running,
+    };
+    if let Err(error) = state
+        .window
+        .set_provider_on_machine(sighting.provider, on_machine)
+    {
+        tracing::warn!(%error, provider = %sighting.provider, "sighting could not be applied");
+        return;
+    }
+    let Some(entry) = dpl_ai_core::catalog::catalog().get(sighting.provider) else {
+        return;
+    };
+    if entry.kind != dpl_ai_core::catalog::EntryKind::Desktop {
+        return;
+    }
+    let Some(activation) = sighting_activation(entry, sighting) else {
+        return;
+    };
+    if let Some(path) = &sighting.installed_at {
+        state.found_apps.insert(sighting.provider, path.clone());
+    }
+    if let Err(error) = state
+        .window
+        .set_provider_activation(sighting.provider, activation)
+    {
+        tracing::warn!(%error, provider = %sighting.provider, "sighting could not be applied");
+    }
+}
+
+/// What a sighting says about a desktop app. A found app can be opened; a
+/// running app whose install DevPULSE cannot find is reported, never opened
+/// from a guessed path. `None` keeps the catalog's "not found" state.
+fn sighting_activation(
+    entry: &dpl_ai_core::catalog::CatalogEntry,
+    sighting: &dpl_ai_host::machine::Sighting,
+) -> Option<ActivationState> {
+    let short = entry.manifest.descriptor.short_label;
+    let chat_note = "Chatting happens through its CLI, not the app.";
+    match (sighting.installed_at.is_some(), sighting.running) {
+        (true, running) => Some(ActivationState::Blocked {
+            // The row already says what the scan saw; the reason says what
+            // that means here.
+            reason: chat_note.to_owned(),
+            recovery: vec![RecoveryAction::new(
+                RecoveryActionKind::OpenApp,
+                if running {
+                    format!("Bring {short} to the front")
+                } else {
+                    format!("Open {short}")
+                },
+            )],
+        }),
+        (false, true) => Some(ActivationState::Blocked {
+            reason: format!(
+                "DevPULSE can't find where it is installed, so it can't open it. {chat_note}"
+            ),
+            recovery: Vec::new(),
+        }),
+        (false, false) => None,
+    }
+}
+
+/// Open a desktop app the scan found, at the path it was found at. A
+/// single-instance app that is already open brings its window to the front.
+fn open_found_app(state: &Shared, provider: ProviderId) {
+    let Some(path) = state.found_apps.get(&provider) else {
+        tracing::warn!(%provider, "Open app was asked for an app the scan did not find");
+        return;
+    };
+    let mut command = if path.extension().is_some_and(|ext| ext == "app") {
+        let mut open = std::process::Command::new("open");
+        open.arg(path);
+        open
+    } else {
+        std::process::Command::new(path)
+    };
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    match command.spawn() {
+        Ok(_) => tracing::info!(%provider, path = %path.display(), "opened a desktop AI app"),
+        Err(error) => {
+            tracing::warn!(%error, %provider, path = %path.display(), "desktop AI app could not open");
+        }
+    }
+}
+
 /// Fold one presence answer into the window's activation, if it has anything
 /// to add.
 ///
@@ -632,10 +772,19 @@ impl ChatWindowCoordinator {
         if open_at_boot {
             let id = registry.request_primary(WindowBinding::default());
             #[cfg(feature = "eguipilotai-devtools")]
-            if proof_mode == Some(ChatProofMode::Compact) {
+            if matches!(
+                proof_mode,
+                Some(ChatProofMode::Compact | ChatProofMode::MoreAisCompact)
+            ) {
                 registry
                     .update_geometry(id, Some([32, 32]), WindowGeometry::MINIMUM)
                     .expect("the authored compact proof geometry is valid");
+            }
+            #[cfg(feature = "eguipilotai-devtools")]
+            if proof_mode == Some(ChatProofMode::MoreAis) {
+                registry
+                    .update_geometry(id, Some([32, 32]), [1100, 700])
+                    .expect("the More AIs proof geometry is valid");
             }
             #[cfg(feature = "eguipilotai-devtools")]
             if matches!(
@@ -710,7 +859,14 @@ impl ChatWindowCoordinator {
             window.observe_content(read_content_view());
         }
         #[cfg(feature = "eguipilotai-devtools")]
-        if let Some(mode) = proof_mode {
+        if let Some(mode) = proof_mode.filter(|mode| mode.view_only()) {
+            window
+                .apply(dpl_chat_window::ChatWindowIntent::SelectMoreAis)
+                .expect("More AIs is always a tab");
+            tracing::debug!(?mode, "More AIs proof view");
+        }
+        #[cfg(feature = "eguipilotai-devtools")]
+        if let Some(mode) = proof_mode.filter(|mode| !mode.view_only()) {
             if mode != ChatProofMode::Approval {
                 window
                     .apply(dpl_chat_window::ChatWindowIntent::DismissInteraction(
@@ -912,7 +1068,9 @@ impl ChatWindowCoordinator {
                 | ChatProofMode::Compact
                 | ChatProofMode::Snapped
                 | ChatProofMode::Projects
-                | ChatProofMode::ProjectsCompact => {}
+                | ChatProofMode::ProjectsCompact
+                | ChatProofMode::MoreAis
+                | ChatProofMode::MoreAisCompact => {}
             }
         }
         #[cfg(feature = "eguipilotai-devtools")]
@@ -1101,6 +1259,8 @@ impl ChatWindowCoordinator {
             clyffy: None,
             presence: provider_runtime_enabled
                 .then(|| dpl_ai_host::presence::probe_all(dpl_ai_host::presence::specs())),
+            machine: provider_runtime_enabled.then(dpl_ai_host::machine::scan),
+            found_apps: std::collections::BTreeMap::new(),
             estate,
             determinism: dpl_intent::DeterminismGate::default(),
             brainstorm: None,
@@ -1268,6 +1428,7 @@ impl ChatWindowCoordinator {
             shared.window.observe_route(current_route);
             drain_provider_facts(&mut shared);
             drain_presence(&mut shared);
+            drain_machine(&mut shared);
             // Every activation change — from the drain above or from any of
             // the host intents applied last frame — reaches the platform
             // here. Publishing is change-gated, so a steady state costs one
@@ -1758,12 +1919,21 @@ fn apply_host_intent_inner(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, int
             let url = match provider {
                 id if id == dpl_ai_codex::PROVIDER => dpl_ai_codex::SETUP_URL,
                 id if id == dpl_ai_grok::PROVIDER => dpl_ai_grok::SETUP_URL,
-                _ => {
-                    tracing::warn!(%provider, "provider setup action is not qualified");
-                    return;
-                }
+                _ => match dpl_ai_core::catalog::catalog()
+                    .get(provider)
+                    .and_then(|entry| entry.homepage)
+                {
+                    Some(homepage) => homepage,
+                    None => {
+                        tracing::warn!(%provider, "provider has no setup page in the catalog");
+                        return;
+                    }
+                },
             };
             ctx.open_url(egui::OpenUrl::new_tab(url));
+        }
+        HostIntent::OpenProviderApp(provider) => {
+            open_found_app(&lock(shared), provider);
         }
         HostIntent::RefreshProvider(provider) => {
             let mut state = lock(shared);
@@ -1801,6 +1971,15 @@ fn apply_host_intent_inner(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, int
                     Err(error) => {
                         tracing::warn!(%error, "Grok rediscovery was rejected");
                     }
+                }
+            } else if dpl_ai_core::catalog::catalog().get(provider).is_some() {
+                // Look again the same way startup looked: the AI's own sign-in
+                // check, and the machine scan.
+                if state.provider_runtime_enabled {
+                    state.presence = Some(dpl_ai_host::presence::probe_all(
+                        dpl_ai_host::presence::specs(),
+                    ));
+                    state.machine = Some(dpl_ai_host::machine::scan());
                 }
             } else {
                 tracing::warn!(%provider, "provider rediscovery is not qualified");

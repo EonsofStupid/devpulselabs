@@ -6,7 +6,8 @@ publish.workspace = true
 
 # A1c of the AI boundary (docs/plans/chat-native-program.md §4.3.1): host
 # work that spans providers. `presence` asks each vendor's own tool whether
-# the operator is signed in; `usage` is the census of every provider's usage
+# the operator is signed in; `machine` sees which catalog AIs are installed
+# and running (AH1a); `usage` is the census of every provider's usage
 # adapter. Egui-free; never depends on a chat crate.
 
 [dependencies]
@@ -17,6 +18,8 @@ dpl-ai-cursor.workspace = true
 dpl-ai-gemini.workspace = true
 dpl-ai-grok.workspace = true
 dpl-proc.workspace = true
+# One read-only process list (names and executable paths) for `machine`.
+sysinfo.workspace = true
 tracing = "0.1"
 
 [lints]

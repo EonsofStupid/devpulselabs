@@ -63,6 +63,7 @@ pub fn ready_provider() -> ProviderRegistration {
         activation: ActivationState::Ready,
         qualified_capabilities: CAPABILITIES.iter().copied().collect::<BTreeSet<_>>(),
         account: None,
+        on_machine: None,
     }
 }
 
@@ -157,13 +158,19 @@ pub fn authored_chat() -> AuthoredChatFixture {
     }
 }
 
+/// A catalog AI's manifest. The authored chat names only DevPULSE's own AIs,
+/// which the catalog always has.
+fn catalog_manifest(id: ProviderId) -> ProviderManifest {
+    dpl_ai_core::catalog::manifest(id).unwrap_or_else(|| panic!("{id} is in the AI catalog"))
+}
+
 fn authored_providers() -> (
     Vec<ProviderRegistration>,
     Vec<SessionSummary>,
     Vec<ChatEvent>,
 ) {
     let (mut codex, mut codex_sessions, codex_events) = authored_provider(
-        dpl_ai_codex::MANIFEST,
+        catalog_manifest(dpl_ai_codex::PROVIDER),
         ChatSessionId(101),
         "Choice poll redesign",
         SessionState::Idle,
@@ -194,7 +201,7 @@ fn authored_providers() -> (
     codex_sessions[0].group = SessionGroup::Active;
     codex_sessions.push(SessionSummary {
         id: ChatSessionId(100),
-        provider_id: dpl_ai_codex::MANIFEST.descriptor.id,
+        provider_id: dpl_ai_codex::PROVIDER,
         provider_session_id: None,
         title: "Council: UI review".into(),
         workspace: "C:/fixture/devpulse".into(),
@@ -203,7 +210,7 @@ fn authored_providers() -> (
     });
     codex_sessions.push(SessionSummary {
         id: ChatSessionId(102),
-        provider_id: dpl_ai_codex::MANIFEST.descriptor.id,
+        provider_id: dpl_ai_codex::PROVIDER,
         provider_session_id: None,
         title: "Route bridge review".into(),
         workspace: "C:/fixture/devpulse".into(),
@@ -211,7 +218,7 @@ fn authored_providers() -> (
         state: SessionState::Attention,
     });
     let (mut claude, mut claude_sessions, mut claude_events) = authored_provider(
-        dpl_ai_claude::MANIFEST,
+        catalog_manifest(dpl_ai_claude::PROVIDER),
         ChatSessionId(201),
         "Architecture critique",
         SessionState::Idle,
@@ -227,7 +234,7 @@ fn authored_providers() -> (
     claude_events.clear();
 
     let (mut gemini, gemini_sessions, gemini_events) = authored_provider(
-        dpl_ai_gemini::MANIFEST,
+        catalog_manifest(dpl_ai_gemini::PROVIDER),
         ChatSessionId(301),
         "Multimodal research",
         SessionState::ReadOnly,
@@ -241,7 +248,7 @@ fn authored_providers() -> (
     };
 
     let (mut grok, grok_sessions, grok_events) = authored_provider(
-        dpl_ai_grok::MANIFEST,
+        catalog_manifest(dpl_ai_grok::PROVIDER),
         ChatSessionId(401),
         "Social signal review",
         SessionState::ReadOnly,
@@ -286,6 +293,7 @@ fn authored_provider(
             .into_iter()
             .collect(),
         account: None,
+        on_machine: None,
     };
     (
         registration,

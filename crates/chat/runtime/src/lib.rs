@@ -9,7 +9,7 @@ use dpl_ai_core::activation::{AccountSummary, ActivationState};
 use dpl_ai_core::capability::Capability;
 use dpl_ai_core::event::ChatEventContent;
 use dpl_ai_core::provider::ProviderId;
-use dpl_ai_core::registration::ProviderRegistration;
+use dpl_ai_core::registration::{OnMachine, ProviderRegistration};
 use dpl_ai_core::turn::TurnId;
 use dpl_chat_core::{
     ChatEvent, ChatEventId, ChatSessionId, SessionGroup, SessionState, SessionSummary,
@@ -470,6 +470,21 @@ impl ChatRuntime {
             .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
             .ok_or(RegistryError::UnknownProvider(provider_id))?;
         entry.registration.activation = activation;
+        Ok(())
+    }
+
+    /// What the machine scan saw for a provider (AH1a).
+    pub fn set_on_machine(
+        &mut self,
+        provider_id: ProviderId,
+        on_machine: OnMachine,
+    ) -> Result<(), RegistryError> {
+        let entry = self
+            .providers
+            .iter_mut()
+            .find(|entry| entry.registration.manifest.descriptor.id == provider_id)
+            .ok_or(RegistryError::UnknownProvider(provider_id))?;
+        entry.registration.on_machine = Some(on_machine);
         Ok(())
     }
 

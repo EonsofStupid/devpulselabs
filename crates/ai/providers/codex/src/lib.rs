@@ -18,14 +18,11 @@ pub use activation::{
     CodexStatusRequest, CodexVersion, SETUP_URL,
 };
 
-use dpl_ai_core::capability::Capability;
 use dpl_ai_core::event::{BoundedNativePayload, ChatEventContent};
 use dpl_ai_core::history::{
     DecodeOutcome, DecodedHistoryEvent, HistoryDecoder, HistoryIndexMetadata,
 };
-use dpl_ai_core::provider::{
-    ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
-};
+use dpl_ai_core::provider::ProviderId;
 use dpl_ai_core::usage::{ProviderUsage, TokenUsage, UsageReporting};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -40,49 +37,6 @@ pub const PROVIDER: ProviderId = ProviderId("codex");
 pub fn qualified_client() -> Option<PathBuf> {
     activation::discover_executable().ok()
 }
-
-pub const DEFAULT_PROFILE: ProviderProfileId = ProviderProfileId("codex-default");
-
-const TARGETS: &[Capability] = &[
-    Capability::ReadSessions,
-    Capability::PageHistory,
-    Capability::StartSession,
-    Capability::ResumeSession,
-    Capability::ForkSession,
-    Capability::StreamTurns,
-    Capability::InterruptTurn,
-    Capability::SteerTurn,
-    Capability::Approvals,
-    Capability::Tools,
-    Capability::Diffs,
-    Capability::Plans,
-    Capability::Attachments,
-    Capability::Images,
-    Capability::Video,
-    Capability::Models,
-    Capability::Modes,
-    Capability::RateLimits,
-    Capability::SubscriptionAuth,
-    Capability::DeviceCodeAuth,
-    Capability::Headless,
-];
-
-pub const MANIFEST: ProviderManifest = ProviderManifest {
-    descriptor: ProviderDescriptor {
-        id: PROVIDER,
-        label: "ChatGPT / Codex",
-        short_label: "Codex",
-        glyph: "C",
-        accent: ProviderAccent::Cyan,
-        summary: "OpenAI coding agent through the official app-server client protocol.",
-        // OpenAI founded 11 December 2015.
-        since: "2015-12-11",
-    },
-    profile: DEFAULT_PROFILE,
-    target_capabilities: TARGETS,
-    delivery_slice: "CH4",
-    evidence: "docs/research/chat-provider-capabilities.md#codex",
-};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CodexHistoryDecoder;

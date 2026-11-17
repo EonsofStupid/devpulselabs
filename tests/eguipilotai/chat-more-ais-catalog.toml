@@ -1,0 +1,118 @@
+# AH1a proof: More AIs lists the whole AI catalog, not five hand-written AIs.
+#
+# Runs on the real providers (`chat-peer`), so it asserts only facts that hold
+# on any machine:
+# - Meta AI and goose have no sign-in check DevPULSE can run, so both say
+#   Install, and their setup button opens their page;
+# - an ACP entry that one of DevPULSE's own AIs claims (Codex's `codex-acp`) is
+#   not listed a second time.
+# What is installed or running here depends on the machine and is proved by
+# the live drill and the captures, not asserted.
+#
+# Nothing here installs, opens an app, signs in or sends: the setup button is
+# only asserted present.
+id = "chat-more-ais-catalog"
+fixture = "chat-peer"
+record = true
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "viewport"
+state = "open"
+
+[steps.expectation.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "focus-viewport"
+
+[steps.action.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.mode.more-ais"
+
+[[steps]]
+# The machine scan and the sign-in checks answer on their own threads.
+kind = "wait"
+milliseconds = 2500
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+role = "list"
+name = "More AIs"
+
+[steps.expectation.target.viewport]
+key = "chat.primary"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "Install"
+
+[steps.expectation.target]
+id = "chat.primary/chat.more-ais/meta-ai"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "value"
+value = "Install"
+
+[steps.expectation.target]
+id = "chat.primary/chat.more-ais/goose"
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "count"
+value = 0
+
+[steps.expectation.target]
+id = "chat.primary/chat.more-ais/codex-acp"
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "click"
+
+[steps.action.target]
+id = "chat.primary/chat.more-ais/meta-ai"
+
+[[steps]]
+kind = "wait"
+milliseconds = 300
+
+[[steps]]
+kind = "expect"
+
+[steps.expectation]
+type = "visible"
+
+[steps.expectation.target]
+id = "chat.primary/chat.provider.setup/meta-ai"

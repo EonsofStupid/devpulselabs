@@ -15,10 +15,7 @@ use dpl_ai_core::activation::{
     ActivationState, DeviceAuthorizationPrompt, GuidedValue, GuidedValueSensitivity,
     RecoveryAction, RecoveryActionKind,
 };
-use dpl_ai_core::capability::Capability;
-use dpl_ai_core::provider::{
-    ProviderAccent, ProviderDescriptor, ProviderId, ProviderManifest, ProviderProfileId,
-};
+use dpl_ai_core::provider::ProviderId;
 use std::fmt;
 use std::fs;
 use std::io::{self, BufRead, BufReader};
@@ -29,23 +26,6 @@ use std::thread::{self, JoinHandle};
 
 pub const PROVIDER: ProviderId = ProviderId("grok");
 
-/// Grok's CLI has `login`/`logout` but no `status`, so presence is read off
-/// `grok models`, which names the signed-in account before it lists them.
-/// Signed in verified against grok 0.2.117; signed out against the depot's
-/// 0.2.112, which prints "You are not authenticated." and exits 0.
-pub const PRESENCE: dpl_ai_core::presence::PresenceSpec = dpl_ai_core::presence::PresenceSpec {
-    program: "grok",
-    args: &["models"],
-    signed_in: &["you are logged in with"],
-    signed_out: &[
-        "not logged in",
-        "please log in",
-        "run `grok login`",
-        "you are not authenticated",
-    ],
-    login: &["login"],
-};
-
 /// The qualified Grok Build client this app launches: the tool depot's build
 /// beside the executable. Presence asks THIS client, so a Grok that is only
 /// in the depot is not reported as missing because `grok` is not on PATH.
@@ -54,49 +34,11 @@ pub fn qualified_client() -> Option<PathBuf> {
     discover_executable().ok()
 }
 
-pub const DEFAULT_PROFILE: ProviderProfileId = ProviderProfileId("grok-default");
 pub const SETUP_URL: &str = "https://docs.x.ai/build/overview";
 
 pub const QUALIFIED_VERSION: GrokVersion = GrokVersion::new(0, 2, 112);
 const MINIMUM_VERSION: GrokVersion = QUALIFIED_VERSION;
 const EXCLUSIVE_MAXIMUM_VERSION: GrokVersion = GrokVersion::new(0, 3, 0);
-
-const TARGETS: &[Capability] = &[
-    Capability::ReadSessions,
-    Capability::StartSession,
-    Capability::ResumeSession,
-    Capability::StreamTurns,
-    Capability::InterruptTurn,
-    Capability::Approvals,
-    Capability::Tools,
-    Capability::Diffs,
-    Capability::Plans,
-    Capability::Attachments,
-    Capability::Images,
-    Capability::Video,
-    Capability::Models,
-    Capability::Modes,
-    Capability::SubscriptionAuth,
-    Capability::DeviceCodeAuth,
-    Capability::Headless,
-];
-
-pub const MANIFEST: ProviderManifest = ProviderManifest {
-    descriptor: ProviderDescriptor {
-        id: PROVIDER,
-        label: "Grok",
-        short_label: "Grok",
-        glyph: "X",
-        accent: ProviderAccent::Magenta,
-        summary: "xAI coding agent through Grok Build's documented ACP mode.",
-        // xAI announced 12 July 2023.
-        since: "2023-07-12",
-    },
-    profile: DEFAULT_PROFILE,
-    target_capabilities: TARGETS,
-    delivery_slice: "CH7",
-    evidence: "docs/research/chat-provider-capabilities.md#grok",
-};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct GrokVersion {

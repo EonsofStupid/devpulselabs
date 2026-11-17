@@ -1209,8 +1209,12 @@ mod tests {
     fn host(base: &Path) -> Shared {
         let fabric = Fabric::new();
         let runtime = ChatRuntime::try_from_registrations([
-            dpl_ai_core::registration::ProviderRegistration::planned(dpl_ai_codex::MANIFEST),
-            dpl_ai_core::registration::ProviderRegistration::planned(dpl_ai_grok::MANIFEST),
+            dpl_ai_core::registration::ProviderRegistration::planned(
+                dpl_ai_core::catalog::manifest(dpl_ai_codex::PROVIDER).expect("catalog"),
+            ),
+            dpl_ai_core::registration::ProviderRegistration::planned(
+                dpl_ai_core::catalog::manifest(dpl_ai_grok::PROVIDER).expect("catalog"),
+            ),
         ])
         .unwrap();
         let coordinator = ChatWindowCoordinator::new(

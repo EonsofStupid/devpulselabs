@@ -242,17 +242,16 @@ fn main() -> eframe::Result {
     // cannot register fixture providers, people, messages, or interactions.
     #[cfg(feature = "eguipilotai-devtools")]
     let chat_authored = args.iter().any(|a| a == "--chat-authored");
-    // Native proof presets are devtools-only and only arrange the deterministic
+    // Native proof presets are devtools-only and arrange the deterministic
     // authored fixture. They cannot activate a provider or Social transport.
+    // A view-only preset (More AIs) also runs live, on this machine's truth.
     #[cfg(feature = "eguipilotai-devtools")]
-    let chat_proof = chat_authored.then(|| {
-        args.iter()
-            .position(|a| a == "--chat-proof")
-            .and_then(|i| args.get(i + 1))
-            .and_then(|value| chat::ChatProofMode::parse(value))
-    });
-    #[cfg(feature = "eguipilotai-devtools")]
-    let chat_proof = chat_proof.flatten();
+    let chat_proof = args
+        .iter()
+        .position(|a| a == "--chat-proof")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|value| chat::ChatProofMode::parse(value))
+        .filter(|mode| chat_authored || mode.view_only());
     // `--steps-hotkey-drill` — send a REAL Ctrl+Shift+9 through the OS
     // (rdev::simulate) and verify the global hook starts, then stops, the
     // Steps recorder (C2). Real input end-to-end; the pilot never fakes
@@ -1308,52 +1307,40 @@ impl App {
         #[cfg(feature = "eguipilotai-devtools")]
         let chat_registrations = authored_chat.as_ref().map_or_else(
             || {
-                vec![
-                    activation_registration(
-                        dpl_ai_codex::MANIFEST,
-                        codex_activation.activation().clone(),
-                        codex_activation.activation_capability_qualified(),
-                    ),
-                    dpl_ai_core::registration::ProviderRegistration::planned(
-                        dpl_ai_claude::MANIFEST,
-                    ),
-                    dpl_ai_core::registration::ProviderRegistration::planned(
-                        dpl_ai_cursor::MANIFEST,
-                    ),
-                    dpl_ai_core::registration::ProviderRegistration::planned(
-                        dpl_ai_gemini::MANIFEST,
-                    ),
-                    activation_registration(
-                        dpl_ai_grok::MANIFEST,
-                        grok_activation.activation().clone(),
-                        grok_activation.activation_capability_qualified(),
-                    ),
-                ]
-                .into_iter()
-                .map(|registration| with_local_history(registration, &history_catalog))
-                .collect()
+                catalog_registrations(
+                    &[
+                        (
+                            "codex",
+                            codex_activation.activation().clone(),
+                            codex_activation.activation_capability_qualified(),
+                        ),
+                        (
+                            "grok",
+                            grok_activation.activation().clone(),
+                            grok_activation.activation_capability_qualified(),
+                        ),
+                    ],
+                    &history_catalog,
+                )
             },
             |fixture| fixture.providers.clone(),
         );
         #[cfg(not(feature = "eguipilotai-devtools"))]
-        let chat_registrations: Vec<dpl_ai_core::registration::ProviderRegistration> = vec![
-            activation_registration(
-                dpl_ai_codex::MANIFEST,
-                codex_activation.activation().clone(),
-                codex_activation.activation_capability_qualified(),
-            ),
-            dpl_ai_core::registration::ProviderRegistration::planned(dpl_ai_claude::MANIFEST),
-            dpl_ai_core::registration::ProviderRegistration::planned(dpl_ai_cursor::MANIFEST),
-            dpl_ai_core::registration::ProviderRegistration::planned(dpl_ai_gemini::MANIFEST),
-            activation_registration(
-                dpl_ai_grok::MANIFEST,
-                grok_activation.activation().clone(),
-                grok_activation.activation_capability_qualified(),
-            ),
-        ]
-        .into_iter()
-        .map(|registration| with_local_history(registration, &history_catalog))
-        .collect();
+        let chat_registrations = catalog_registrations(
+            &[
+                (
+                    "codex",
+                    codex_activation.activation().clone(),
+                    codex_activation.activation_capability_qualified(),
+                ),
+                (
+                    "grok",
+                    grok_activation.activation().clone(),
+                    grok_activation.activation_capability_qualified(),
+                ),
+            ],
+            &history_catalog,
+        );
         // Read the registered providers before the registrations are moved —
         // the coach catalog names them so an agent can wait for one provider's
         // activation rather than any provider's.
@@ -1830,6 +1817,86 @@ impl App {
             std::process::exit(i32::from(!ok));
         }
     }
+}
+
+/// Every AI in the catalog, registered in catalog order (AH1a): one list,
+/// never a second hand-written one.
+///
+/// An AI whose catalog entry names a qualified adapter carries that adapter's
+/// live activation. Every other AI starts in the state the catalog alone can
+/// justify, and the presence probe and the machine scan say what is on this
+/// computer once they answer.
+fn catalog_registrations(
+    adapters: &[(&str, dpl_ai_core::activation::ActivationState, bool)],
+    history: &dpl_chat_store::HistoryCatalog,
+) -> Vec<dpl_ai_core::registration::ProviderRegistration> {
+    dpl_ai_core::catalog::catalog()
+        .entries
+        .iter()
+        .map(|entry| {
+            let adapter = entry
+                .adapter
+                .and_then(|name| adapters.iter().find(|(known, ..)| *known == name));
+            let registration = match adapter {
+                Some((_, activation, qualified)) => {
+                    activation_registration(entry.manifest, activation.clone(), *qualified)
+                }
+                None => {
+                    let mut planned =
+                        dpl_ai_core::registration::ProviderRegistration::planned(entry.manifest);
+                    if let Some(activation) = catalog_activation(entry) {
+                        planned.activation = activation;
+                    }
+                    planned
+                }
+            };
+            with_local_history(registration, history)
+        })
+        .collect()
+}
+
+/// What the catalog alone can say about an AI before anything is probed.
+/// `None` keeps the planned state, for an AI whose own sign-in check will
+/// answer.
+fn catalog_activation(
+    entry: &dpl_ai_core::catalog::CatalogEntry,
+) -> Option<dpl_ai_core::activation::ActivationState> {
+    use dpl_ai_core::activation::{ActivationState, RecoveryAction, RecoveryActionKind};
+    use dpl_ai_core::catalog::EntryKind;
+
+    if entry.presence.is_some() {
+        return None;
+    }
+    let label = entry.manifest.descriptor.label;
+    let detectable = !entry.installs.is_empty() || !entry.tells.is_empty();
+    let (reason, get) = match entry.kind {
+        EntryKind::Desktop if detectable => {
+            ("Not found on this computer.".to_owned(), "Get the app")
+        }
+        EntryKind::Desktop => (
+            "DevPULSE can't recognise this app on a computer yet.".to_owned(),
+            "Read about it",
+        ),
+        EntryKind::Agent => (
+            format!(
+                "DevPULSE can't check for {label} on this computer yet. Chatting with it \
+                 comes with the ACP adapter (A2b)."
+            ),
+            "Read about it",
+        ),
+    };
+    Some(ActivationState::NotInstalled {
+        reason,
+        recovery: entry
+            .homepage
+            .map(|_| {
+                vec![RecoveryAction::new(
+                    RecoveryActionKind::InstallInstructions,
+                    get,
+                )]
+            })
+            .unwrap_or_default(),
+    })
 }
 
 fn activation_registration(
@@ -2442,7 +2509,7 @@ impl eframe::App for App {
 
 #[cfg(test)]
 mod tests {
-    use super::with_local_history;
+    use super::{catalog_activation, catalog_registrations, with_local_history};
     use dpl_ai_core::activation::ActivationState;
     use dpl_ai_core::capability::Capability;
     use dpl_ai_core::registration::ProviderRegistration;
@@ -2492,10 +2559,83 @@ mod tests {
         catalog
     }
 
+    fn catalog_manifest(
+        id: dpl_ai_core::provider::ProviderId,
+    ) -> dpl_ai_core::provider::ProviderManifest {
+        dpl_ai_core::catalog::manifest(id).expect("the catalog has DevPULSE's own AIs")
+    }
+
+    #[test]
+    fn every_catalog_ai_registers_once_in_catalog_order() {
+        let registrations = catalog_registrations(
+            &[
+                (
+                    "codex",
+                    dpl_ai_core::activation::ActivationState::Ready,
+                    true,
+                ),
+                (
+                    "grok",
+                    dpl_ai_core::activation::ActivationState::Verifying,
+                    false,
+                ),
+            ],
+            &dpl_chat_store::HistoryCatalog::default(),
+        );
+        let catalog = dpl_ai_core::catalog::catalog();
+        assert_eq!(registrations.len(), catalog.entries.len());
+        for (registration, entry) in registrations.iter().zip(&catalog.entries) {
+            assert_eq!(registration.manifest.descriptor.id, entry.id());
+        }
+        assert_eq!(
+            registrations[0].activation,
+            dpl_ai_core::activation::ActivationState::Ready,
+            "Codex carries its adapter's live activation"
+        );
+        assert!(registrations[0].has_capability(Capability::SubscriptionAuth));
+        // ChatRuntime refuses duplicate ids, so the whole catalog must load.
+        dpl_chat_runtime::ChatRuntime::try_from_registrations(registrations)
+            .expect("every catalog AI registers");
+    }
+
+    #[test]
+    fn every_catalog_adapter_is_one_this_app_drives() {
+        for entry in &dpl_ai_core::catalog::catalog().entries {
+            if let Some(adapter) = entry.adapter {
+                assert!(
+                    ["codex", "grok"].contains(&adapter),
+                    "{} names adapter {adapter}, which the app does not drive",
+                    entry.id()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_ai_the_catalog_cannot_check_says_so_and_offers_its_page() {
+        use dpl_ai_core::activation::{ActivationState, RecoveryActionKind};
+        let catalog = dpl_ai_core::catalog::catalog();
+        let goose = catalog
+            .get(dpl_ai_core::provider::ProviderId("goose"))
+            .expect("goose is in the ACP registry");
+        let ActivationState::NotInstalled { reason, recovery } =
+            catalog_activation(goose).expect("an AI without a sign-in check")
+        else {
+            panic!("an unchecked agent is not installed as far as DevPULSE knows");
+        };
+        assert!(reason.contains("can't check"), "{reason}");
+        assert_eq!(recovery[0].kind, RecoveryActionKind::InstallInstructions);
+        let claude = catalog.get(dpl_ai_claude::PROVIDER).expect("claude");
+        assert!(
+            catalog_activation(claude).is_none(),
+            "Claude's own sign-in check answers for it"
+        );
+    }
+
     #[test]
     fn local_transcripts_activate_a_planned_provider() {
         let registration = with_local_history(
-            ProviderRegistration::planned(dpl_ai_claude::MANIFEST),
+            ProviderRegistration::planned(catalog_manifest(dpl_ai_claude::PROVIDER)),
             &claude_catalog(),
         );
         assert!(
@@ -2509,7 +2649,7 @@ mod tests {
     #[test]
     fn a_history_activated_provider_still_cannot_send() {
         let registration = with_local_history(
-            ProviderRegistration::planned(dpl_ai_claude::MANIFEST),
+            ProviderRegistration::planned(catalog_manifest(dpl_ai_claude::PROVIDER)),
             &claude_catalog(),
         );
         assert!(
@@ -2520,7 +2660,7 @@ mod tests {
 
     #[test]
     fn a_live_activation_is_never_downgraded_by_history() {
-        let mut live = ProviderRegistration::planned(dpl_ai_claude::MANIFEST);
+        let mut live = ProviderRegistration::planned(catalog_manifest(dpl_ai_claude::PROVIDER));
         live.activation = ActivationState::Ready;
         let registration = with_local_history(live, &claude_catalog());
         assert_eq!(registration.activation, ActivationState::Ready);
@@ -2530,7 +2670,7 @@ mod tests {
     #[test]
     fn a_provider_without_transcripts_is_untouched() {
         let registration = with_local_history(
-            ProviderRegistration::planned(dpl_ai_gemini::MANIFEST),
+            ProviderRegistration::planned(catalog_manifest(dpl_ai_gemini::PROVIDER)),
             &claude_catalog(),
         );
         assert!(!registration.activation.is_activated());

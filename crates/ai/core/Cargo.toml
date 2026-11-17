@@ -8,6 +8,13 @@ publish.workspace = true
 # Pure provider vocabulary. Provider events and token usage ride the project
 # chat archive as serde values; nothing here does IO.
 serde.workspace = true
+# Parses the AI catalog compiled into this crate (catalog/*.json). The JSON
+# is embedded with include_str!, never read from disk or the network.
+serde_json.workspace = true
+
+[dev-dependencies]
+# Proves the vendored ACP registry is byte-for-byte the copy that was pinned.
+sha2.workspace = true
 
 [lints]
 workspace = true

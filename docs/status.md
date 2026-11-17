@@ -83,10 +83,17 @@ compact tab bar fits; C2b — the chat opens on General (Clyffy, powered by an A
 the operator picks), tabs for each ready AI, then More AIs; one + Add menu and
 mode chips on the composer, with what the current AI cannot do greyed and
 explained; the chat window paints only from ColdLight chat tokens; the composer
-fits at any width. Next: AH1 (the AI catalog as data, installed/running/signed-in
-detection, the trust prompt).
+fits at any width; AH1a — the AI catalog is data (a pinned copy of the ACP
+registry plus DevPULSE's own entries, 51 AIs, refreshed only by `cargo xtask
+ai-catalog refresh`), the app registers every catalog AI in one loop, and More
+AIs shows what a scan of this computer saw (installed, running), grouped by what
+the operator can do, with Open app for a found desktop app. Next: AH1b, the
+trust prompt ([plan](plans/chat-ah1-ai-catalog.md)).
 
 Known broken in chat:
+- `chat-local-histories` fails at the RECENT CHATS step on `main` as well
+  (checked on 96e415d, before AH1a): the operator's local transcripts do not
+  surface as session rows while the chat opens on General.
 - `chat-grok-persisted-ready` and `chat-codex-persisted-ready` stop at "Grok
   Ready" on this machine: the depot's `grok models` says "You are not
   authenticated." Codex's own step passes.
@@ -95,9 +102,7 @@ Known broken in chat:
   while Send asks for a session.
 - Attach in the + menu says it is not connected yet.
 
-Signing in to Codex or Grok before a project is chosen still reaches only the
-"Choose a project first" placeholder. The window's □, ❐, ▾ and ▸ glyphs are in
-no bundled font. The process-supervisor branch is not landing:
+The process-supervisor branch is not landing:
 its own commit records it as a placebo that fails the gate. The originals are
 local tags under `retired/`. The old clone at `D:\localdev\devpulselabs` now
 holds only `main`.
