@@ -41,7 +41,7 @@ fn run() -> Result<(), String> {
     let output = argument_value(&arguments, "--out")
         .map(PathBuf::from)
         .ok_or_else(|| {
-            "usage: chat-native-proof --out <png> [--state approval|ai|social|content|providers|hover|codex|generation|grok|grok-auth|compact|snapped|assist|history|brainstorm|commands|more-ais|more-ais-compact] [--live] [--title <exact title>] [--app <exe>]".to_owned()
+            "usage: chat-native-proof --out <png> [--state approval|ai|social|content|providers|hover|codex|generation|grok|grok-auth|compact|snapped|assist|history|brainstorm|commands|more-ais|more-ais-compact] [--live] [--settle-ms <n>] [--title <exact title>] [--app <exe>]".to_owned()
         })?;
     let title = argument_value(&arguments, "--title").unwrap_or_else(|| DEFAULT_TITLE.to_owned());
     let state = argument_value(&arguments, "--state").unwrap_or_else(|| "approval".to_owned());
@@ -163,6 +163,18 @@ fn run() -> Result<(), String> {
     {
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("could not create {}: {error}", parent.display()))?;
+    }
+    // `--settle-ms <n>`: a live run loads its project and asks its own
+    // questions after the window first paints; wait for that before capturing.
+    if let Some(settle) = argument_value(&arguments, "--settle-ms")
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .map_err(|error| format!("--settle-ms: {error}"))
+        })
+        .transpose()?
+    {
+        std::thread::sleep(Duration::from_millis(settle));
     }
     if snapped {
         capture_snapped_composition(&output, &windows)?;

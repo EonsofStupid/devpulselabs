@@ -323,7 +323,11 @@ mod tests {
                 tags: vec!["test".into()],
                 ..Viziwiz::blank_meta()
             },
-            dpl_roots::generation().wrapping_add(1),
+            // A Save that began one library generation ago. Never "ahead": the
+            // counter is process-wide and only grows, so a parallel test that
+            // opens a library could catch up to a stamp ahead of it and the
+            // change would vanish (seen once in a full gate run, 2026-11-16).
+            dpl_roots::generation().wrapping_sub(1),
         )))
         .unwrap();
         ui.poll_steps_save();

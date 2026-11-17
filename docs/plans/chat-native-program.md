@@ -835,7 +835,7 @@ for the look.
 1. **KB** (landed, #326) — the chat defects: Codex Ready, Grok sign-in, the compact tab bar.
 2. **C2b** (landed) — general chat by default, the tab model, the composer + menu
    with modes, the ColdLight chat surface, and the accessibility checklist.
-3. **AH1** — the AI catalog as data (ACP registry), installed / running /
+3. **AH1** (landed, #329 and AH1b) — the AI catalog as data (ACP registry), installed / running /
    signed-in detection, desktop tells, and the trust prompt.
 4. **ST4** — chats, logs, context and media in the library, grouped per project.
 5. **A2b / CW2** — the generic ACP adapter (Kimi and the rest) and the Claude

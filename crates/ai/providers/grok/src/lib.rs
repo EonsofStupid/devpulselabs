@@ -105,7 +105,7 @@ impl GrokRuntimeProfile {
     pub fn discover(working_directory: impl AsRef<Path>) -> Result<Self, GrokDiscoveryError> {
         let working_directory = canonical_directory(working_directory.as_ref())?;
         let executable = discover_executable()?;
-        let version = probe_version(&executable, &working_directory)?;
+        let version = probe_version(&executable)?;
         if !version.is_activation_supported() {
             return Err(GrokDiscoveryError::VersionUnsupported(version));
         }
@@ -530,11 +530,15 @@ fn discover_executable() -> Result<PathBuf, GrokDiscoveryError> {
         .map_err(|error| GrokDiscoveryError::EmbeddedDependency(error.to_string()))
 }
 
-fn probe_version(
-    executable: &Path,
-    working_directory: &Path,
-) -> Result<GrokVersion, GrokDiscoveryError> {
-    let mut command = profiled_command(executable, working_directory);
+/// Where a short check or the sign-in runs: beside the client itself, never in
+/// the project folder. Only the long-lived runtime works in the project, and
+/// only once the operator has trusted it there (AH1b).
+fn outside_project(executable: &Path) -> &Path {
+    executable.parent().unwrap_or(executable)
+}
+
+fn probe_version(executable: &Path) -> Result<GrokVersion, GrokDiscoveryError> {
+    let mut command = profiled_command(executable, outside_project(executable));
     command
         .arg("version")
         .stdin(Stdio::null())
@@ -560,7 +564,7 @@ fn probe_version(
 }
 
 fn login_command(profile: &GrokRuntimeProfile) -> Command {
-    let mut command = profiled_command(profile.executable(), profile.working_directory());
+    let mut command = profiled_command(profile.executable(), outside_project(profile.executable()));
     command
         .arg("login")
         .arg("--device-auth")

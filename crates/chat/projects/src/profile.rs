@@ -2,7 +2,8 @@
 //! proves filesystem binding, never vendor footprint completeness or support.
 //! No credential files are inspected and no profile is automatically adopted.
 
-use crate::{disk, Project, ProjectId, Registry, MAX_MARKER_BYTES, VERSION};
+use crate::registry::Registry;
+use crate::{disk, Project, ProjectId, MAX_MARKER_BYTES, VERSION};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};

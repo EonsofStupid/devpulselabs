@@ -87,8 +87,17 @@ fits at any width; AH1a — the AI catalog is data (a pinned copy of the ACP
 registry plus DevPULSE's own entries, 51 AIs, refreshed only by `cargo xtask
 ai-catalog refresh`), the app registers every catalog AI in one loop, and More
 AIs shows what a scan of this computer saw (installed, running), grouped by what
-the operator can do, with Open app for a found desktop app. Next: AH1b, the
-trust prompt ([plan](plans/chat-ah1-ai-catalog.md)).
+the operator can do, with Open app for a found desktop app; AH1b — the trust
+prompt: no AI process works in a project folder until the operator says what it
+may do there (Read, Change, Run, all off by default). Grants are stored on this
+computer beside the project registry, never in the project; a grant is the
+ceiling of the AI's permission picker; Grok is offered only what was granted;
+version checks and sign-in no longer run in the project folder. Next, per the
+chat plan's §4.8.4: ST4 (chats, logs, context and media in the library, grouped
+per project).
+
+Not done in AH1: a custom AI added by hand; Linux and macOS tells are authored
+but unverified; Grok's crate still re-exports its runtime from the crate root.
 
 Known broken in chat:
 - `chat-local-histories` fails at the RECENT CHATS step on `main` as well

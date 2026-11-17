@@ -1,5 +1,6 @@
 mod native;
 pub(super) mod project;
+mod trust;
 
 use dpl_ai_accounts::ActivationLedger;
 use dpl_ai_browser_auth::{BrowserAuthCoordinator, BrowserAuthError, BrowserAuthEvent};
@@ -208,6 +209,8 @@ struct Shared {
     /// the operator is already signed in. Polled from the frame loop and
     /// dropped once it lands.
     presence: Option<std::sync::mpsc::Receiver<Vec<dpl_ai_host::presence::Presence>>>,
+    /// What each AI may do in the active project (AH1b).
+    trust: trust::State,
     /// The one-shot machine scan (AH1a): which catalog AIs are installed and
     /// running here. Polled from the frame loop and dropped once it lands.
     machine: Option<std::sync::mpsc::Receiver<Vec<dpl_ai_host::machine::Sighting>>>,
@@ -1260,6 +1263,7 @@ impl ChatWindowCoordinator {
             presence: provider_runtime_enabled
                 .then(|| dpl_ai_host::presence::probe_all(dpl_ai_host::presence::specs())),
             machine: provider_runtime_enabled.then(dpl_ai_host::machine::scan),
+            trust: trust::State::default(),
             found_apps: std::collections::BTreeMap::new(),
             estate,
             determinism: dpl_intent::DeterminismGate::default(),
@@ -2133,11 +2137,20 @@ fn apply_host_intent_inner(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, int
                 }
             }
             tracing::info!(%provider, mode = mode.as_str(), "permission mode chosen");
+            let mode = trust::effective_mode(&state, provider);
             send_seam_command(
                 &mut state,
                 provider,
                 RuntimeCommand::SetPermissionMode { mode },
             );
+            ctx.request_repaint();
+        }
+        HostIntent::EditTrust(provider) => {
+            trust::edit(&mut lock(shared), provider);
+            ctx.request_repaint();
+        }
+        HostIntent::AnswerTrust { provider, grant } => {
+            trust::answer(&mut lock(shared), provider, grant);
             ctx.request_repaint();
         }
         HostIntent::OpenRoomLibraryFolder => {
@@ -3582,6 +3595,19 @@ fn poll_provider_activations(state: &mut Shared) -> bool {
     codex_changed || grok_changed || browser_changed
 }
 
+/// Stop an AI's project runtime after its trust changed. It starts again on
+/// the next frame with what is now granted, or stays stopped if nothing is.
+fn stop_project_runtime(state: &mut Shared, provider: ProviderId) {
+    if provider == dpl_ai_codex::PROVIDER {
+        state.runtimes.remove(&provider);
+    } else if provider == dpl_ai_grok::PROVIDER {
+        request_grok_runtime_shutdown(state);
+        if state.grok_activation.activation_capability_qualified() {
+            begin_grok_runtime_verification(state, dpl_ai_grok::GrokVerificationOrigin::Recovery);
+        }
+    }
+}
+
 fn request_grok_runtime_shutdown(state: &mut Shared) {
     let Some(runtime) = state.grok_runtime.as_ref() else {
         return;
@@ -3595,6 +3621,11 @@ fn begin_grok_runtime_verification(
     state: &mut Shared,
     origin: dpl_ai_grok::GrokVerificationOrigin,
 ) {
+    // Verifying Grok starts its runtime in the project folder, so a project it
+    // is not trusted in raises the trust dialog instead (AH1b).
+    if project::configured(state) && trust::runtime_grant(state, dpl_ai_grok::PROVIDER).is_none() {
+        return;
+    }
     state.grok_runtime_retry = Some(dpl_ai_grok::GrokRuntimeRetryState::new(origin));
     state.grok_runtime_retry_at = Some(Instant::now());
     state.grok_runtime_ready = false;
@@ -3619,13 +3650,22 @@ fn drive_grok_runtime(state: &mut Shared, now: Instant) -> bool {
     if now < retry_at {
         return false;
     }
+    // Nothing of Grok runs in the project folder until it is trusted there;
+    // the start stays scheduled until it is.
+    let Some(grant) = trust::runtime_grant(state, dpl_ai_grok::PROVIDER) else {
+        return false;
+    };
     state.grok_runtime_retry_at = None;
     let Some(profile) = state.grok_activation.runtime_profile() else {
         tracing::warn!("Grok runtime profile is unavailable after activation");
         return false;
     };
     let attempt = ensure_grok_attempt(state);
-    match dpl_ai_grok::GrokAcpRuntime::start(profile) {
+    let client = dpl_ai_grok::GrokClientGrant {
+        change: grant.change,
+        run: grant.run,
+    };
+    match dpl_ai_grok::GrokAcpRuntime::start(profile, client) {
         Ok(runtime) => {
             state.grok_runtime = Some(runtime);
             state
@@ -4440,6 +4480,10 @@ fn drive_codex_runtime(state: &mut Shared) -> bool {
     if !state.codex_activation.activation().is_activated() {
         return false;
     }
+    // Nothing of Codex runs in the project folder until it is trusted there.
+    if trust::runtime_grant(state, dpl_ai_codex::PROVIDER).is_none() {
+        return false;
+    }
     let Some(profile) = state.codex_activation.runtime_profile() else {
         return false;
     };
@@ -4577,11 +4621,8 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             // The operator's permission mode rides from the first turn, for a
             // runtime that can honour it (one that cannot never advertised it).
             if capabilities.permission_modes {
-                let mode = state
-                    .permission_modes
-                    .get(&provider)
-                    .copied()
-                    .unwrap_or_default();
+                // The saved mode, within this project's trust ceiling.
+                let mode = trust::effective_mode(state, provider);
                 state
                     .window
                     .set_provider_permission_mode(provider, Some(mode));
@@ -5220,11 +5261,7 @@ fn project_seam_permission(
     summary: String,
     options: Vec<dpl_ai_core::adapter::RuntimePermissionOption>,
 ) {
-    let mode = state
-        .permission_modes
-        .get(&provider)
-        .copied()
-        .unwrap_or_default();
+    let mode = trust::effective_mode(state, provider);
     let session = state
         .seam_sessions
         .get(&(provider, provider_session_id.clone()))
