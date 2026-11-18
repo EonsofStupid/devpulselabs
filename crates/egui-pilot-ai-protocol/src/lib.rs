@@ -1610,10 +1610,10 @@ pub fn capability_catalog() -> Vec<CapabilityDescriptor> {
             "requires a typed value adapter",
             "slice-3",
         ),
-        unsupported(
+        supported(
             id::ACTION_SCROLL_INTO_VIEW,
-            "requires a registered scroll adapter",
-            "slice-3",
+            "the target's registration scrolls every enclosing scroll area to it; the step waits until it is visible",
+            "runtime::prepare_action + plugin::register (chat-local-histories)",
         ),
         unsupported(
             id::EXPECT_SCREENSHOT,

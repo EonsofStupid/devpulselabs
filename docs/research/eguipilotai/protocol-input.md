@@ -168,7 +168,7 @@ selected natural-time project explicitly requests it.
 | `clear` | focus, select-all, delete/backspace, verify empty value |
 | `drag-to` | hover source, press, minimum-distance move, configured path ticks, final target check, release |
 | `scroll` | pointer over declared region, wheel ticks, settle |
-| `scroll-into-view` | registered scroll adapter or bounded real-wheel search; never a fake success |
+| `scroll-into-view` | the target's own registration asks every enclosing scroll area to scroll to it (`Response::scroll_to_me`); the step passes only once the node is visible, and fails after 5 s; never a fake success |
 | `set-value` | accessibility `SetValue`/increment/decrement path or a named typed adapter; never relabeled as pointer input |
 
 `press` grammar is parsed at scenario load time. Unknown keys, duplicate

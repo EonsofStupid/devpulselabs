@@ -3,8 +3,8 @@
 # chip says Trying, nothing saved), Keep (the chip names it), stop following
 # ("Own style (was Editorial quote)"), follow again, and go back to the
 # card's style. The rows below the tray's fold (size, ink, colour, movement)
-# are proven by dpl-editor's tests: this harness's wheel does not reach an
-# egui scroll area (scroll-into-view is unsupported in this build). Fixture
+# are proven by dpl-editor's tests; this scenario does not scroll the tray
+# to them (a scroll-into-view step can, since 2026-11-17). Fixture
 # `author-ls2-1100` (scratch content root). The run has 30 s in all: clicks wait
 # 0.4 s, captures 1.5 s.
 id = "line-looks-1100"

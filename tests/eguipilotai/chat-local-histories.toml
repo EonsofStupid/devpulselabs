@@ -63,7 +63,18 @@ id = "chat.primary/chat.mode.provider/claude"
 
 # THE CRITERION THAT MATTERS: the RECENT CHATS heading renders ONLY when
 # history rows exist, so its presence IS "the operator's chats surfaced". Its
-# pilot value carries how many were found.
+# pilot value carries how many were found. On General it sits below the AI
+# roster and Clyffy's row, under the rail's fold at this window size, so the
+# scenario scrolls the rail to it the way the operator would.
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "scroll-into-view"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.sessions.history"
+
 [[steps]]
 kind = "expect"
 
@@ -87,6 +98,15 @@ id = "chat.primary/chat.mode.provider/claude"
 [[steps]]
 kind = "wait"
 milliseconds = 400
+
+[[steps]]
+kind = "action"
+
+[steps.action]
+type = "scroll-into-view"
+
+[steps.action.target]
+id = "chat.primary/chat.sidebar.sessions.history"
 
 [[steps]]
 kind = "expect"

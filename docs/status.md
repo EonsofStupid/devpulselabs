@@ -1,5 +1,5 @@
 ---
-updated: 2026-11-13
+updated: 2026-11-17
 active_lane: recording-for-ai
 dirty: false
 ---
@@ -92,17 +92,22 @@ prompt: no AI process works in a project folder until the operator says what it
 may do there (Read, Change, Run, all off by default). Grants are stored on this
 computer beside the project registry, never in the project; a grant is the
 ceiling of the AI's permission picker; Grok is offered only what was granted;
-version checks and sign-in no longer run in the project folder. Next, per the
-chat plan's §4.8.4: ST4 (chats, logs, context and media in the library, grouped
-per project).
+version checks and sign-in no longer run in the project folder. After R305's
+custom-AI pass, the chat plan's §4.8.4 continues with ST4 (chats, logs,
+context and media in the library, grouped per project).
 
 Not done in AH1: a custom AI added by hand; Linux and macOS tells are authored
 but unverified; Grok's crate still re-exports its runtime from the crate root.
 
+**EguiPilotAI scrolls into view (2026-11-17).** `chat-local-histories` failed
+because RECENT CHATS sits below the General rail's fold, not because history
+was missing (492 Claude and 159 Codex transcripts index cleanly). The
+`scroll-into-view` step now works: the target's own registration scrolls its
+scroll areas, and the step passes only once the node is visible. The rail's
+order is unchanged ("Teach the test to scroll", R305). Next, per R305: a clear
+UI to add a custom AI the way Clyffy is one, before ST4, with its own plan.
+
 Known broken in chat:
-- `chat-local-histories` fails at the RECENT CHATS step on `main` as well
-  (checked on 96e415d, before AH1a): the operator's local transcripts do not
-  surface as session rows while the chat opens on General.
 - `chat-grok-persisted-ready` and `chat-codex-persisted-ready` stop at "Grok
   Ready" on this machine: the depot's `grok models` says "You are not
   authenticated." Codex's own step passes.
