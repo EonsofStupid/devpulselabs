@@ -2445,3 +2445,15 @@ Source: operator session, 2026-11-14, answering "What should passive mean?".
 Source: operator session, 2026-11-15. **Operator rulings 2026-11-15:**
 - **Main's protection:** removed: no required PR, checks, conversation resolution or admin enforcement. Force pushes and deletion stay blocked.
 - **How work lands:** "PR, merge right away": each milestone still gets a branch and a PR, merged as soon as the full local gate passes, without waiting for the hosted lanes. A red lane afterwards is the next work.
+
+### R305 · 2026-11-17
+
+> should have clear UI that allows met o add custom / i.e clyffy
+
+Source: operator session, 2026-11-17, answering "Once the local-histories fix
+lands, what should come next?" (offered: ST4 as approved, adding your own AI,
+checking Linux and macOS detection). **Operator rulings 2026-11-17:**
+- **Recent chats below the rail's fold:** "Teach the test to scroll":
+  EguiPilotAI gains scroll-into-view, and the General rail keeps its order.
+- **Next:** R305, a clear UI to add a custom AI the way Clyffy is one, comes
+  before ST4. It gets its own pass plan and OK.

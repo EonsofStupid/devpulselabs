@@ -854,9 +854,9 @@ Nothing was hidden; it was never asked to exist.
 
 Both fixtures report **zero clipped and zero hidden nodes**. There is at present
 no measured case of a node the coach cannot reach because of scroll position.
-`Action::ScrollIntoView` remains genuinely unimplemented — the runtime answers
-`scroll-adapter-required` — but nothing observed so far needs it, and building
-it now would be building on the inference above rather than on evidence.
+`Action::ScrollIntoView` was then unimplemented, because nothing observed
+needed it. On 2026-11-17 a node was measured below a fold (Chat's RECENT
+CHATS heading in `chat-local-histories`), and the action was built.
 
 ### Still open
 

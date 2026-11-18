@@ -62,7 +62,7 @@ fn run() -> Result<(), CliError> {
         },
         "help" | "--help" | "-h" => {
             println!(
-                "EguiPilotAI\n\n  doctor\n  mcp\n  test <profile> <scenario.toml> [fixture]\n  inspect <profile> [fixture]\n  coach <profile> <node-id> [--fixture <name>] [--message <text>] [--on <trigger>] [--wait-ms <n>] [--ttl-ms <n>]\n  fixtures\n  codegen <input.toml> <output.toml>  [EXPERIMENTAL normalizer; NOT a recorder]\n  open <run-directory>\n  agent install codex|cursor|claude\n\nCoaching paints a spotlight and reports what fires it.\n  --on press (default) | hover | appeared | value-changed | signal:<id>\nA touchpoint waiting on `appeared` or a signal mounts armed, so it can be set before its target exists.\n`inspect` and MCP `pilot_status` list every signal id this build can publish; nothing outside that list fires.\n\nUnsupported in this build: set-value, scroll-into-view, screenshot expectations, parallel workers, retries, recorder codegen, replay, visual approval, Test Lab live control, the semantic revision ticker, and the desktop coach overlay."
+                "EguiPilotAI\n\n  doctor\n  mcp\n  test <profile> <scenario.toml> [fixture]\n  inspect <profile> [fixture]\n  coach <profile> <node-id> [--fixture <name>] [--message <text>] [--on <trigger>] [--wait-ms <n>] [--ttl-ms <n>]\n  fixtures\n  codegen <input.toml> <output.toml>  [EXPERIMENTAL normalizer; NOT a recorder]\n  open <run-directory>\n  agent install codex|cursor|claude\n\nCoaching paints a spotlight and reports what fires it.\n  --on press (default) | hover | appeared | value-changed | signal:<id>\nA touchpoint waiting on `appeared` or a signal mounts armed, so it can be set before its target exists.\n`inspect` and MCP `pilot_status` list every signal id this build can publish; nothing outside that list fires.\n\nUnsupported in this build: set-value, screenshot expectations, parallel workers, retries, recorder codegen, replay, visual approval, Test Lab live control, the semantic revision ticker, and the desktop coach overlay."
             );
             Ok(())
         }
@@ -529,8 +529,8 @@ fn mcp_tools() -> Vec<Value> {
                 "type": "object", "required": ["flow"], "additionalProperties": false,
                 "properties": {"flow": {
                     "type": "object",
-                    "description": "Supported: click, double-click, hover, fill, clear, type, press, drag-to, scroll, focus-viewport, close-viewport, semantic and viewport expectations, wait, and renderer-supported capture. Unsupported: set-value, scroll-into-view, screenshot expectations, deferred viewports, and immediate child capture.",
-                    "x-eguipilotai-unsupported": ["action.set-value", "action.scroll-into-view", "expect.screenshot", "viewport.deferred", "viewport.capture.immediate"]
+                    "description": "Supported: click, double-click, hover, fill, clear, type, press, drag-to, scroll, scroll-into-view, focus-viewport, close-viewport, semantic and viewport expectations, wait, and renderer-supported capture. Unsupported: set-value, screenshot expectations, deferred viewports, and immediate child capture.",
+                    "x-eguipilotai-unsupported": ["action.set-value", "expect.screenshot", "viewport.deferred", "viewport.capture.immediate"]
                 }}
             }),
         ),

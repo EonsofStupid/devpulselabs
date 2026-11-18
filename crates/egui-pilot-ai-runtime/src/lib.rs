@@ -82,6 +82,8 @@ struct ActionExecution {
     started: Instant,
     sequence: InputSequence,
     wait_viewport: Option<(ViewportSelector, ViewportExpectationState)>,
+    /// A scroll-into-view action: done once this node is visible.
+    wait_visible: Option<NodeId>,
     settlement: Option<ActionSettlement>,
 }
 
@@ -901,6 +903,32 @@ impl<T: Transport> RuntimeGuard<T> {
                 self.request_viewport_repaint(egui_viewport, &descriptor);
             }
         }
+        if let (Action::ScrollIntoView { .. }, Some(node)) = (&action, target) {
+            // Every tracked node has a laid-out rect, so any of them can be
+            // brought on screen: no visibility or advertised action needed.
+            self.pilot.request_scroll_into_view(node.id.clone());
+            match self.pilot.egui_viewport(&node.viewport) {
+                Some(egui_viewport) => {
+                    self.pilot
+                        .request_parent_wake_after_next_pass(egui_viewport);
+                    self.ctx.request_repaint_of(egui_viewport);
+                }
+                None => self.ctx.request_repaint(),
+            }
+            return Ok(Some(ActionExecution {
+                request_id,
+                run_id,
+                step_id,
+                step_index,
+                started: Instant::now(),
+                sequence: InputSequence {
+                    ticks: Vec::new().into(),
+                },
+                wait_viewport: None,
+                wait_visible: Some(node.id.clone()),
+                settlement: None,
+            }));
+        }
         if let Some(node) = target {
             assert_actionable(node, &action)?;
             let needs_stability_frame = {
@@ -1034,6 +1062,7 @@ impl<T: Transport> RuntimeGuard<T> {
                 ticks: batches.into(),
             },
             wait_viewport,
+            wait_visible: None,
             settlement,
         }))
     }
@@ -1065,6 +1094,32 @@ impl<T: Transport> RuntimeGuard<T> {
                     message: format!("viewport did not reach {state:?} after action: {selector:?}"),
                     context: self.failure_context(None).map(Box::new),
                 };
+                if let Some(active) = self.active_flow.take() {
+                    self.fail_flow(active, error);
+                }
+                return;
+            } else {
+                self.action = Some(action);
+                self.ctx.request_repaint_after(Duration::from_millis(1));
+                return;
+            }
+        }
+        if let Some(node) = &action.wait_visible {
+            let frame = self.pilot.latest_frame();
+            if frame
+                .nodes
+                .iter()
+                .any(|candidate| &candidate.id == node && candidate.visible())
+            {
+                self.pilot.clear_scroll_request();
+                action.wait_visible = None;
+            } else if action.started.elapsed() >= Duration::from_secs(5) {
+                let error = PilotError {
+                    code: "scroll-into-view-timeout".into(),
+                    message: format!("node `{node}` did not come into view within 5 s"),
+                    context: self.failure_context(None).map(Box::new),
+                };
+                self.pilot.clear_scroll_request();
                 if let Some(active) = self.active_flow.take() {
                     self.fail_flow(active, error);
                 }
@@ -1765,6 +1820,8 @@ impl<T: Transport> RuntimeGuard<T> {
 
     fn cleanup_input(&mut self, scope: Option<EventScope>) {
         self.pilot.clear_input();
+        // A scroll request never outlives the action that made it.
+        self.pilot.clear_scroll_request();
         let cleanup = self.input_state.release_all();
         for input in cleanup {
             let viewport = input.viewport;
@@ -2175,11 +2232,9 @@ fn action_batches(
             message: "set-value requires an explicitly registered application adapter".into(),
             context: None,
         }),
-        Action::ScrollIntoView { .. } => Err(PilotError {
-            code: "scroll-adapter-required".into(),
-            message: "scroll-into-view requires a registered scroll-container adapter".into(),
-            context: None,
-        }),
+        Action::ScrollIntoView { .. } => {
+            unreachable!("scroll-into-view is prepared without input batches")
+        }
         Action::DragTo { source, target } => {
             let source = resolve_locator(frame, source)?;
             let target = resolve_locator(frame, target)?;
@@ -3464,6 +3519,112 @@ mod tests {
             } if error.code == "unsupported-capability"
         ));
         assert!(client.try_receive().unwrap().is_none());
+    }
+
+    const FAR_ROW: egui_pilot_ai::PilotId = egui_pilot_ai::PilotId::new("scroll.far-row");
+
+    /// A 100 px scroll area holding sixty rows; only the last is tracked.
+    fn scrolling_frame(ctx: &egui::Context) {
+        use egui_pilot_ai::UiPilotExt;
+        ctx.run_ui(Default::default(), |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(100.0)
+                .show(ui, |ui| {
+                    for row in 0..59 {
+                        ui.label(format!("row {row}"));
+                    }
+                    ui.pilot_label(FAR_ROW, "the far row");
+                });
+        })
+        .textures_delta
+        .clear();
+    }
+
+    fn run_scroll_flow(
+        client: &egui_pilot_ai_transport::InMemoryClient,
+        runtime: &mut RuntimeGuard<egui_pilot_ai_transport::InMemoryTransport>,
+        ctx: &egui::Context,
+        target: &str,
+    ) -> RunResult {
+        let locator = Locator {
+            id: Some(NodeId::new(target)),
+            ..Locator::default()
+        };
+        client
+            .try_send(CommandEnvelope {
+                request_id: RequestId::new("run-request"),
+                session: SessionId::new("session"),
+                command: ClientCommand::Run {
+                    run_id: RunId::new("run"),
+                    flow: Flow {
+                        experiment: None,
+                        id: protocol::ScenarioId::new("scroll"),
+                        fixture: None,
+                        steps: vec![
+                            Step::Action {
+                                action: Action::ScrollIntoView {
+                                    target: locator.clone(),
+                                },
+                            },
+                            Step::Expect {
+                                expectation: Expectation::Visible { target: locator },
+                            },
+                        ],
+                        record: false,
+                    },
+                },
+            })
+            .unwrap();
+        for _ in 0..400 {
+            scrolling_frame(ctx);
+            runtime.pump();
+            while let Ok(Some(message)) = client.try_receive() {
+                if let ServerMessage::Response { envelope } = message {
+                    if let ResponseOutcome::Success { result } = envelope.outcome {
+                        if let CommandResult::Run { result } = *result {
+                            return result;
+                        }
+                    }
+                }
+            }
+        }
+        panic!("the run never finished");
+    }
+
+    #[test]
+    fn scroll_into_view_brings_a_node_below_the_fold_on_screen() {
+        let (ctx, client, mut runtime) = test_runtime(64);
+        authenticate(&client, &mut runtime);
+        scrolling_frame(&ctx);
+        scrolling_frame(&ctx);
+        let far = |runtime: &RuntimeGuard<egui_pilot_ai_transport::InMemoryTransport>| {
+            runtime
+                .pilot()
+                .latest_frame()
+                .nodes
+                .into_iter()
+                .find(|node| node.id.0.ends_with("scroll.far-row"))
+                .expect("a row below the fold is still tracked")
+        };
+        let before = far(&runtime);
+        assert!(!before.visible(), "the far row starts below the fold");
+
+        let result = run_scroll_flow(&client, &mut runtime, &ctx, before.id.0.as_str());
+        assert_eq!(result.outcome, RunOutcome::Passed, "{result:?}");
+        assert!(far(&runtime).visible());
+    }
+
+    #[test]
+    fn scroll_into_view_of_a_missing_node_fails_the_step() {
+        let (ctx, client, mut runtime) = test_runtime(64);
+        authenticate(&client, &mut runtime);
+        scrolling_frame(&ctx);
+        let result = run_scroll_flow(&client, &mut runtime, &ctx, "root/scroll.nowhere");
+        assert_eq!(result.outcome, RunOutcome::Failed);
+        assert_eq!(
+            result.error.map(|error| error.code),
+            Some("locator-not-found".to_owned())
+        );
     }
 
     #[test]

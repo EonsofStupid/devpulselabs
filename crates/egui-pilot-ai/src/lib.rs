@@ -337,6 +337,10 @@ struct SharedState {
     /// Maintained at the input hook: present exactly while the viewport's
     /// current pass carries injected events.
     synthetic_frame: HashSet<egui::ViewportId>,
+    /// The node a scroll-into-view action is bringing on screen. While it
+    /// stands, that node's registration asks every enclosing scroll area to
+    /// scroll to it; the runtime clears it when the action ends.
+    scroll_request: Option<NodeId>,
 }
 
 #[derive(Clone)]
@@ -509,6 +513,16 @@ impl PilotHandle {
             );
         }
         shared.declarations.insert(egui_id, declaration);
+    }
+
+    /// Bring this node on screen: its next registrations ask every enclosing
+    /// scroll area to scroll to it, until `clear_scroll_request`.
+    pub fn request_scroll_into_view(&self, node: NodeId) {
+        lock(&self.shared).scroll_request = Some(node);
+    }
+
+    pub fn clear_scroll_request(&self) {
+        lock(&self.shared).scroll_request = None;
     }
 
     pub fn queue_viewport_command(
@@ -884,6 +898,9 @@ impl EguiPilotPlugin {
         };
 
         let mut shared = lock(&self.shared);
+        if shared.scroll_request.as_ref() == Some(&id) {
+            response.scroll_to_me(Some(egui::Align::Center));
+        }
         let frame = shared.staging.entry(viewport).or_default();
         if let Some(previous) = frame.ids.get(&id) {
             panic!(

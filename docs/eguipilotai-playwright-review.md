@@ -64,9 +64,11 @@ These currently look more complete than they are:
 2. `NodeMetadata` is richer than the `WidgetInfo::labeled` data currently sent
    to egui/AccessKit, and the plugin does not retain the real `TreeUpdate`.
    Pilot semantics must not be reported as verified AccessKit semantics.
-3. **Explicitly unsupported:** `Action::SetValue` and
-   `Action::ScrollIntoView` remain schema-compatible but fail capability
-   preflight before a run starts.
+3. **Explicitly unsupported:** `Action::SetValue` remains schema-compatible
+   but fails capability preflight before a run starts.
+   `Action::ScrollIntoView` is supported since 2026-11-17: the target's own
+   registration scrolls its scroll areas, and the step waits until the node
+   is visible.
 4. **Explicitly unsupported:** `Expectation::Screenshot` remains
    schema-compatible; visual comparison belongs to Slice 5.
 5. **Explicitly unsupported:** non-default `Project.workers` and
