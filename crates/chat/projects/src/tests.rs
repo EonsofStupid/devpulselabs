@@ -16,6 +16,75 @@ fn workspace(base: &Path, name: &str) -> PathBuf {
 }
 
 #[test]
+fn platform_archive_uses_existing_app_data_without_a_chat_project_or_registry() {
+    let root = scratch();
+    let working = workspace(&root, "platform");
+    let userdata = root.join("userdata");
+    let archive = Project::for_platform(&working, &userdata, "Platform").unwrap();
+    assert_eq!(archive.workspace(), working);
+    assert_eq!(archive.archive_dir(), userdata.join("chat/conversations"));
+    assert!(!working.join(".devpulse").exists());
+    archive
+        .save_state(&json!({"draft": "keep my draft"}))
+        .unwrap();
+    let reopened = Project::for_platform(&working, &userdata, "Platform").unwrap();
+    assert_eq!(archive.id(), reopened.id());
+    assert_eq!(
+        reopened.load_state().unwrap(),
+        Some(json!({"draft": "keep my draft"}))
+    );
+}
+
+#[test]
+fn supplied_platform_contexts_keep_their_conversations_separate() {
+    let root = scratch();
+    let a = workspace(&root, "alpha");
+    let b = workspace(&root, "beta");
+    let a_data = root.join("alpha-data");
+    let b_data = root.join("beta-data");
+    let first = Project::for_platform(&a, &a_data, "Alpha").unwrap();
+    let second = Project::for_platform(&b, &b_data, "Beta").unwrap();
+    first.save_state(&json!({"draft": "alpha only"})).unwrap();
+    second.save_state(&json!({"draft": "beta only"})).unwrap();
+    assert_ne!(first.id(), second.id());
+    assert_eq!(
+        Project::for_platform(&a, &a_data, "Alpha")
+            .unwrap()
+            .load_state()
+            .unwrap(),
+        Some(json!({"draft": "alpha only"}))
+    );
+    assert_eq!(
+        Project::for_platform(&b, &b_data, "Beta")
+            .unwrap()
+            .load_state()
+            .unwrap(),
+        Some(json!({"draft": "beta only"}))
+    );
+    assert!(!a.join(".devpulse").exists());
+    assert!(!b.join(".devpulse").exists());
+}
+
+#[test]
+fn platform_archive_copies_existing_workspace_chats_without_replacing_either_history() {
+    let root = scratch();
+    let working = workspace(&root, "platform");
+    let old = Project::create(&working, "Earlier chats").unwrap();
+    let before = json!({"draft": "legacy draft"});
+    old.save_state(&before).unwrap();
+    let userdata = root.join("userdata");
+    let current = Project::for_platform(&working, &userdata, "Platform").unwrap();
+    assert_eq!(current.load_state().unwrap(), Some(before.clone()));
+    current.save_state(&json!({"draft": "new draft"})).unwrap();
+    let reopened = Project::for_platform(&working, &userdata, "Platform").unwrap();
+    assert_eq!(
+        reopened.load_state().unwrap(),
+        Some(json!({"draft": "new draft"}))
+    );
+    assert_eq!(old.load_state().unwrap(), Some(before));
+}
+
+#[test]
 fn existing_registry_open_never_creates_or_adopts_a_missing_registry() {
     let base = scratch();
     let missing = base.join("missing");

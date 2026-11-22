@@ -116,6 +116,34 @@ pub struct Project {
 }
 
 impl Project {
+    /// Open the conversation archive owned by an already configured platform.
+    /// Workspace authority and storage come from the app, never a chat picker,
+    /// environment variable or the process working directory.
+    pub fn for_platform(
+        workspace: &Path,
+        userdata: &Path,
+        display_name: &str,
+    ) -> Result<Self, String> {
+        disk::existing_directory(workspace)?;
+        let archive = userdata.join("chat/conversations");
+        disk::path(&archive)?;
+        let project = if fs::symlink_metadata(archive.join(MARKER)).is_ok() {
+            Self::open_at(workspace, archive)?
+        } else {
+            Self::create_at(workspace, archive, display_name)?
+        };
+        // Copy an archive already associated with this exact workspace. Never
+        // retarget the old registry or overwrite either archive's history.
+        if project.load_state()?.is_none()
+            && workspace.join(".devpulse/chat").join(MARKER).is_file()
+        {
+            if let Some(snapshot) = Self::open(workspace)?.load_state()? {
+                project.save_state(&snapshot)?;
+            }
+        }
+        Ok(project)
+    }
+
     /// Create an archive only in an explicitly chosen existing workspace.
     /// Existing marked archives are opened; existing unmarked data is refused.
     pub fn create(workspace: &Path, display_name: &str) -> Result<Self, String> {
@@ -133,9 +161,12 @@ impl Project {
     /// never opens an existing marker, including another creator's race winner.
     /// Any existing marked or populated unmarked archive remains untouched.
     pub fn create_new(workspace: &Path, display_name: &str) -> Result<Self, String> {
+        Self::create_at(workspace, workspace.join(".devpulse/chat"), display_name)
+    }
+
+    fn create_at(workspace: &Path, archive: PathBuf, display_name: &str) -> Result<Self, String> {
         let display_name = label(display_name)?;
         disk::existing_directory(workspace)?;
-        let archive = workspace.join(".devpulse/chat");
         disk::path(&archive)?;
         disk::empty_or_absent(&archive)?;
         disk::create_directories(&archive)?;
@@ -156,8 +187,11 @@ impl Project {
     }
 
     pub fn open(workspace: &Path) -> Result<Self, String> {
+        Self::open_at(workspace, workspace.join(".devpulse/chat"))
+    }
+
+    fn open_at(workspace: &Path, archive: PathBuf) -> Result<Self, String> {
         disk::existing_directory(workspace)?;
-        let archive = workspace.join(".devpulse/chat");
         disk::existing_directory(&archive)?;
         let marker: Marker = disk::json(&archive.join(MARKER), MAX_MARKER_BYTES)?;
         if marker.v != VERSION {

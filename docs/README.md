@@ -97,6 +97,8 @@ named first and the others are marked **P2**: they merge into it during
 
 | Doc | Truth for |
 |---|---|
+| [`plans/chat-provider-golden-pattern.md`](plans/chat-provider-golden-pattern.md) | R302 planned minimum provider capture contract, project-authority correction, common lifecycle and per-adapter conformance. |
+| [`plans/chat-testable-windows.md`](plans/chat-testable-windows.md) | R301 active delivery: native new-chat popup, usable role starters, passive provider observations and a fresh Windows dev build. |
 | [`plans/chat-native-program.md`](plans/chat-native-program.md) | **The** chat + AI program (paused behind D0). |
 | [`plans/chat-provider-runtime-adr.md`](plans/chat-provider-runtime-adr.md) | The provider runtime exception to the no-IPC law. |
 | [`plans/chat-project-storage.md`](plans/chat-project-storage.md) | R292: PC1a project archives, drafts, selection and machine awareness passed local and native verification. Standalone links and native resume remain PC1b qualification. |

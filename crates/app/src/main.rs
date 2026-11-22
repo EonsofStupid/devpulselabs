@@ -17,6 +17,8 @@ mod coach_signals;
 mod presence;
 mod screenshot;
 mod storage_startup;
+#[cfg(test)]
+mod test_isolation;
 
 use dpl_fabric::Fabric;
 use dpl_hub::{Hub, Route};
@@ -1510,6 +1512,7 @@ impl App {
             &fabric,
             chat_runtime,
             chat::ChatWindowConfig {
+                platform: chat::project::PlatformContext::current().ok(),
                 initial_route: shell.route(),
                 catalog: history_catalog,
                 routes: chat_routes,
@@ -2434,6 +2437,12 @@ mod tests {
     #[test]
     fn chrome_choices_retry_a_failed_save_when_storage_returns() {
         use super::ChromeChoices;
+        // Other app tests initialize the process-wide library handle. This
+        // disk retry test needs its own process so their startup pages cannot
+        // replace its storage authority halfway through the two saves.
+        if super::test_isolation::chrome_retry_in_child() {
+            return;
+        }
         let dir = std::env::temp_dir().join(format!(
             "dpl-chrome-reconnect-{}-{}",
             std::process::id(),

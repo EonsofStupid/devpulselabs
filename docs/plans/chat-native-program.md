@@ -612,6 +612,13 @@ Each is listed before it is relied on.
 
 ### 4.7 Machine awareness and portable project chat (R290, R292)
 
+**R301 correction, 2026-11-20:** project awareness belongs to the platform.
+Chat inherits the app's workspace context and opens its storage automatically
+inside existing platform userdata. The PC1a separate chat-project setup gate
+is removed from the normal experience; it was an incorrect interpretation,
+not an operator requirement. Existing portable archives remain preserved.
+The current execution correction is `chat-testable-windows.md`, step 0.
+
 **Requirement, standalone-app scope and reviewed implementation authorized
 2026-10-27 (R292); PC1a in progress, PC1b provider qualification pending.** This extends
 the existing chat/AI program. R290's order remains
@@ -698,6 +705,16 @@ per-project machine profiles, not changing a shared global link beneath running
 clients. Provider conversation footprint, fresh-machine resume, lease ownership
 and the exact external paths are explicit gates. The operator resumed the
 reviewed design; PC1a implementation proceeds without repeating approval.
+
+### 4.8 Provider minimum contract (R302)
+
+The [provider golden pattern](chat-provider-golden-pattern.md) governs the
+planned minimum captured fields, shared lifecycle and adapter admission tests.
+It records the conflict between R292's independently selected working project
+and R301's recent build-folder/library fallback. Its P0 project-authority trace
+precedes further binding/storage changes; a live reply naming a directory does
+not prove platform project-management correctness. Existing code remains under
+review; the contract is planned, not implemented by this documentation pass.
 
 ## 5. Wiring
 

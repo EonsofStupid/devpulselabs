@@ -987,6 +987,8 @@ fn dev(arguments: &[String]) -> Result<(), String> {
             "dpl-lottie-render",
             "-p",
             "dpl-coach-overlay",
+            "--features",
+            "devpulselabs/eguipilotai-devtools",
         ],
     )?;
 

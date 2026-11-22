@@ -82,6 +82,8 @@ pub enum ChatProofMode {
     Library,
     Projects,
     ProjectsCompact,
+    NewChat,
+    NewChatCompact,
 }
 
 #[cfg(feature = "eguipilotai-devtools")]
@@ -107,6 +109,8 @@ impl ChatProofMode {
             "library" => Some(Self::Library),
             "projects" => Some(Self::Projects),
             "projects-compact" => Some(Self::ProjectsCompact),
+            "new-chat" => Some(Self::NewChat),
+            "new-chat-compact" => Some(Self::NewChatCompact),
             _ => None,
         }
     }
@@ -181,10 +185,11 @@ struct Shared {
     /// The Clyffy house session (BND1-M3a). Host-owned like the board;
     /// minted on first presence sync, never re-identified.
     clyffy: Option<ClyffySession>,
-    /// The one-shot presence sweep: each vendor's own tool answering whether
+    /// The bounded presence sweep: each vendor's own tool answering whether
     /// the operator is already signed in. Polled from the frame loop and
     /// dropped once it lands.
     presence: Option<std::sync::mpsc::Receiver<Vec<crate::presence::Presence>>>,
+    next_presence_check: Instant,
     /// Where the roster is remembered between launches (ADR-017 §2). `None`
     /// when the estate failed to open; the roster is derived, so the only
     /// cost is that the platform starts empty instead of remembered.
@@ -424,12 +429,19 @@ fn restore_roster(
         .collect()
 }
 
-/// Take the presence sweep the moment it lands, then never look again.
+/// Drain one sweep and schedule the next, without overlapping checks.
 ///
 /// A non-blocking poll on the frame path: the probe runs four short-lived
 /// vendor processes on its own thread, and the egui thread only ever asks
-/// whether the answer has arrived.
+/// whether the answer has arrived. Both native windows service this loop.
 fn drain_presence(state: &mut Shared) {
+    if state.provider_runtime_enabled
+        && state.presence.is_none()
+        && Instant::now() >= state.next_presence_check
+    {
+        state.presence = Some(crate::presence::probe_all(crate::presence::specs()));
+        state.window.set_machine_checking(true);
+    }
     let Some(receiver) = state.presence.as_ref() else {
         return;
     };
@@ -438,10 +450,26 @@ fn drain_presence(state: &mut Shared) {
         Err(std::sync::mpsc::TryRecvError::Empty) => return,
         Err(std::sync::mpsc::TryRecvError::Disconnected) => {
             state.presence = None;
+            state.next_presence_check = Instant::now() + std::time::Duration::from_secs(30);
+            state.window.set_machine_checking(false);
             return;
         }
     };
     state.presence = None;
+    state.next_presence_check = Instant::now() + std::time::Duration::from_secs(30);
+    state.window.set_machine_observations(
+        found
+            .iter()
+            .map(|one| dpl_chat_window::MachineObservation {
+                provider: one.provider,
+                status: one
+                    .note
+                    .clone()
+                    .unwrap_or_else(|| "Installed and signed in on this computer.".into()),
+            })
+            .collect(),
+        false,
+    );
     for one in &found {
         tracing::info!(provider = %one.provider, verdict = ?one.verdict, "provider presence");
         apply_presence(state, one);
@@ -451,22 +479,16 @@ fn drain_presence(state: &mut Shared) {
 /// Fold one presence answer into the window's activation, if it has anything
 /// to add.
 ///
-/// It is deliberately NON-DESTRUCTIVE. A provider that is already activated
-/// keeps whatever activated it — H1's Claude is `Experimental` off its
-/// transcripts, and Codex and Grok own full activation coordinators with
-/// launchers and runtimes. Presence's job is to fill in the providers nobody
-/// has spoken for, and to state honestly what the machine says about the
-/// rest. Overwriting a live coordinator's state from a one-shot probe is how
-/// a working provider ends up reported as signed out mid-session.
+/// Codex and Grok own their activation coordinators; their observations are
+/// displayed separately. Discovery-only clients are updated on every check,
+/// including a later sign-out, without granting a conversation capability.
 fn apply_presence(state: &mut Shared, found: &crate::presence::Presence) {
     use dpl_chat_core::PresenceVerdict;
 
-    let already_activated = state
-        .window
-        .provider_capabilities()
-        .iter()
-        .any(|p| p.id == found.provider && p.activated);
-    if already_activated {
+    if found.provider == dpl_chat_codex::PROVIDER
+        || found.provider == dpl_chat_grok::PROVIDER
+        || state.runtimes.contains_key(&found.provider)
+    {
         return;
     }
 
@@ -490,7 +512,10 @@ fn apply_presence(state: &mut Shared, found: &crate::presence::Presence) {
             recovery: Vec::new(),
         },
         // An answer nobody taught us to read is not evidence of anything.
-        PresenceVerdict::Unknown => return,
+        PresenceVerdict::Unknown => ActivationState::Experimental {
+            reason: note,
+            recovery: Vec::new(),
+        },
     };
 
     if let Err(error) = state
@@ -529,6 +554,7 @@ pub struct ChatWindowCoordinator {
 }
 
 pub struct ChatWindowConfig {
+    pub platform: Option<project::PlatformContext>,
     pub initial_route: Route,
     pub catalog: HistoryCatalog,
     pub routes: Vec<(String, Route)>,
@@ -547,6 +573,7 @@ pub struct ChatWindowConfig {
 impl ChatWindowCoordinator {
     pub fn new(fabric: &Fabric, runtime: ChatRuntime, config: ChatWindowConfig) -> Self {
         let ChatWindowConfig {
+            platform,
             initial_route,
             catalog,
             routes,
@@ -570,9 +597,17 @@ impl ChatWindowCoordinator {
             #[cfg(feature = "eguipilotai-devtools")]
             if matches!(
                 proof_mode,
-                Some(ChatProofMode::Projects | ChatProofMode::ProjectsCompact)
+                Some(
+                    ChatProofMode::Projects
+                        | ChatProofMode::ProjectsCompact
+                        | ChatProofMode::NewChat
+                        | ChatProofMode::NewChatCompact
+                )
             ) {
-                let size = if proof_mode == Some(ChatProofMode::ProjectsCompact) {
+                let size = if matches!(
+                    proof_mode,
+                    Some(ChatProofMode::ProjectsCompact | ChatProofMode::NewChatCompact)
+                ) {
                     [1100, 700]
                 } else {
                     [1440, 900]
@@ -837,6 +872,13 @@ impl ChatWindowCoordinator {
                         .apply(dpl_chat_window::ChatWindowIntent::ToggleRoomLibrary)
                         .expect("the library opens");
                 }
+                ChatProofMode::NewChat | ChatProofMode::NewChatCompact => {
+                    window.set_provider_permission_mode(
+                        dpl_chat_codex::PROVIDER,
+                        Some(PermissionMode::AskFirst),
+                    );
+                    window.open_new_chat(None);
+                }
                 ChatProofMode::Approval
                 | ChatProofMode::Ai
                 | ChatProofMode::Compact
@@ -1024,12 +1066,14 @@ impl ChatWindowCoordinator {
             clyffy: None,
             presence: provider_runtime_enabled
                 .then(|| crate::presence::probe_all(crate::presence::specs())),
+            next_presence_check: Instant::now(),
             estate,
             determinism: dpl_intent::DeterminismGate::default(),
             brainstorm: None,
             #[cfg(feature = "eguipilotai-devtools")]
             pilot_runtime: None,
         };
+        shared.project.platform_context(platform);
         #[cfg(feature = "eguipilotai-devtools")]
         if proof_mode == Some(ChatProofMode::Assist) {
             let interaction = InteractionId(shared.next_interaction_id);
@@ -1551,6 +1595,10 @@ fn read_content_spine(id: &ContentEpisodeId) -> Option<ContentSpine> {
 fn service_project(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>) {
     let (verified, pending_chat_close, pending_root_close) = {
         let mut state = lock(shared);
+        drain_presence(&mut state);
+        if state.provider_runtime_enabled {
+            ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        }
         project::boot(&mut state, ctx);
         project::poll(&mut state, ctx);
         native::tick(&mut state);
@@ -1589,6 +1637,7 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
     if matches!(
         intent,
         HostIntent::NewSession(_)
+            | HostIntent::CreateChat { .. }
             | HostIntent::SendTurn { .. }
             | HostIntent::ActivateProvider(_)
             | HostIntent::LoadSession { .. }
@@ -1618,7 +1667,7 @@ fn apply_host_intent_inner(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, int
         HostIntent::SelectProject(id) => {
             project::request(&mut lock(shared), ctx, project::Request::Select(id))
         }
-        HostIntent::RetryProjectSave => project::save(&mut lock(shared), ctx, true),
+        HostIntent::RetryProjectSave => project::retry(&mut lock(shared), ctx),
         HostIntent::OpenUtility {
             interaction_id,
             placement,
@@ -1729,6 +1778,33 @@ fn apply_host_intent_inner(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, int
         }
         HostIntent::RefreshNativeSessions(provider) => {
             native::request_list(&mut lock(shared), provider)
+        }
+        HostIntent::RefreshMachine => {
+            let mut state = lock(shared);
+            state.next_presence_check = Instant::now();
+            drain_presence(&mut state);
+            ctx.request_repaint();
+        }
+        HostIntent::CreateChat { provider, starter } => {
+            let mut state = lock(shared);
+            if !state.window.can_prepare_chat(provider) || !project::require_ready(&mut state) {
+                state.window.chat_creation_failed(
+                    provider,
+                    "Connect an AI and wait for your conversations to finish opening. Your message is kept.",
+                );
+                return;
+            }
+            let queued = if provider == dpl_chat_grok::PROVIDER {
+                send_grok_command(&state, dpl_chat_grok::GrokRuntimeCommand::NewSession)
+            } else {
+                send_seam_command(&mut state, provider, RuntimeCommand::NewSession)
+            };
+            if queued {
+                state.window.chat_creation_queued(provider, starter);
+            } else {
+                state.window.chat_creation_failed(provider, "The AI is not ready yet. Your message is kept here; try again after connecting.");
+            }
+            ctx.request_repaint();
         }
         HostIntent::NewSession(provider) => {
             let mut state = lock(shared);
@@ -3593,6 +3669,9 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                 {
                     tracing::warn!(%error, "Grok session could not be selected");
                 } else {
+                    if is_new {
+                        let _ = state.window.finish_chat_creation(dpl_chat_grok::PROVIDER);
+                    }
                     state.window.request_composer_focus();
                 }
             }
@@ -3710,6 +3789,9 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                 state.grok_turns.remove(&provider_session_id);
             }
             dpl_chat_grok::GrokRuntimeEvent::Failure(failure) => {
+                state
+                    .window
+                    .chat_creation_failed(dpl_chat_grok::PROVIDER, &failure.reason);
                 if let Some(provider_session_id) = failure.provider_session_id.clone() {
                     append_grok_event(
                         state,
@@ -3730,6 +3812,10 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                 }
             }
             dpl_chat_grok::GrokRuntimeEvent::Stopped => {
+                state.window.chat_creation_failed(
+                    dpl_chat_grok::PROVIDER,
+                    "The AI connection closed. Your task is kept; reconnect and try again.",
+                );
                 cancel_grok_permissions(state, None, false);
                 state.grok_runtime = None;
                 state.grok_runtime_ready = false;
@@ -3971,7 +4057,7 @@ fn send_grok_turn(state: &mut Shared, session: ChatSessionId, text: String) {
     };
     let command = dpl_chat_grok::GrokRuntimeCommand::Prompt {
         provider_session_id: provider_session_id.clone(),
-        text,
+        text: platform_prompt(state, &text),
     };
     if !send_grok_command(state, command) {
         return;
@@ -4361,6 +4447,9 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             {
                 tracing::warn!(%provider, %error, "provider session could not be selected");
             } else {
+                if is_new {
+                    let _ = state.window.finish_chat_creation(provider);
+                }
                 state.window.request_composer_focus();
             }
         }
@@ -4414,6 +4503,7 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             state.seam_turns.remove(&(provider, provider_session_id));
         }
         RuntimeEvent::Failure(failure) => {
+            state.window.chat_creation_failed(provider, &failure.reason);
             if native::failure(state, provider, &failure) {
                 return;
             }
@@ -4467,6 +4557,10 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             }
         }
         RuntimeEvent::Stopped => {
+            state.window.chat_creation_failed(
+                provider,
+                "The AI connection closed. Your task is kept; reconnect and try again.",
+            );
             native::stopped(state, provider);
             state.runtimes.remove(&provider);
         }
@@ -4664,12 +4758,13 @@ fn send_seam_turn(state: &mut Shared, provider: ProviderId, session: ChatSession
         turn_id: Some(turn.clone()),
         content: ChatEventContent::UserMessage(text.clone()),
     };
+    let prompt = platform_prompt(state, &text);
     if !send_seam_command(
         state,
         provider,
         RuntimeCommand::Prompt {
             provider_session_id: provider_session_id.clone(),
-            text,
+            text: prompt,
         },
     ) {
         return;
@@ -4688,6 +4783,20 @@ fn send_seam_turn(state: &mut Shared, provider: ProviderId, session: ChatSession
     {
         tracing::warn!(%provider, %error, "user message could not be projected");
     }
+}
+
+/// Only host-owned metadata accompanies a turn. Awareness neither changes the
+/// provider's workspace/permissions nor reads or attaches project files.
+fn platform_prompt(state: &Shared, text: &str) -> String {
+    let Some(context) = state.project.platform_context_ref() else {
+        return text.to_owned();
+    };
+    let route = state
+        .window
+        .observed_route()
+        .map(|route| format!("{}/{}", route.hub.0, route.sub.0))
+        .unwrap_or_default();
+    format!("[DevPULSE platform context]\nProject: {}\nWorkspace: {}\nCurrent view: {}\nThis is the platform context for this message; it does not grant additional file or tool permissions.\n[/DevPULSE platform context]\n\n{}", context.label, context.workspace.display(), route, text)
 }
 
 fn set_grok_session_idle(state: &mut Shared, provider_session_id: &str) {

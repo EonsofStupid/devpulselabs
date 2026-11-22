@@ -2387,3 +2387,34 @@ Source: operator session, 2026-11-10. **Operator rulings 2026-11-10:**
 - **Automatic merging:** "Built-in auto-merge", in place of the 15-minute delivery bot.
 - **The older never-landed work:** "Port each, one PR each".
 - **The old clone:** "Clean it".
+
+### R301 · 2026-11-20
+
+> by now i should be able to have a version to test where it should be smart so if i am running on windows the chat should be passively smart and see if claude or grok or meta muse or codex claude is and actually work and be aware I should be able to with truly friendly tailored clean popup screen menus create a new chat session and have roles available we have premade to test with, i should have the code tailored so when we run the dev version that it allows us to optimize all the parts of this massive platform and i need you to understand i have a year almost and i feel like i have nothing
+
+Source: operator session. Authorizes delivery toward usable Windows chat,
+passive machine awareness, friendly new-session menus, usable built-in roles
+and a testable development build. Execution: [Windows chat](plans/chat-testable-windows.md).
+
+**Operator correction, same session:**
+
+> why are we mixing projects with chat
+
+> CHAT SHOULD BE AWARE OF THE PLATFORMS PROJECT
+
+> GET THE FUCKING EXISTING CODE PROPERLY AUTHORED WHAT HTE FUCK IS THIS PROJECT BULLSHIT
+
+Chat inherits platform project context. A separate chat project setup or
+selection must not be a prerequisite for creating a conversation. This
+corrects the PC1a host's mandatory chat-project flow as well as the R301 draft.
+
+### R302 · 2026-11-21
+
+> i need to see what the fuck you are doing becauase now my project management is clearly completely fucked
+
+> get the fucking changes planned out properly establishing golden pattern for each provider to follow for minimum parameters to be captured
+
+Source: operator follow-up. Requires a reviewable plan, a common provider
+pattern and explicit minimum captured parameters. The plan must account for
+platform project ownership and expose what is verified versus assumed.
+Planning artifact: [provider golden pattern](plans/chat-provider-golden-pattern.md).

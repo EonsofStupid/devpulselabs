@@ -1,0 +1,69 @@
+id = "chat-new"
+fixture = "chat-new"
+record = true
+
+[[steps]]
+kind = "wait"
+milliseconds = 750
+
+[[steps]]
+kind = "expect"
+[steps.expectation]
+type = "visible"
+[steps.expectation.target]
+id = "chat.primary/chat.new.refresh"
+
+[[steps]]
+kind = "expect"
+[steps.expectation]
+type = "visible"
+[steps.expectation.target]
+id = "chat.primary/chat.new.role/skeptic"
+
+[[steps]]
+kind = "expect"
+[steps.expectation]
+type = "visible"
+[steps.expectation.target]
+id = "chat.primary/chat.new.task"
+
+[[steps]]
+kind = "expect"
+[steps.expectation]
+type = "visible"
+[steps.expectation.target]
+id = "chat.primary/chat.new.create"
+
+[[steps]]
+kind = "expect"
+[steps.expectation]
+type = "count"
+value = 0
+[steps.expectation.target]
+id = "chat.primary/chat.projects"
+
+[[steps]]
+kind = "expect"
+[steps.expectation]
+type = "count"
+value = 0
+[steps.expectation.target]
+id = "chat.primary/chat.new.project"
+
+# Both controls coexist in a live session; their automation and egui IDs
+# must remain distinct when the popup opens over the conversation header.
+[[steps]]
+kind = "expect"
+[steps.expectation]
+type = "count"
+value = 1
+[steps.expectation.target]
+id = "chat.primary/chat.permissions/codex"
+
+[[steps]]
+kind = "expect"
+[steps.expectation]
+type = "count"
+value = 1
+[steps.expectation.target]
+id = "chat.primary/chat.new.permissions/codex"

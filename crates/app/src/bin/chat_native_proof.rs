@@ -65,6 +65,8 @@ fn run() -> Result<(), String> {
             | "commands"
             | "projects"
             | "projects-compact"
+            | "new-chat"
+            | "new-chat-compact"
     ) {
         return Err(format!("unknown native Chat proof state {state:?}"));
     }

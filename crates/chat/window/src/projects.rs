@@ -26,6 +26,7 @@ pub struct ProjectView {
     pub busy: bool,
     pub can_switch: bool,
     pub can_save_copy: bool,
+    pub can_retry: bool,
     pub message: String,
 }
 
@@ -38,6 +39,7 @@ impl Default for ProjectView {
             busy: false,
             can_switch: true,
             can_save_copy: false,
+            can_retry: false,
             message: String::new(),
         }
     }
@@ -105,7 +107,7 @@ impl ChatWindow {
         })
     }
 
-    pub(super) fn project_bar(&mut self, ui: &mut egui::Ui) {
+    pub(super) fn project_bar(&mut self, ui: &mut egui::Ui, intents: &mut Vec<ChatWindowIntent>) {
         let fluid = cl::Fluid::of(ui.max_rect());
         ui.horizontal_wrapped(|ui| {
             ui.label(
@@ -120,17 +122,7 @@ impl ChatWindow {
                     &active.workspace.display().to_string(),
                 );
             } else {
-                ui.label(RichText::new("Set up project chat storage").color(Tone::Amber.color()));
-            }
-            if quiet_button(
-                ui,
-                PROJECTS_ID,
-                "Projects",
-                "Choose a workspace for project chats",
-            )
-            .clicked()
-            {
-                self.project_ui.open = !self.project_ui.open;
+                ui.label(RichText::new("DevPULSE").color(Tone::Cyan.color()));
             }
             if self.project_view.busy {
                 ui.spinner();
@@ -141,6 +133,19 @@ impl ChatWindow {
                         .small()
                         .color(cl::ink::MUTED),
                 );
+            }
+            if self.project_view.can_retry
+                && project_button(
+                    ui,
+                    PROJECT_RETRY_ID,
+                    "Retry",
+                    "Reconnect conversation storage and retry saving",
+                    !self.project_view.busy,
+                    fluid.tap_min(),
+                )
+                .clicked()
+            {
+                intents.push(ChatWindowIntent::RetryProjectSave);
             }
         });
     }

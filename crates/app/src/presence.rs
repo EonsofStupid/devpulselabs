@@ -39,6 +39,8 @@ pub const fn platform_label() -> &'static str {
         "Windows"
     } else if cfg!(target_os = "linux") {
         "Linux"
+    } else if cfg!(target_os = "macos") {
+        "macOS"
     } else {
         "Other operating system"
     }
@@ -66,9 +68,39 @@ pub struct Presence {
 /// Run one probe to completion. Blocking — callers use [`probe_all`], which
 /// owns the thread.
 pub fn probe(provider: ProviderId, spec: &PresenceSpec) -> Presence {
-    let mut command = Command::new(spec.program);
+    let mut command = Command::new(probe_program(provider, spec));
     command.args(spec.args);
     probe_command(provider, spec, command, PROBE_TIMEOUT)
+}
+
+/// Runtime providers are observed through the same verified depot used to
+/// launch them. Other named clients prefer their native per-user install;
+/// no shell wrappers or credential files are opened here.
+fn probe_program(provider: ProviderId, spec: &PresenceSpec) -> std::path::PathBuf {
+    let dependency = if provider == dpl_chat_codex::PROVIDER {
+        Some(dpl_tools_deps::CODEX)
+    } else if provider == dpl_chat_grok::PROVIDER {
+        Some(dpl_tools_deps::GROK)
+    } else {
+        None
+    };
+    if let Some(dependency) = dependency {
+        if let Ok(resolved) = dpl_tools_deps::resolve_current(dependency) {
+            return resolved.path().to_owned();
+        }
+    }
+    if cfg!(windows) {
+        if let Some(profile) = std::env::var_os("USERPROFILE") {
+            let candidate = std::path::PathBuf::from(profile)
+                .join(".local")
+                .join("bin")
+                .join(format!("{}.exe", spec.program));
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    spec.program.into()
 }
 
 // Only the declared provider probe above supplies this command in production.
@@ -112,7 +144,18 @@ fn probe_command(
         String::from_utf8_lossy(&captured.stdout),
         String::from_utf8_lossy(&captured.stderr)
     );
-    let classified = spec.classify(&output);
+    let classified = if provider == dpl_chat_claude::PROVIDER {
+        match serde_json::from_slice::<serde_json::Value>(&captured.stdout)
+            .ok()
+            .and_then(|value| value.get("loggedIn").and_then(serde_json::Value::as_bool))
+        {
+            Some(true) => PresenceVerdict::SignedIn,
+            Some(false) => PresenceVerdict::SignedOut,
+            None => PresenceVerdict::Unknown,
+        }
+    } else {
+        spec.classify(&output)
+    };
     // Several vendors use a nonzero exit for a normal signed-out verdict.
     // An unsuccessful process must never be promoted to SignedIn merely
     // because an error happened to repeat that phrase.
@@ -190,7 +233,7 @@ pub fn begin_sign_in(
     if spec.login.is_empty() {
         return Err(format!("{} has no CLI sign-in", spec.program));
     }
-    let mut command = Command::new(spec.program);
+    let mut command = Command::new(probe_program(provider, &spec));
     command
         .args(spec.login)
         .stdin(Stdio::null())

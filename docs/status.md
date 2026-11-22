@@ -1,7 +1,7 @@
 ---
-updated: 2026-11-10
-active_lane: recording-for-ai
-dirty: false
+updated: 2026-11-21
+active_lane: chat-provider-golden-pattern
+dirty: true
 ---
 
 # Status — where DevPULSE Labs is right now
@@ -52,6 +52,39 @@ private repos, so it no longer applies now the repo is public.
 `docs/plans/ci-exe-upload.md`.
 
 ## Now
+
+**Provider contract and project-authority correction (R302, planning only).**
+The operator requested a visible plan and one golden provider pattern with
+minimum captured parameters. [The plan](plans/chat-provider-golden-pattern.md)
+names existing owners, required fields/truth states, provider gaps, delivery
+order and a common conformance battery. No application code changed in this pass.
+The immediate next step is P0: trace the platform's actual working-project
+selection and persistent identity through to workspace and storage.
+
+**Correction to the scope of R301's proof below:** `PlatformContext::current()`
+currently derives workspace/label from the build folder or library. R292 says
+the selected working project is independent of those locations. The live reply
+proved that supplied metadata reached Codex; it did not prove the project's
+correct identity, storage association or A/B switching. The fallback is a
+recorded defect, and the prior local gate is not evidence that project
+management is repaired. Preserve all existing archives while investigating.
+
+**Native chat correction (R301, locally verified).** The operator rejected a separate
+chat project setup. Chat now inherits the app's workspace and userdata, opens
+conversation storage automatically, and carries the current platform view into
+provider prompts. The normal Projects button and new-chat project picker are
+removed. New chat exposes provider observations, built-in roles and an editable
+starter; sending remains explicit. Legacy archives and APIs are preserved.
+The final full gate passed: 1,403 tests, six ignored, release rebuilt and renderer
+smoke passed. The native popup scenario passed nine steps; final 1440×900 and
+1100×700 captures were inspected. A live Codex session created with the Skeptic
+role returned the inherited project `devpulselabs` and view `wiredfront/viziwiz`.
+The popup and composer now keep their action buttons reachable with long role
+drafts. Claude's transport, Grok's cached authentication, Meta Muse integration,
+and qualified native resume remain gaps. This is uncommitted local work, not a
+merged release. [Proof and launch command](proof/chat-testable-windows/README.md).
+See
+[`plans/chat-testable-windows.md`](plans/chat-testable-windows.md).
 
 **Guided workflow fixes (R297–R299).** The work from 2026-11-01 and 11-02 lived
 uncommitted in a worktree of the old clone and is now on main. A guide edit copies

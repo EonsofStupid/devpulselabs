@@ -10,6 +10,7 @@ use std::time::Duration;
 pub(super) struct Generation(u64);
 
 pub(super) struct State {
+    platform: Option<PlatformContext>,
     generation: Generation,
     enabled: bool,
     boot_pending: bool,
@@ -39,6 +40,7 @@ struct Prepared {
 }
 
 enum Outcome {
+    Platform(Box<Prepared>),
     Empty(Option<Registry>, Vec<Binding>, String),
     Prepared(Registry, Box<Prepared>),
     Activated(Registry, Box<Prepared>, Vec<Binding>),
@@ -46,6 +48,35 @@ enum Outcome {
     Verified(HostIntent, Value),
     Health,
     Offline(String),
+}
+
+/// A snapshot supplied by the owning app. Chat does not select a project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlatformContext {
+    pub workspace: PathBuf,
+    pub userdata: PathBuf,
+    pub label: String,
+}
+
+impl PlatformContext {
+    pub fn current() -> Result<Self, String> {
+        let layout = dpl_roots::try_layout()?;
+        let workspace = if dpl_roots::is_build() {
+            dpl_roots::program_folder()?
+        } else {
+            layout.library
+        };
+        let label = workspace
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| "DevPULSE".into());
+        Ok(Self {
+            workspace,
+            userdata: layout.userdata,
+            label,
+        })
+    }
 }
 
 pub(super) enum Request {
@@ -76,8 +107,15 @@ fn state_home_from(get: impl Fn(&str) -> Option<PathBuf>) -> Result<PathBuf, Str
 }
 
 impl State {
+    pub(super) fn platform_context_ref(&self) -> Option<&PlatformContext> {
+        self.platform.as_ref()
+    }
+    pub(super) fn platform_context(&mut self, context: Option<PlatformContext>) {
+        self.platform = context;
+    }
     pub(super) fn new(enabled: bool, providers_enabled: bool) -> Self {
         Self {
+            platform: None,
             generation: Generation::default(),
             enabled,
             boot_pending: enabled,
@@ -97,9 +135,9 @@ impl State {
             switching: false,
             saved: None,
             message: if enabled {
-                "Choose a project to save chats and drafts automatically.".into()
+                "Opening your conversations…".into()
             } else {
-                "Authored preview — project storage is disabled.".into()
+                "Preview — conversations are not saved.".into()
             },
             failed: false,
             offline: false,
@@ -127,8 +165,8 @@ impl State {
     }
 }
 
-/// Called once by the first frame. Reading an existing registry is allowed;
-/// creating one requires the explicit Setup/Open action below.
+/// The normal app supplies its platform context. Open its conversation archive
+/// automatically; the legacy registry path remains for old archive tooling.
 pub(super) fn boot(state: &mut Shared, ctx: &egui::Context) {
     if !state.project.boot_pending || state.project.worker.is_some() {
         return;
@@ -138,6 +176,26 @@ pub(super) fn boot(state: &mut Shared, ctx: &egui::Context) {
     let base = state.project.base.clone();
     state.project.switching = true;
     state.window.set_project_input_locked(true);
+    if let Some(platform) = state.project.platform.clone() {
+        state.project.message = "Opening your conversations…".into();
+        state.project.work(ctx, move || {
+            let userdata = if providers_enabled {
+                dpl_roots::writable(&platform.userdata)?
+            } else {
+                platform.userdata
+            };
+            let project = Project::for_platform(&platform.workspace, &userdata, &platform.label)?;
+            Ok(Outcome::Platform(Box::new(prepare(
+                project,
+                providers_enabled,
+            )?)))
+        });
+        return;
+    }
+    if providers_enabled {
+        fail(state, "The platform workspace is unavailable. Reconnect the platform library to reopen your conversations.".into());
+        return;
+    }
     state.project.work(ctx, move || {
         let base = base?;
         match std::fs::symlink_metadata(base.join("registry.json")) {
@@ -145,7 +203,7 @@ pub(super) fn boot(state: &mut Shared, ctx: &egui::Context) {
                 return Ok(Outcome::Empty(
                     None,
                     Vec::new(),
-                    "Choose a project to save chats and drafts automatically.".into(),
+                    "Opening your conversations…".into(),
                 ));
             }
             Err(error) => return Err(error.to_string()),
@@ -206,14 +264,15 @@ pub(super) fn require_ready(state: &mut Shared) -> bool {
     if ready(state) {
         return true;
     }
-    state
-        .window
-        .set_composer_status("Choose a project and finish its setup before starting a chat.");
+    state.window.set_composer_status(
+        "Your conversations are still opening or their storage is unavailable. Your draft is kept.",
+    );
     false
 }
 
 fn idle(state: &Shared) -> bool {
     !native::busy(state)
+        && !state.window.chat_creation_pending()
         && !state.codex_activation.is_login_running()
         && !state.grok_activation.is_login_running()
         && !matches!(
@@ -257,6 +316,10 @@ fn idle(state: &Shared) -> bool {
 
 pub(super) fn request(state: &mut Shared, ctx: &egui::Context, request: Request) {
     if !state.project.enabled {
+        return;
+    }
+    if state.project.platform.is_some() {
+        state.project.message = "Chat follows the workspace supplied by DevPULSE.".into();
         return;
     }
     if state.project.worker.is_some() || !idle(state) {
@@ -355,8 +418,20 @@ fn has_conversations(value: &Value) -> bool {
 
 fn fail(state: &mut Shared, error: String) {
     state.project.switching = false;
-    state.project.failed = state.project.offline;
-    state.project.message = format!("Project chats were not saved or changed: {error}");
+    state.project.failed = state.project.offline || state.project.platform.is_some();
+    state.project.message = format!("Conversation storage needs attention: {error}");
+}
+
+pub(super) fn retry(state: &mut Shared, ctx: &egui::Context) {
+    if state.project.worker.is_some() {
+        return;
+    }
+    if state.project.active.is_none() && state.project.platform.is_some() {
+        state.project.boot_pending = true;
+        boot(state, ctx);
+    } else {
+        save(state, ctx, true);
+    }
 }
 
 pub(super) fn poll(state: &mut Shared, ctx: &egui::Context) {
@@ -374,6 +449,9 @@ pub(super) fn poll(state: &mut Shared, ctx: &egui::Context) {
     if let Some(result) = result {
         state.project.worker = None;
         match result {
+            Ok(Outcome::Platform(prepared)) => {
+                activate(state, None, *prepared, Vec::new());
+            }
             Err(error) => fail(state, error),
             Ok(Outcome::Offline(error)) => {
                 state.project.offline = true;
@@ -389,7 +467,7 @@ pub(super) fn poll(state: &mut Shared, ctx: &egui::Context) {
                 state.project.saved = Some(snapshot);
                 state.project.failed = false;
                 state.project.offline = false;
-                state.project.message = "Chats and drafts saved in this project.".into();
+                state.project.message = "Chats and drafts saved.".into();
             }
             Ok(Outcome::Verified(intent, snapshot)) => {
                 state.project.saved = Some(snapshot);
@@ -424,7 +502,7 @@ pub(super) fn poll(state: &mut Shared, ctx: &egui::Context) {
                 }
             }
             Ok(Outcome::Activated(registry, prepared, choices)) => {
-                activate(state, registry, *prepared, choices)
+                activate(state, Some(registry), *prepared, choices)
             }
         }
     }
@@ -436,7 +514,12 @@ pub(super) fn poll(state: &mut Shared, ctx: &egui::Context) {
     }
 }
 
-fn activate(state: &mut Shared, registry: Registry, prepared: Prepared, choices: Vec<Binding>) {
+fn activate(
+    state: &mut Shared,
+    registry: Option<Registry>,
+    prepared: Prepared,
+    choices: Vec<Binding>,
+) {
     // Already validated while edits and old runtime events were frozen.
     if let Some(archive) = &prepared.archive {
         if let Err(error) = state.window.restore_project_archive(archive) {
@@ -472,7 +555,7 @@ fn activate(state: &mut Shared, registry: Registry, prepared: Prepared, choices:
     state.grok_attempt = None;
     state.clyffy = None;
     restore_counters(state);
-    state.project.registry = Some(registry);
+    state.project.registry = registry;
     state.project.generation = Generation(state.project.generation.0.saturating_add(1));
     state.project.active = Some(prepared.project);
     state.project.choices = choices;
@@ -480,7 +563,7 @@ fn activate(state: &mut Shared, registry: Registry, prepared: Prepared, choices:
     state.project.failed = false;
     state.project.offline = false;
     state.project.switching = false;
-    state.project.message = "Project archive connected. Saved chats are available to read.".into();
+    state.project.message = "Conversations ready. Chats and drafts save automatically.".into();
     let _ = state.window.set_provider_activation(
         dpl_chat_codex::PROVIDER,
         state.codex_activation.activation().clone(),
@@ -538,6 +621,7 @@ fn publish(state: &mut Shared) {
         busy: state.project.worker.is_some(),
         can_switch: state.project.enabled && idle(state),
         can_save_copy: state.project.offline,
+        can_retry: state.project.failed,
         message: state.project.message.clone(),
     });
 }
@@ -549,6 +633,7 @@ pub(super) fn save(state: &mut Shared, ctx: &egui::Context, force: bool) {
     let Some(project) = state.project.active.clone() else {
         return;
     };
+    let guarded = state.project.platform.is_some() && state.provider_runtime_enabled;
     if !force
         && (state.project.failed || state.project.last_save.elapsed() < Duration::from_millis(750))
     {
@@ -568,21 +653,34 @@ pub(super) fn save(state: &mut Shared, ctx: &egui::Context, force: bool) {
         if state.project.last_health.elapsed() >= Duration::from_secs(3) {
             state.project.last_health = Instant::now();
             state.project.work(ctx, move || {
-                Ok(match project.verify() {
-                    Ok(()) => Outcome::Health,
-                    Err(error) => Outcome::Offline(error),
-                })
+                Ok(
+                    match storage_guard(&project, guarded).and_then(|()| project.verify()) {
+                        Ok(()) => Outcome::Health,
+                        Err(error) => Outcome::Offline(error),
+                    },
+                )
             });
         }
         return;
     }
     state.project.last_save = Instant::now();
     state.project.work(ctx, move || {
-        Ok(match project.save_state(&snapshot) {
-            Ok(()) => Outcome::Saved(snapshot),
-            Err(error) => Outcome::Offline(error),
-        })
+        Ok(
+            match storage_guard(&project, guarded).and_then(|()| project.save_state(&snapshot)) {
+                Ok(()) => Outcome::Saved(snapshot),
+                Err(error) => Outcome::Offline(error),
+            },
+        )
     });
+}
+
+fn storage_guard(project: &Project, guarded: bool) -> Result<(), String> {
+    if guarded && dpl_roots::writable(project.archive_dir())? != project.archive_dir() {
+        return Err(
+            "The platform library moved. Restart DevPULSE to reconnect your conversations.".into(),
+        );
+    }
+    Ok(())
 }
 
 pub(super) fn can_close(state: &mut Shared, ctx: &egui::Context) -> bool {
@@ -594,7 +692,7 @@ pub(super) fn can_close(state: &mut Shared, ctx: &egui::Context) -> bool {
     }
     if !idle(state) {
         state.window.set_composer_status(
-            "Finish the current turn, approval or sign-in before closing project chats.",
+            "Finish the current turn, approval or sign-in before closing chat.",
         );
         return false;
     }
@@ -602,10 +700,9 @@ pub(super) fn can_close(state: &mut Shared, ctx: &egui::Context) -> bool {
         return match state.window.project_archive() {
             Ok(snapshot) if !has_conversations(&snapshot) => true,
             Ok(_) => {
-                state.window.open_project_setup();
                 state
                     .window
-                    .set_composer_status("Choose a project to save your draft before closing.");
+                    .set_composer_status("Conversation storage is unavailable. Your draft is kept; reconnect the platform library before closing.");
                 false
             }
             Err(error) => {
@@ -618,7 +715,7 @@ pub(super) fn can_close(state: &mut Shared, ctx: &egui::Context) -> bool {
         Ok(snapshot) if state.project.saved.as_ref() == Some(&snapshot) => true,
         Ok(_) => {
             if state.project.failed {
-                state.window.set_composer_status("Your project has unsaved changes. Reconnect it and choose Retry save before closing.");
+                state.window.set_composer_status("Your conversations have unsaved changes. Reconnect platform storage and choose Retry before closing.");
             } else {
                 save(state, ctx, true);
             }
@@ -648,7 +745,11 @@ pub(super) fn flush_on_exit(state: &mut Shared) {
             return;
         }
     };
-    let result = std::thread::spawn(move || project.save_state(&snapshot)).join();
+    let guarded = state.project.platform.is_some() && state.provider_runtime_enabled;
+    let result = std::thread::spawn(move || {
+        storage_guard(&project, guarded).and_then(|()| project.save_state(&snapshot))
+    })
+    .join();
     if !matches!(result, Ok(Ok(()))) {
         tracing::error!("Project chats could not be saved during application exit");
     }
@@ -669,6 +770,7 @@ pub(super) fn verify_intent(state: &mut Shared, ctx: &egui::Context, intent: Hos
             Some(*provider)
         }
         HostIntent::NewSession(provider)
+        | HostIntent::CreateChat { provider, .. }
         | HostIntent::ActivateProvider(provider)
         | HostIntent::SendTurn { provider, .. } => Some(*provider),
         _ => None,
@@ -690,7 +792,7 @@ pub(super) fn verify_intent(state: &mut Shared, ctx: &egui::Context, intent: Hos
     }
     if state.project.worker.is_some() {
         state.window.set_composer_status(
-            "Project storage is busy. Your draft is preserved; try again when saving finishes.",
+            "Your chats are saving. Your draft is kept; try again in a moment.",
         );
         return;
     }
@@ -706,11 +808,14 @@ pub(super) fn verify_intent(state: &mut Shared, ctx: &egui::Context, intent: Hos
     };
     state.project.switching = true;
     state.window.set_project_input_locked(true);
+    let guarded = state.project.platform.is_some() && state.provider_runtime_enabled;
     state.project.work(ctx, move || {
-        Ok(match project.save_state(&snapshot) {
-            Ok(()) => Outcome::Verified(intent, snapshot),
-            Err(error) => Outcome::Offline(error),
-        })
+        Ok(
+            match storage_guard(&project, guarded).and_then(|()| project.save_state(&snapshot)) {
+                Ok(()) => Outcome::Verified(intent, snapshot),
+                Err(error) => Outcome::Offline(error),
+            },
+        )
     });
 }
 
@@ -739,10 +844,11 @@ pub(super) fn live_session(state: &Shared, provider: ProviderId, session: ChatSe
 }
 
 pub(super) fn workspace_label(state: &Shared) -> String {
-    state.project.active.as_ref().map_or_else(
-        || "Choose a project".into(),
-        |project| project.label().into(),
-    )
+    state
+        .project
+        .active
+        .as_ref()
+        .map_or_else(|| "DevPULSE".into(), |project| project.label().into())
 }
 
 pub(super) fn generation(state: &Shared) -> Generation {
@@ -757,8 +863,8 @@ pub(super) fn workspace(state: &Shared) -> Option<PathBuf> {
         .map(|project| project.workspace().to_owned())
 }
 
-// A boot has no workspace authority. Discovery replaces these inert adapters
-// only after a project has been selected and checked on the storage worker.
+// Discovery replaces these inert adapters after the app-supplied workspace
+// and conversation storage have been checked on the storage worker.
 #[derive(Debug)]
 struct NoProject;
 impl dpl_chat_codex::CodexLoginLauncher for NoProject {
@@ -766,7 +872,9 @@ impl dpl_chat_codex::CodexLoginLauncher for NoProject {
         &self,
         _: &dpl_chat_codex::CodexRuntimeProfile,
     ) -> std::io::Result<Box<dyn dpl_chat_codex::CodexLoginProcess>> {
-        Err(std::io::Error::other("Choose a project first"))
+        Err(std::io::Error::other(
+            "The platform workspace is still opening",
+        ))
     }
 }
 impl dpl_chat_codex::CodexStatusProbe for NoProject {
@@ -774,7 +882,9 @@ impl dpl_chat_codex::CodexStatusProbe for NoProject {
         &self,
         _: &dpl_chat_codex::CodexRuntimeProfile,
     ) -> std::io::Result<Box<dyn dpl_chat_codex::CodexStatusRequest>> {
-        Err(std::io::Error::other("Choose a project first"))
+        Err(std::io::Error::other(
+            "The platform workspace is still opening",
+        ))
     }
 }
 impl dpl_chat_grok::LoginLauncher for NoProject {
@@ -782,17 +892,19 @@ impl dpl_chat_grok::LoginLauncher for NoProject {
         &self,
         _: &dpl_chat_grok::GrokRuntimeProfile,
     ) -> std::io::Result<Box<dyn dpl_chat_grok::LoginProcess>> {
-        Err(std::io::Error::other("Choose a project first"))
+        Err(std::io::Error::other(
+            "The platform workspace is still opening",
+        ))
     }
 }
 
 pub(crate) fn unconfigured_codex() -> dpl_chat_codex::CodexActivationCoordinator {
     dpl_chat_codex::CodexActivationCoordinator::from_parts(
         Err(dpl_chat_codex::CodexDiscoveryError::WorkingDirectory(
-            "Choose a project first".into(),
+            "The platform workspace is still opening".into(),
         )),
         ActivationState::Blocked {
-            reason: "Choose a project first".into(),
+            reason: "The platform workspace is still opening".into(),
             recovery: Vec::new(),
         },
         Box::new(NoProject),
@@ -803,7 +915,7 @@ pub(crate) fn unconfigured_codex() -> dpl_chat_codex::CodexActivationCoordinator
 pub(crate) fn unconfigured_grok() -> dpl_chat_grok::GrokActivationCoordinator {
     dpl_chat_grok::GrokActivationCoordinator::from_parts(
         Err(dpl_chat_grok::GrokDiscoveryError::WorkingDirectory(
-            "Choose a project first".into(),
+            "The platform workspace is still opening".into(),
         )),
         Box::new(NoProject),
     )
@@ -1238,6 +1350,7 @@ mod tests {
             &fabric,
             runtime,
             ChatWindowConfig {
+                platform: None,
                 initial_route: Route {
                     hub: dpl_hub_home::HUB,
                     sub: dpl_hub_home::MAIN,
@@ -1269,6 +1382,90 @@ mod tests {
             poll(state, ctx);
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    #[test]
+    fn platform_boot_needs_no_chat_project_setup_and_restores_its_draft() {
+        let root = scratch("platform-boot");
+        let workspace = root.join("platform");
+        std::fs::create_dir(&workspace).unwrap();
+        let context = PlatformContext {
+            workspace: workspace.clone(),
+            userdata: root.join("userdata"),
+            label: "Platform fixture".into(),
+        };
+        let ctx = egui::Context::default();
+        let mut state = host(&root.join("unused-registry"));
+        state.project.platform_context(Some(context.clone()));
+        boot(&mut state, &ctx);
+        settle(&mut state, &ctx);
+        assert!(ready(&state), "{}", state.project.message);
+        assert_eq!(super::workspace(&state), Some(workspace.clone()));
+        assert!(state.project.registry.is_none());
+        assert!(!root.join("unused-registry").exists());
+        assert!(!workspace.join(".devpulse").exists());
+        let unwanted = root.join("unwanted-chat-project");
+        std::fs::create_dir(&unwanted).unwrap();
+        request(
+            &mut state,
+            &ctx,
+            Request::Setup {
+                workspace: unwanted.clone(),
+                label: "Must not replace platform context".into(),
+            },
+        );
+        assert_eq!(super::workspace(&state), Some(workspace.clone()));
+        assert!(!unwanted.join(".devpulse").exists());
+        state
+            .window
+            .apply(dpl_chat_window::ChatWindowIntent::UpdateAiDraft {
+                provider: dpl_chat_codex::PROVIDER,
+                value: "Unsent platform draft".into(),
+            })
+            .unwrap();
+        save(&mut state, &ctx, true);
+        settle(&mut state, &ctx);
+        let mut restarted = host(&root.join("unused-registry"));
+        restarted.project.platform_context(Some(context));
+        boot(&mut restarted, &ctx);
+        settle(&mut restarted, &ctx);
+        assert!(ready(&restarted), "{}", restarted.project.message);
+        assert_eq!(
+            restarted
+                .window
+                .provider_view(dpl_chat_codex::PROVIDER)
+                .unwrap()
+                .draft,
+            "Unsent platform draft"
+        );
+        let prompt = platform_prompt(&restarted, "What am I working on?");
+        assert!(prompt.contains("Platform fixture"));
+        assert!(prompt.contains(&workspace.display().to_string()));
+        assert!(prompt.ends_with("What am I working on?"));
+    }
+
+    #[test]
+    fn platform_storage_retries_after_its_folder_returns_without_a_picker() {
+        let root = scratch("platform-retry");
+        let workspace = root.join("platform");
+        let mut state = host(&root.join("unused-registry"));
+        state.project.platform_context(Some(PlatformContext {
+            workspace: workspace.clone(),
+            userdata: root.join("userdata"),
+            label: "Recovered platform".into(),
+        }));
+        let ctx = egui::Context::default();
+        boot(&mut state, &ctx);
+        settle(&mut state, &ctx);
+        assert!(!ready(&state));
+        assert!(state.project.failed);
+        std::fs::create_dir(&workspace).unwrap();
+        retry(&mut state, &ctx);
+        settle(&mut state, &ctx);
+        assert!(ready(&state), "{}", state.project.message);
+        assert!(!state.project.failed);
+        assert!(state.project.registry.is_none());
+        assert!(!root.join("unused-registry").exists());
     }
 
     fn peer_frames_until(

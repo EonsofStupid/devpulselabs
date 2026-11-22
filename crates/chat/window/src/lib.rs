@@ -38,7 +38,12 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
 
+mod new_chat;
 mod projects;
+pub use new_chat::{
+    MachineObservation, NEW_CHAT_CREATE_ID, NEW_CHAT_POPUP_ID, NEW_CHAT_REFRESH_ID,
+    NEW_CHAT_ROLE_ID, NEW_CHAT_TASK_ID,
+};
 pub use projects::{
     ProjectChoice, ProjectView, PROJECTS_ID, PROJECT_COPY_ID, PROJECT_LABEL_ID, PROJECT_OPEN_ID,
     PROJECT_RETRY_ID, PROJECT_SELECT_ID, PROJECT_SETUP_ID, PROJECT_WORKSPACE_ID,
@@ -367,6 +372,12 @@ pub enum ChatWindowIntent {
         expanded: bool,
     },
     NewSession(ProviderId),
+    OpenNewChat(Option<ProviderId>),
+    CreateChat {
+        provider: ProviderId,
+        starter: String,
+    },
+    RefreshMachine,
     LoadSession {
         provider: ProviderId,
         session: ChatSessionId,
@@ -566,6 +577,11 @@ pub enum HostIntent {
     SaveProviderProfile(ProviderProfileDraft),
     CopyProviderAuthorizationCode(ProviderId),
     NewSession(ProviderId),
+    CreateChat {
+        provider: ProviderId,
+        starter: String,
+    },
+    RefreshMachine,
     LoadSession {
         provider: ProviderId,
         session: ChatSessionId,
@@ -717,6 +733,7 @@ pub struct ChatWindow {
     runtime: ChatRuntime,
     project_view: ProjectView,
     project_ui: projects::ProjectUi,
+    new_chat: new_chat::NewChatUi,
     project_input_locked: bool,
     native_sessions: BTreeMap<ProviderId, NativeSessionStatus>,
     route_context: RouteContextState,
@@ -897,6 +914,7 @@ impl ChatWindow {
             provider_permissions: HashMap::new(),
             permission_modes: BTreeMap::new(),
             room_library: dpl_chat_core::rooms::Library::builtin(),
+            new_chat: new_chat::NewChatUi::default(),
             library_open: false,
             library_room_filter: None,
             library_role_filter: None,
@@ -1070,6 +1088,10 @@ impl ChatWindow {
 
     pub fn observe_route(&mut self, route: Route) {
         self.route_context.observe(route);
+    }
+
+    pub fn observed_route(&self) -> Option<Route> {
+        self.route_context.offered().map(|context| context.route)
     }
 
     /// Receive the content census the host read. Replaces the census and
@@ -1398,6 +1420,14 @@ impl ChatWindow {
                 Ok(None)
             }
             ChatWindowIntent::NewSession(provider) => Ok(Some(HostIntent::NewSession(provider))),
+            ChatWindowIntent::OpenNewChat(provider) => {
+                self.open_new_chat(provider);
+                Ok(None)
+            }
+            ChatWindowIntent::CreateChat { provider, starter } => {
+                Ok(Some(HostIntent::CreateChat { provider, starter }))
+            }
+            ChatWindowIntent::RefreshMachine => Ok(Some(HostIntent::RefreshMachine)),
             ChatWindowIntent::LoadSession { provider, session } => {
                 Ok(Some(HostIntent::LoadSession { provider, session }))
             }
@@ -1517,7 +1547,7 @@ impl ChatWindow {
                 .layout(Layout::top_down(Align::Min)),
             |ui| {
                 self.top_strip(ui, &mut intents);
-                self.project_bar(ui);
+                self.project_bar(ui, &mut intents);
                 ui.add_space(6.0);
                 let body_height = ui.available_height();
                 ui.allocate_ui_with_layout(
@@ -1548,6 +1578,7 @@ impl ChatWindow {
         );
 
         self.project_popup(ui, &mut intents);
+        self.new_chat_popup(ui, &mut intents);
         if !self.project_input_locked {
             self.provider_hover_overlay(ui, &mut intents);
             self.provider_catalog_overlay(ui, &mut intents);
@@ -2128,8 +2159,7 @@ impl ChatWindow {
                         if response.clicked() { intents.push(ChatWindowIntent::RefreshNativeSessions(provider)); }
                     }
                 }
-                let can_start = target.is_some_and(|(_, _, can_start)| can_start);
-                let new_chat = sidebar_destination_button(ui, "＋  New chat", can_start);
+                let new_chat = sidebar_destination_button(ui, "＋  New chat", true);
                 let mut metadata = NodeMetadata::new(
                     NEW_CHAT_ID.child(&PilotKey::new("sidebar")),
                     Role::Button,
@@ -2144,9 +2174,7 @@ impl ChatWindow {
                 });
                 ui.pilot_track(&new_chat, metadata);
                 if new_chat.clicked() {
-                    if let Some((provider, _, true)) = target {
-                        intents.push(ChatWindowIntent::NewSession(provider));
-                    }
+                    intents.push(ChatWindowIntent::OpenNewChat(target.map(|(provider, _, _)| provider)));
                 }
             },
         );
@@ -3190,7 +3218,14 @@ impl ChatWindow {
                         .color(Tone::Cyan.color()),
                 );
                 if let Some(current) = offered {
-                    permission_selector(ui, descriptor.id, descriptor.label, current, intents);
+                    permission_selector(
+                        ui,
+                        PilotId::new("chat.permissions"),
+                        descriptor.id,
+                        descriptor.label,
+                        current,
+                        intents,
+                    );
                 }
             });
         });
@@ -3261,7 +3296,7 @@ impl ChatWindow {
                 }
             }
             ui.label(
-                RichText::new("Saved project chat — read-only")
+                RichText::new("Saved conversation — read-only")
                     .small()
                     .color(Tone::Amber.color()),
             );
@@ -3634,14 +3669,21 @@ impl ChatWindow {
                     let submit_key = ui.is_enabled()
                         && composer_focused
                         && ui.input_mut(take_composer_submit);
-                    let editor = ui.add_sized(
-                        [(ui.available_width() - 104.0).max(160.0), 52.0],
-                        egui::TextEdit::multiline(&mut draft)
+                    let editor = ui.allocate_ui_with_layout(
+                        egui::vec2((ui.available_width() - 104.0).max(160.0), 52.0),
+                        Layout::top_down(Align::Min),
+                        |ui| egui::ScrollArea::vertical()
+                            .id_salt("chat.composer.scroll")
+                            .max_height(52.0)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| ui.add(egui::TextEdit::multiline(&mut draft)
                             .id(editor_id)
                             .interactive(!self.project_input_locked)
                             .hint_text(self.composer_hint())
-                            .desired_rows(2),
-                    );
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(2)))
+                            .inner,
+                    ).inner;
                     let mut metadata =
                         NodeMetadata::new(COMPOSER_ID, Role::TextInput, "Message composer");
                     metadata.editable = !self.project_input_locked;
@@ -3760,7 +3802,7 @@ impl ChatWindow {
                                 } else if archived_session {
                                     if self.native_sessions.values().any(|status| status.qualified) {
                                         "Resume this saved chat before sending. Your draft stays here.".to_owned()
-                                    } else { "Saved project chat is read-only. Start a new chat; native resume is not connected yet.".to_owned() }
+                                    } else { "Saved conversation is read-only. Start a new chat; native resume is not connected yet.".to_owned() }
                                 } else if let Some(c) =
                                     command.as_ref().and_then(|d| dpl_chat_core::command(&d.slug))
                                 {
@@ -4384,7 +4426,7 @@ impl ChatWindow {
 
     fn composer_hint(&self) -> &'static str {
         if self.domain == ChatDomain::Ai && self.project_session_read_only() {
-            return "Saved project chat — read-only";
+            return "Saved conversation — read-only";
         }
         if self.domain == ChatDomain::Ai && self.history_focus.is_some() {
             return "Past transcript — read-only";
@@ -4462,7 +4504,7 @@ impl ChatWindow {
                             && provider
                                 .registration
                                 .has_capability(Capability::StartSession);
-                        let new_chat = ui.add_enabled(can_start, egui::Button::new("＋  New chat"));
+                        let new_chat = ui.button("＋  New chat");
                         let mut metadata = NodeMetadata::new(
                             NEW_CHAT_ID
                                 .child(&PilotKey::new("provider-card"))
@@ -4476,7 +4518,7 @@ impl ChatWindow {
                         }
                         ui.pilot_track(&new_chat, metadata);
                         if new_chat.clicked() {
-                            intents.push(ChatWindowIntent::NewSession(descriptor.id));
+                            intents.push(ChatWindowIntent::OpenNewChat(Some(descriptor.id)));
                             intents.push(ChatWindowIntent::SetOverlay(None));
                         }
                         ui.label(
@@ -6236,12 +6278,13 @@ fn provider_tone(accent: ProviderAccent) -> Tone {
 /// next message.
 fn permission_selector(
     ui: &mut egui::Ui,
+    scope: PilotId,
     provider: ProviderId,
     label: &str,
     current: PermissionMode,
     intents: &mut Vec<ChatWindowIntent>,
 ) {
-    let response = egui::ComboBox::from_id_salt(("dpl_chat_permission_mode", provider.0))
+    let response = egui::ComboBox::from_id_salt((scope.as_str(), provider.0))
         .selected_text(RichText::new(current.label()).small())
         .show_ui(ui, |ui| {
             for mode in PermissionMode::ALL {
@@ -6262,7 +6305,7 @@ fn permission_selector(
     ui.pilot_track(
         &response,
         NodeMetadata::new(
-            PilotId::new("chat.permissions").child(&PilotKey::new(provider.0)),
+            scope.child(&PilotKey::new(provider.0)),
             Role::ComboBox,
             format!("{label} permissions"),
         )
@@ -6401,7 +6444,7 @@ mod tests {
         evidence: "fixture",
     };
 
-    fn window() -> ChatWindow {
+    pub(super) fn window() -> ChatWindow {
         let mut registration = ProviderRegistration::planned(MANIFEST);
         registration.sessions = vec![
             SessionSummary {
@@ -6540,7 +6583,7 @@ mod tests {
             .iter()
             .all(|session| session.state == SessionState::ReadOnly));
         assert!(window.project_session_read_only());
-        assert_eq!(window.composer_hint(), "Saved project chat — read-only");
+        assert_eq!(window.composer_hint(), "Saved conversation — read-only");
         let mut invalid = saved;
         invalid["v"] = serde_json::json!(999);
         let before_validation = window.project_archive().unwrap();
@@ -6554,7 +6597,7 @@ mod tests {
     }
 
     #[test]
-    fn project_setup_offer_opens_native_controls_with_honest_support_status() {
+    fn legacy_archive_controls_require_explicit_open_and_never_gate_normal_chat() {
         use egui_kittest::kittest::Queryable;
         let mut harness = Harness::builder()
             .with_size([1280.0, 800.0])
@@ -6565,10 +6608,13 @@ mod tests {
                 window(),
             );
         harness.run_steps(2);
-        harness.get_by_label("Set up project chat storage");
-        harness
-            .get_by_label("Choose a workspace for project chats")
-            .click();
+        assert!(harness
+            .query_by_label("Set up project chat storage")
+            .is_none());
+        assert!(harness
+            .query_by_label("Choose a workspace for project chats")
+            .is_none());
+        harness.state_mut().open_project_setup();
         harness.run_steps(2);
         harness.get_by_label("Standalone app storage is not connected yet.");
         harness.get_by_label("Create project chat storage in this folder");
@@ -6719,7 +6765,7 @@ mod tests {
                 );
             harness.run_steps(2);
             harness.get_by_label("Archived answer remains readable");
-            harness.get_by_label("Saved project chat — read-only");
+            harness.get_by_label("Saved conversation — read-only");
             harness
                 .ctx
                 .memory_mut(|memory| memory.request_focus(egui::Id::new("dpl_chat_composer")));
@@ -6755,7 +6801,7 @@ mod tests {
         }
     }
 
-    fn multi_provider_window() -> ChatWindow {
+    pub(super) fn multi_provider_window() -> ChatWindow {
         let mut first = ProviderRegistration::planned(MANIFEST);
         first.activation = ActivationState::Ready;
         first.sessions = vec![SessionSummary {
