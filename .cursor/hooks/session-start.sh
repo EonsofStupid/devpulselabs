@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT="${CURSOR_PROJECT_DIR:-$(pwd)}"
 STATUS="$ROOT/docs/status.md"
 INPUT="$(cat)"
+if ! cargo xtask baseline check >&2; then
+  printf '%s\n' '{"additional_context":"BASELINE BLOCKED: fetch failed or this checkout is stale. Preserve and reconcile existing work before planning or editing."}'
+  exit 2
+fi
 
 DPL_OPS_ROOT="$ROOT/docs/ops" \
 DPL_OPS_STATUS="$STATUS" \

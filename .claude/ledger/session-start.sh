@@ -5,6 +5,10 @@
 # pre-compact.sh / session-end.sh). The loop contract lives in
 # .claude/skills/milestone-loop/SKILL.md; signals in ledger/README.md.
 input=$(cat)
+if ! cargo xtask baseline check; then
+  echo 'BASELINE BLOCKED: preserve and reconcile existing work before planning or editing.'
+  exit 2
+fi
 if command -v jq >/dev/null 2>&1; then
   src=$(printf '%s' "$input" | jq -r '.source // "unknown"' 2>/dev/null)
 else

@@ -95,6 +95,13 @@ named first and the others are marked **P2**: they merge into it during
 
 ## Chat and AI
 
+The active reconciliation is [main-reconciliation](plans/main-reconciliation.md) (R310).
+[Add any AI through one contract](plans/chat-ah2-any-ai.md) (AH2; R305–R307,
+approved 2026-11-19) is the next chat pass and owns the provider schema.
+The [provider contract appendix](plans/chat-provider-golden-pattern.md) (R309)
+extends the existing program; [Windows draft](plans/chat-testable-windows.md)
+and its proof folder are preserved historical evidence, not current acceptance.
+
 | Doc | Truth for |
 |---|---|
 | [`plans/chat-native-program.md`](plans/chat-native-program.md) | **The** chat + AI program: one chat, one plan; the §4.8 passes (R301-R303). |

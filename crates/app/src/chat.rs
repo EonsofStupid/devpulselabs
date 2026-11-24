@@ -91,6 +91,8 @@ pub enum ChatProofMode {
     Library,
     Projects,
     ProjectsCompact,
+    NewChat,
+    NewChatCompact,
     /// The More AIs tab at 1100x700 (AH1a). View-only, so it also runs live,
     /// on this machine's real catalog and scan.
     MoreAis,
@@ -125,6 +127,8 @@ impl ChatProofMode {
             "brainstorm" => Some(Self::Brainstorm),
             "commands" => Some(Self::Commands),
             "library" => Some(Self::Library),
+            "new-chat" => Some(Self::NewChat),
+            "new-chat-compact" => Some(Self::NewChatCompact),
             "projects" => Some(Self::Projects),
             "projects-compact" => Some(Self::ProjectsCompact),
             "more-ais" => Some(Self::MoreAis),
@@ -777,7 +781,11 @@ impl ChatWindowCoordinator {
             #[cfg(feature = "eguipilotai-devtools")]
             if matches!(
                 proof_mode,
-                Some(ChatProofMode::Compact | ChatProofMode::MoreAisCompact)
+                Some(
+                    ChatProofMode::Compact
+                        | ChatProofMode::MoreAisCompact
+                        | ChatProofMode::NewChatCompact
+                )
             ) {
                 registry
                     .update_geometry(id, Some([32, 32]), WindowGeometry::MINIMUM)
@@ -878,6 +886,14 @@ impl ChatWindowCoordinator {
                     .expect("the authored approval exists");
             }
             match mode {
+                ChatProofMode::NewChat | ChatProofMode::NewChatCompact => {
+                    let provider = dpl_ai_codex::PROVIDER;
+                    window
+                        .apply(dpl_chat_window::ChatWindowIntent::SelectProvider(provider))
+                        .ok();
+                    window.set_provider_permission_mode(provider, Some(PermissionMode::AskFirst));
+                    window.open_new_chat(Some(provider));
+                }
                 ChatProofMode::Social => {
                     window
                         .apply(dpl_chat_window::ChatWindowIntent::SelectDomain(
@@ -1799,7 +1815,10 @@ fn service_project(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>) {
         // keeps polling while the probe is still running, so a hidden or idle
         // main window cannot hold back what the machine said.
         drain_presence(&mut state);
-        if state.presence.is_some() {
+        drain_machine(&mut state);
+        let checking = state.presence.is_some() || state.machine.is_some();
+        state.window.set_machine_checking(checking);
+        if checking {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
         native::tick(&mut state);
@@ -1838,6 +1857,7 @@ fn apply_host_intent(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, intent: H
     if matches!(
         intent,
         HostIntent::NewSession(_)
+            | HostIntent::CreateChat { .. }
             | HostIntent::SendTurn { .. }
             | HostIntent::ActivateProvider(_)
             | HostIntent::LoadSession { .. }
@@ -1996,6 +2016,51 @@ fn apply_host_intent_inner(ctx: &egui::Context, shared: &Arc<Mutex<Shared>>, int
         }
         HostIntent::RefreshNativeSessions(provider) => {
             native::request_list(&mut lock(shared), provider)
+        }
+        HostIntent::RefreshMachine => {
+            let mut state = lock(shared);
+            if state.provider_runtime_enabled {
+                if state.presence.is_none() {
+                    state.presence = Some(dpl_ai_host::presence::probe_all(
+                        dpl_ai_host::presence::specs(),
+                    ));
+                }
+                if state.machine.is_none() {
+                    state.machine = Some(dpl_ai_host::machine::scan());
+                }
+            }
+            ctx.request_repaint();
+        }
+        HostIntent::CreateChat { provider, starter } => {
+            let mut state = lock(shared);
+            if !project::require_ready(&mut state) || !state.window.can_prepare_chat(provider) {
+                state.window.chat_creation_failed(
+                    provider,
+                    "Your conversation is not ready yet. Check this AI's setup and try again.",
+                );
+                return;
+            }
+            if trust::runtime_grant(&mut state, provider).is_none() {
+                state.window.chat_creation_failed(
+                    provider,
+                    "Review this AI's project access, then try again.",
+                );
+                return;
+            }
+            let queued = if provider == dpl_ai_grok::PROVIDER {
+                send_grok_command(&state, dpl_ai_grok::GrokRuntimeCommand::NewSession)
+            } else {
+                send_seam_command(&mut state, provider, RuntimeCommand::NewSession)
+            };
+            if queued {
+                state.window.chat_creation_queued(provider, starter);
+            } else {
+                state.window.chat_creation_failed(
+                    provider,
+                    "The AI connection is not ready. Your task is kept; try again shortly.",
+                );
+            }
+            ctx.request_repaint();
         }
         HostIntent::NewSession(provider) => {
             let mut state = lock(shared);
@@ -3931,8 +3996,19 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                             .select_provider_session(dpl_ai_grok::PROVIDER, session_id)
                     })
                 {
+                    state
+                        .window
+                        .chat_creation_failed(dpl_ai_grok::PROVIDER, &error.to_string());
                     tracing::warn!(%error, "Grok session could not be selected");
                 } else {
+                    if is_new {
+                        if let Err(error) = state.window.finish_chat_creation(dpl_ai_grok::PROVIDER)
+                        {
+                            state
+                                .window
+                                .chat_creation_failed(dpl_ai_grok::PROVIDER, &error.to_string());
+                        }
+                    }
                     state.window.request_composer_focus();
                 }
             }
@@ -4050,6 +4126,9 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                 state.grok_turns.remove(&provider_session_id);
             }
             dpl_ai_grok::GrokRuntimeEvent::Failure(failure) => {
+                state
+                    .window
+                    .chat_creation_failed(dpl_ai_grok::PROVIDER, &failure.reason);
                 if let Some(provider_session_id) = failure.provider_session_id.clone() {
                     append_grok_event(
                         state,
@@ -4070,6 +4149,10 @@ fn poll_grok_runtime(state: &mut Shared) -> bool {
                 }
             }
             dpl_ai_grok::GrokRuntimeEvent::Stopped => {
+                state.window.chat_creation_failed(
+                    dpl_ai_grok::PROVIDER,
+                    "AI connection stopped. Your task is kept.",
+                );
                 cancel_grok_permissions(state, None, false);
                 state.grok_runtime = None;
                 state.grok_runtime_ready = false;
@@ -4700,8 +4783,18 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
                 .upsert_provider_session(provider, summary)
                 .and_then(|()| state.window.select_provider_session(provider, session))
             {
+                state
+                    .window
+                    .chat_creation_failed(provider, &error.to_string());
                 tracing::warn!(%provider, %error, "provider session could not be selected");
             } else {
+                if is_new {
+                    if let Err(error) = state.window.finish_chat_creation(provider) {
+                        state
+                            .window
+                            .chat_creation_failed(provider, &error.to_string());
+                    }
+                }
                 state.window.request_composer_focus();
             }
         }
@@ -4755,6 +4848,7 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             state.seam_turns.remove(&(provider, provider_session_id));
         }
         RuntimeEvent::Failure(failure) => {
+            state.window.chat_creation_failed(provider, &failure.reason);
             if native::failure(state, provider, &failure) {
                 return;
             }
@@ -4808,6 +4902,9 @@ fn project_seam_event(state: &mut Shared, provider: ProviderId, event: RuntimeEv
             }
         }
         RuntimeEvent::Stopped => {
+            state
+                .window
+                .chat_creation_failed(provider, "AI connection stopped. Your task is kept.");
             native::stopped(state, provider);
             state.runtimes.remove(&provider);
         }

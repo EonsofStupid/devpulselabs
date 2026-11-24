@@ -2457,3 +2457,68 @@ checking Linux and macOS detection). **Operator rulings 2026-11-17:**
   EguiPilotAI gains scroll-into-view, and the General rail keeps its order.
 - **Next:** R305, a clear UI to add a custom AI the way Clyffy is one, comes
   before ST4. It gets its own pass plan and OK.
+
+### R306 · 2026-11-18
+
+> The catalog should be dynamic but what I mean is local/custom/ should not matter there is a minimum requirement for an AI to connect right?  that is all i meant do not hardcode, ensure the schema defines the minimum requirements any senior engineer would be grateful we took the time to have the provider properly documented so we capture it all and provides us with opportunities later for having it well organized canonicaly consistent.
+
+Source: operator session, 2026-11-18, answering "Which 'custom' do you mean:
+a Clyffy-style assistant, or a brand-new AI program?" It clarifies R305.
+**Operator rulings 2026-11-19** (on the AH2 plan, `docs/plans/chat-ah2-any-ai.md`):
+- **Plan:** "Approve".
+- **Scope:** "Both: contract, then chat": AH2a (schema, Add an AI, Test
+  connection) and AH2b (a web-address AI can chat), two PRs, one milestone.
+- **API keys:** "OS credential store": the key goes to the operating system's
+  credential store; the schema holds only its name.
+- **Local AI:** "we are not using lm studio we are using our own vLLM",
+  answering "may I start LM Studio's server as the test target?". R307 below
+  rules how the UI connects to any local server.
+
+### R307 · 2026-11-19
+
+> why are you hardcoding this when i have made it clear that this is suppose to be my lab multipupose lab tool we have to be able to properly first work with AI in an expected layman quality of where we can mix our frontier and local why would you hardcode that instead of building the ui to fully uspport so if i was even running lm studio i can just point it regardless if lm or vLLM our UI should support connecting]
+
+Source: operator session, 2026-11-19, on the AH2 plan naming vLLM as the
+local starting point. **Ruling:** the Add an AI dialog names no product. Any
+server (vLLM, LM Studio or other) connects by pointing at its address, and
+DevPULSE detects what it is. Frontier and local AIs sit side by side, the
+same way.
+
+### R308 · 2026-11-20
+
+> by now i should be able to have a version to test where it should be smart so if i am running on windows the chat should be passively smart and see if claude or grok or meta muse or codex claude is and actually work and be aware I should be able to with truly friendly tailored clean popup screen menus create a new chat session and have roles available we have premade to test with, i should have the code tailored so when we run the dev version that it allows us to optimize all the parts of this massive platform and i need you to understand i have a year almost and i feel like i have nothing
+
+Source: operator session. Authorizes delivery toward usable Windows chat,
+passive machine awareness, friendly new-session menus, usable built-in roles
+and a testable development build. Execution: [Windows chat](plans/chat-testable-windows.md).
+
+**Operator correction, same session:**
+
+> why are we mixing projects with chat
+
+> CHAT SHOULD BE AWARE OF THE PLATFORMS PROJECT
+
+> GET THE FUCKING EXISTING CODE PROPERLY AUTHORED WHAT HTE FUCK IS THIS PROJECT BULLSHIT
+
+Chat inherits platform project context. A separate chat project setup or
+selection must not be a prerequisite for creating a conversation. This
+corrects the PC1a host's mandatory chat-project flow as well as the R308 draft.
+
+### R309 · 2026-11-21
+
+> i need to see what the fuck you are doing becauase now my project management is clearly completely fucked
+
+> get the fucking changes planned out properly establishing golden pattern for each provider to follow for minimum parameters to be captured
+
+Source: operator follow-up. Requires a reviewable plan, a common provider
+pattern and explicit minimum captured parameters. The plan must account for
+platform project ownership and expose what is verified versus assumed.
+Planning artifact: [provider golden pattern](plans/chat-provider-golden-pattern.md).
+
+### R310 · 2026-11-22
+
+> i want this process right so you do not ufcking work on old code.  we get the changes fully merged before anything new
+
+Source: operator session. Merge and reconcile existing work against freshly
+fetched main before new work. The baseline gate and delivery are specified in
+[main reconciliation](plans/main-reconciliation.md).

@@ -25,6 +25,8 @@
 //!   printed. It also runs inside `green`, where it REPORTS and never gates
 //!   (pass 1) — the one phase that can see authored data nothing consumes.
 
+mod baseline;
+
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::fs;
@@ -987,6 +989,8 @@ fn dev(arguments: &[String]) -> Result<(), String> {
             "dpl-lottie-render",
             "-p",
             "dpl-coach-overlay",
+            "--features",
+            "devpulselabs/eguipilotai-devtools",
         ],
     )?;
 
@@ -2577,6 +2581,7 @@ fn main() -> ExitCode {
         // The dev run (R278): develop on a running
         // debug app, not only the release exe.
         "dev" => dev(&arguments),
+        "baseline" => baseline::run(&arguments),
         "fix" => run("fmt", &["fmt", "--all"]).and_then(|()| {
             run(
                 "clippy --fix",
