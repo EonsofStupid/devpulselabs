@@ -221,7 +221,8 @@ pub(super) fn require_ready(state: &mut Shared) -> bool {
 }
 
 fn idle(state: &Shared) -> bool {
-    !native::busy(state)
+    !state.window.chat_creation_pending()
+        && !native::busy(state)
         && !state.codex_activation.is_login_running()
         && !state.grok_activation.is_login_running()
         && !matches!(
@@ -679,6 +680,7 @@ pub(super) fn verify_intent(state: &mut Shared, ctx: &egui::Context, intent: Hos
             Some(*provider)
         }
         HostIntent::NewSession(provider)
+        | HostIntent::CreateChat { provider, .. }
         | HostIntent::ActivateProvider(provider)
         | HostIntent::SendTurn { provider, .. } => Some(*provider),
         _ => None,
@@ -1499,6 +1501,40 @@ mod tests {
         assert!(ready(&state));
         assert!(can_close(&mut state, &ctx));
         assert_eq!(draft_text(&state), "unsaved work");
+    }
+
+    #[test]
+    fn pending_session_creation_keeps_its_project_binding() {
+        let root = scratch("pending-creation");
+        let mut state = host(&root.join("machine"));
+        let ctx = egui::Context::default();
+        setup(&mut state, &ctx, &root, "A");
+        let original = state
+            .project
+            .active
+            .as_ref()
+            .unwrap()
+            .workspace()
+            .to_path_buf();
+        state
+            .window
+            .chat_creation_queued(dpl_ai_codex::PROVIDER, "Keep this role draft".into());
+        request(
+            &mut state,
+            &ctx,
+            Request::Setup {
+                workspace: root.join("B"),
+                label: "B".into(),
+            },
+        );
+        assert!(!idle(&state));
+        assert!(state.project.worker.is_none());
+        assert_eq!(state.project.active.as_ref().unwrap().workspace(), original);
+        assert!(!root.join("B").join(".devpulse").exists());
+        state
+            .window
+            .chat_creation_failed(dpl_ai_codex::PROVIDER, "connection lost");
+        assert!(idle(&state));
     }
 
     #[test]

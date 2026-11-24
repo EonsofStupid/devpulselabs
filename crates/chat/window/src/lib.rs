@@ -48,6 +48,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
 
+pub mod new_chat;
 mod projects;
 pub use projects::{
     ProjectChoice, ProjectView, PROJECTS_ID, PROJECT_COPY_ID, PROJECT_LABEL_ID, PROJECT_OPEN_ID,
@@ -577,6 +578,12 @@ pub enum ChatWindowIntent {
         expanded: bool,
     },
     NewSession(ProviderId),
+    OpenNewChat(Option<ProviderId>),
+    CreateChat {
+        provider: ProviderId,
+        starter: String,
+    },
+    RefreshMachine,
     LoadSession {
         provider: ProviderId,
         session: ChatSessionId,
@@ -791,6 +798,11 @@ pub enum HostIntent {
     SaveProviderProfile(ProviderProfileDraft),
     CopyProviderAuthorizationCode(ProviderId),
     NewSession(ProviderId),
+    CreateChat {
+        provider: ProviderId,
+        starter: String,
+    },
+    RefreshMachine,
     LoadSession {
         provider: ProviderId,
         session: ChatSessionId,
@@ -954,6 +966,7 @@ pub struct ChatWindow {
     runtime: ChatRuntime,
     project_view: ProjectView,
     project_ui: projects::ProjectUi,
+    new_chat: new_chat::NewChatUi,
     project_input_locked: bool,
     native_sessions: BTreeMap<ProviderId, NativeSessionStatus>,
     route_context: RouteContextState,
@@ -1151,6 +1164,7 @@ impl ChatWindow {
             trust: BTreeMap::new(),
             trust_dialog: None,
             room_library: dpl_chat_core::rooms::Library::builtin(),
+            new_chat: new_chat::NewChatUi::default(),
             library_open: false,
             library_room_filter: None,
             library_role_filter: None,
@@ -1755,6 +1769,14 @@ impl ChatWindow {
                 Ok(None)
             }
             ChatWindowIntent::NewSession(provider) => Ok(Some(HostIntent::NewSession(provider))),
+            ChatWindowIntent::OpenNewChat(provider) => {
+                self.open_new_chat(provider);
+                Ok(None)
+            }
+            ChatWindowIntent::CreateChat { provider, starter } => {
+                Ok(Some(HostIntent::CreateChat { provider, starter }))
+            }
+            ChatWindowIntent::RefreshMachine => Ok(Some(HostIntent::RefreshMachine)),
             ChatWindowIntent::LoadSession { provider, session } => {
                 Ok(Some(HostIntent::LoadSession { provider, session }))
             }
@@ -1919,6 +1941,7 @@ impl ChatWindow {
 
         self.project_popup(ui, &mut intents);
         self.trust_dialog_view(ui, &mut intents);
+        self.new_chat_popup(ui, &mut intents);
         if !self.project_input_locked {
             self.provider_hover_overlay(ui, &mut intents);
             self.provider_catalog_overlay(ui, &mut intents);
@@ -2601,9 +2624,8 @@ impl ChatWindow {
                         if response.clicked() { intents.push(ChatWindowIntent::RefreshNativeSessions(provider)); }
                     }
                 }
-                let can_start = target.is_some_and(|(_, _, can_start)| can_start);
                 let new_chat = cl::tip(
-                    sidebar_destination_button(ui, "+  New chat", can_start),
+                    sidebar_destination_button(ui, "+  New chat", true),
                     "Start a new chat with the selected provider",
                 );
                 let mut metadata = NodeMetadata::new(
@@ -2620,9 +2642,7 @@ impl ChatWindow {
                 });
                 ui.pilot_track(&new_chat, metadata);
                 if new_chat.clicked() {
-                    if let Some((provider, _, true)) = target {
-                        intents.push(ChatWindowIntent::NewSession(provider));
-                    }
+                    intents.push(ChatWindowIntent::OpenNewChat(target.map(|(provider, _, _)| provider)));
                 }
             },
         );
@@ -3800,6 +3820,7 @@ impl ChatWindow {
                 if let Some(current) = offered {
                     permission_selector(
                         ui,
+                        PilotId::new("chat.permissions"),
                         descriptor.id,
                         descriptor.label,
                         current,
@@ -4983,22 +5004,21 @@ impl ChatWindow {
                     let submit_key = ui.is_enabled()
                         && composer_focused
                         && ui.input_mut(take_composer_submit);
-                    let editor = ui.add_sized(
-                        // The editor takes what Send leaves, never more, so
-                        // Send stays in the window at every width.
-                        [
-                            (ui.available_width()
-                                - SEND_SIZE.x
-                                - 2.0 * ui.spacing().item_spacing.x)
-                                .max(0.0),
-                            52.0,
-                        ],
-                        egui::TextEdit::multiline(&mut draft)
+                    let editor = ui.allocate_ui_with_layout(
+                        egui::vec2((ui.available_width() - SEND_SIZE.x - 2.0 * ui.spacing().item_spacing.x).max(0.0), 52.0),
+                        Layout::top_down(Align::Min),
+                        |ui| egui::ScrollArea::vertical()
+                            .id_salt("chat.composer.scroll")
+                            .max_height(52.0)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| ui.add(egui::TextEdit::multiline(&mut draft)
                             .id(editor_id)
                             .interactive(!self.project_input_locked)
                             .hint_text(self.composer_hint())
-                            .desired_rows(2),
-                    );
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(2)))
+                            .inner,
+                    ).inner;
                     let mut metadata =
                         NodeMetadata::new(COMPOSER_ID, Role::TextInput, "Message composer");
                     metadata.editable = !self.project_input_locked;
@@ -5823,7 +5843,7 @@ impl ChatWindow {
                                 .registration
                                 .has_capability(Capability::StartSession);
                         let new_chat = cl::tip(
-                            ui.add_enabled(can_start, egui::Button::new("+  New chat")),
+                            ui.button("+  New chat"),
                             "Start a new chat with this provider",
                         );
                         let mut metadata = NodeMetadata::new(
@@ -5839,7 +5859,7 @@ impl ChatWindow {
                         }
                         ui.pilot_track(&new_chat, metadata);
                         if new_chat.clicked() {
-                            intents.push(ChatWindowIntent::NewSession(descriptor.id));
+                            intents.push(ChatWindowIntent::OpenNewChat(Some(descriptor.id)));
                             intents.push(ChatWindowIntent::SetOverlay(None));
                         }
                         ui.label(
@@ -8314,13 +8334,14 @@ fn provider_tone(accent: ProviderAccent) -> Tone {
 /// next message.
 fn permission_selector(
     ui: &mut egui::Ui,
+    scope: PilotId,
     provider: ProviderId,
     label: &str,
     current: PermissionMode,
     ceiling: Option<PermissionMode>,
     intents: &mut Vec<ChatWindowIntent>,
 ) {
-    let response = egui::ComboBox::from_id_salt(("dpl_chat_permission_mode", provider.0))
+    let response = egui::ComboBox::from_id_salt((scope.as_str(), provider.0))
         .selected_text(RichText::new(current.label()).small())
         .show_ui(ui, |ui| {
             // The project's trust grant is the ceiling (ruling 2026-11-16):
@@ -8346,7 +8367,7 @@ fn permission_selector(
     ui.pilot_track(
         &response,
         NodeMetadata::new(
-            PilotId::new("chat.permissions").child(&PilotKey::new(provider.0)),
+            scope.child(&PilotKey::new(provider.0)),
             Role::ComboBox,
             format!("{label} permissions"),
         )
@@ -8479,7 +8500,7 @@ mod tests {
         evidence: "fixture",
     };
 
-    fn window() -> ChatWindow {
+    pub(super) fn window() -> ChatWindow {
         let mut runtime =
             ChatRuntime::try_from_registrations([ProviderRegistration::planned(MANIFEST)])
                 .expect("runtime");
@@ -8974,7 +8995,7 @@ mod tests {
         }
     }
 
-    fn multi_provider_window() -> ChatWindow {
+    pub(super) fn multi_provider_window() -> ChatWindow {
         let mut first = ProviderRegistration::planned(MANIFEST);
         first.activation = ActivationState::Ready;
         let first_sessions = vec![SessionSummary {

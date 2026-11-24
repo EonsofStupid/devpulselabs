@@ -45,7 +45,7 @@ impl Default for ProjectView {
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct ProjectUi {
-    open: bool,
+    pub(super) open: bool,
     label: String,
     workspace: String,
 }

@@ -35,6 +35,17 @@ Anything reaching outside this repo must be listed in
 
 ## Session OS / milestone-loop (every agent)
 
+Before planning or editing, run `cargo xtask baseline check`. It fetches actual
+remote main and refuses a stale/diverged checkout or failed fetch. Preserve and
+reconcile existing work on failure; never reset it. Before a NEW milestone run
+`cargo xtask baseline start`: the prior milestone must be merged, the checkout
+fast-forwarded to remote main, and the working tree clean. A passing `check`
+allows continuing an existing milestone, not starting another. Run `check`
+again before delivery. Finish with local main equal to freshly fetched remote
+main and no outstanding milestone PR. Cached remote refs are not evidence.
+A checkout marked retired (`git config --local dpl.retiredCheckout "<note>"`)
+is refused by both commands; work in THE checkout instead.
+
 One loop, two surfaces. Read, in order:
 1. `docs/status.md` (where we are);
 2. `docs/requirements.md` (the operator's words);

@@ -1,6 +1,6 @@
 ---
-updated: 2026-11-17
-active_lane: recording-for-ai
+updated: 2026-11-24
+active_lane: chat
 dirty: false
 ---
 
@@ -54,6 +54,28 @@ private repos, so it no longer applies now the repo is public.
 `docs/plans/ci-exe-upload.md`.
 
 ## Now
+
+**R310 reconciliation landed (audit of 2026-11-24).** Two checkouts had drifted:
+the AH2 plan approved on 2026-11-19 sat uncommitted in THE checkout, while a
+draft was built in the old clone on code eleven merges behind. Both are now on
+main in one PR. Carried in: the new-chat role popup, the long-draft fix, the
+baseline guard (`cargo xtask baseline check|start`), the devtools feature in
+`cargo xtask dev`, and the AH2 plan with R306–R307. The old clone's later
+quotes are R308–R310. The build/library-folder project substitution is not
+carried; its source stays at local commit 2a7d0a5. The guard also refuses a
+checkout marked retired (`git config --local dpl.retiredCheckout`), which the
+old clone now is. See [reconciliation](plans/main-reconciliation.md) for every
+draft's disposition. No new provider is declared working. R308's inherited
+platform project association remains a documented gap.
+
+**Open from the audit, awaiting the operator's rulings:** one provider doc
+(fold [the appendix](plans/chat-provider-golden-pattern.md) into
+[AH2](plans/chat-ah2-any-ai.md)); the dev panel moved ahead of AH2 (today the
+call timings are measured but shown nowhere, and the prompt as sent is not
+recorded); tabs earned by use in place of "Ready AIs + More"; and Bot and
+Provider as two separate things, with the bot builder brought forward. Only
+Codex can hold a conversation in the app today.
+
 
 **Guided workflow fixes (R297–R299).** The work from 2026-11-01 and 11-02 lived
 uncommitted in a worktree of the old clone and is now on main. A guide edit copies

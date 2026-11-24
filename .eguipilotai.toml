@@ -159,6 +159,14 @@ arguments = ["--route", "wiredfront/viziwiz", "--viziwiz", "--mood", "0"]
 [fixtures.chat]
 arguments = ["--chat-open", "--mood", "0"]
 
+[fixtures.chat-new]
+arguments = ["--chat-open", "--chat-authored", "--chat-proof", "new-chat", "--mood", "0", "--no-seam"]
+
+[fixtures.chat-new.environment]
+CONTENT_ROOT = "target/chat-new-proof/library/content"
+ASSETS_ROOT = "target/chat-new-proof/library/assets"
+USERDATA_ROOT = "target/chat-new-proof/library/.userdata"
+
 [fixtures.chat-peer]
 arguments = ["--chat-open", "--mood", "0"]
 

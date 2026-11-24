@@ -3,6 +3,7 @@
 # The full gate, `cargo green`, runs on both hosted lanes for every PR.
 # Wired via `git config core.hooksPath .githooks` (see CLAUDE.md).
 set -e
+cargo xtask baseline check
 echo "[pre-push] fmt + clippy"
 cargo fmt --all -- --check
 cargo gate

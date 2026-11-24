@@ -1,5 +1,10 @@
 # DevPULSE Labs — agent operating contract
 
+Before planning or editing: `cargo xtask baseline check` must fetch and pass.
+Before a new milestone: `cargo xtask baseline start` must also pass (clean and
+equal to remote main). Finish and merge current work first; preserve drafts
+when reconciling. Repeat the check before delivery. See `AGENTS.md`.
+
 Read `docs/status.md` FIRST — where we are (now, known broken, next). Then
 `docs/requirements.md` — the operator's words, verbatim; nothing else is
 built. Then `docs/README.md` — the map: which ONE doc is the truth for each
