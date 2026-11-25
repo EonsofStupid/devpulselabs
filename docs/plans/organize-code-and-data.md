@@ -1,7 +1,8 @@
 # Move and organize: components on one pattern, data in `.userdata` and `.usr/.ai`
 
-**R311 (2026-11-24/25).** **Status:** M1 landed (#333). M6 is built on
-`feat/m6-usr-ai`. M2–M5, M7 and M8 are written out to execute.
+**R311 (2026-11-24/25).** **Status:** M1 (#333) and M6 (#334) landed. M7 is
+built on `feat/m7-chats-per-project`. M2–M5 and M8 are written out to
+execute.
 
 This is the one work queue for the move. It does not restate design that
 already has an owner: component layout is
@@ -123,8 +124,11 @@ example painted by the renderer.
       chat\accounts.db                 M6: was .userdata\chat\accounts.db
       chat\provider-profiles.db        M6: was .userdata\chat\provider-profiles.db
       chat\library\roles\ rooms\      M6: was .userdata\chat\library
-      projects\<project-id>\           M7
-        chats\  logs\  context\  media\
+      projects\<project-id>\           M7: was <project>\.devpulse\chat
+        chats\                         the journal of chats and drafts
+        providers\codex\               that project's native Codex sessions
+        writer.lock
+        logs\  context\  media\         made by the pass that first writes them
 ```
 
 - `dpl-roots` owns the path: `Layout.ai` and `dpl_roots::ai_root()`. No other
@@ -143,8 +147,22 @@ example painted by the renderer.
     it on its own through `USERDATA_ROOT`. It moves with M7's `logs\` if the
     operator wants the AI part split out.
   - `cache\imagine`: regenerable.
-- A project folder keeps only `<project>\.devpulse\chat\project.json`, a link
-  to its `projects\<project-id>\` folder in the library (M7).
+- **A project folder keeps only the link** (M7):
+  `<project>\.devpulse\chat\project.json`, its identity marker. Every save
+  still checks that marker at the project's path, so a replaced or missing
+  project is refused exactly as before.
+- **`dpl-chat-projects` takes the store as an argument**
+  (`Project::create(store, workspace, label)`); the app passes
+  `<library>\.usr\.ai\projects`. The crate still discovers nothing itself.
+- **A project whose chats are in another library** is refused in plain
+  words ("The chats of '…' are not in this library") and nothing is made.
+- **Chats an older build kept inside the project folder** are copied into
+  the library once, on open, checked byte for byte; the project folder's
+  copy is only read.
+- **Stays on this computer, outside the library:** the project registry,
+  trust grants and Codex profile homes (`%LOCALAPPDATA%\DevPULSE\chat`).
+  Trust was ruled machine-local (AH1b), so a library carried to another
+  computer does not carry permission to act there.
 
 ## 5. Wiring: the queue
 
@@ -156,7 +174,7 @@ example painted by the renderer.
 | **M4** | Charts | the eight charts; `chart/` stays shared | their structs and `ui()`s |
 | **M5** | Interactive | checklist, reveal, choice, quiz, cost-meter, predict, drag-match; interaction state moves to `state.rs`, live on the deck and at rest in thumbnails and the editor | their structs and `ui()`s; the `SlideTemplate` trait once nothing implements it |
 | **M6** | `.usr/.ai` in the code (built) | `dpl-roots`: `Layout.ai` at `.usr/.ai`, `ai_root()`, the one-time carry; provider accounts, provider profiles and the role and room library write under it | `.aidata`, `aidata_root()`, the three AI paths under `userdata_root()` |
-| **M7** | Chats per project | chats, logs, context and media under `.usr\.ai\projects\<id>\`; the project folder keeps only the link | the archive body under `<project>\.devpulse\chat` |
+| **M7** | Chats per project (built) | chats and each project's provider sessions under `.usr\.ai\projects\<id>\`; the project folder keeps only the link | the archive body under `<project>\.devpulse\chat` |
 | **M8** | The operator's move | "Bring in my existing library" and `cargo xtask move-library` end in this layout (the carry does the split); dry run first, then the operator taps **Move it** | reading the repo-root `content\`, `assets\`, `.userdata\` outside the drill seam |
 
 Order: M1, then M2 to M5, then M6 to M8. M6 does not depend on M2 to M5 and
@@ -210,9 +228,21 @@ place. M6's carry is the pattern: copy, verify, leave the source untouched.
   `accounts.db`, `provider-profiles.db` and their `-wal` files, and the
   source files hash the same as before the launch.
 
+**M7** (2026-11-25, `feat/m7-chats-per-project`):
+- `cargo test -p dpl-chat-projects`: 33 passed (31 before), including
+  `chats_live_in_the_store_and_the_project_folder_keeps_only_the_link` and
+  `chats_an_older_build_kept_in_the_project_folder_are_carried_once`.
+- Clippy clean on the workspace; the `eguipilotai-devtools` build checks.
+- Full `cargo green` passes on Windows. The real exe starts on a scratch
+  library with the chat window open and creates `.usr.ai`.
+- **Not proven:** a real signed-in chat saved through the window on the
+  operator's own library. This computer has no project registry yet
+  (`%LOCALAPPDATA%\DevPULSE\chat` does not exist), so no real project has
+  ever been set up here.
+
 ## Decisions for the operator
 
-1. **Next:** M7 (chats, logs, context and media per project under
-   `.usr\.ai\projects\`), or the components (M2 to M5)?
+1. **Next:** the components (M2 to M5), or M8 (the operator's library
+   move)?
 2. **Analytics and sign-in sessions** stay in `.userdata` (reasons in 4.3).
    Say if either should move under `.usr\.ai` too.

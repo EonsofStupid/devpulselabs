@@ -823,7 +823,7 @@ for the look.
 | Desktop apps | `dpl-ai-host` | Detect and offer launch or focus only (R12). Chat goes through each vendor's CLI sibling, because the desktop apps expose no local API. |
 | Generic ACP adapter | `dpl-ai-core::adapter` + one ACP client | Kimi, Gemini/Antigravity, Copilot, Qwen, Vibe, Grok and Goose plug in by catalog entry. Codex keeps its app-server. Claude uses stream-json (or `claude-agent-acp`). |
 | Trust prompt | `chat/projects` binding + ColdLight dialog | Per project folder; read, write and run are granted separately. |
-| Storage | `dpl-roots` layout (ST4) | `<library>/.usr/.ai/` replaces the reserved `.aidata`, per project: `chats/`, `logs/`, `context/`, `media/`. Project folders keep only a link back. Changeable later. |
+| Storage (landed 2026-11-25: R311 M6 and M7, `organize-code-and-data.md`) | `dpl-roots` layout (ST4) | `<library>/.usr/.ai/` replaces the reserved `.aidata`, per project: `chats/`, `logs/`, `context/`, `media/`. Project folders keep only a link back. Changeable later. |
 | Group chat and moderation | rooms RM2–RM4, `room.v1` | Turn policy is data: `round_robin`, `raise_hand` or `moderated_by`. |
 | Composable roles | `dpl.role/2` in `chat/core/rooms.rs`, migrated once | A base plus ordered modifiers; later modifiers override fields, and lists append. Categories form a tree. |
 | Clyffy | profiles (`dpl-ai-profiles`) + `dpl-ai-host` router | Backing is a profile: subscription, API key, local or Hugging Face. The router routes by task class and threshold, as data. |

@@ -8,29 +8,32 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-const HELP: &str = "Open Codex for a registered DevPULSE project\n\nUsage: devpulse-codex-project --registry <absolute-path> --project <id> --generation <id> [--mode ask|workspace|read-only]\n\nRequires an existing terminal and a qualified project profile. No setup, arbitrary commands or credential migration are performed.\nThis build keeps standalone support disabled pending live qualification.";
+const HELP: &str = "Open Codex for a registered DevPULSE project\n\nUsage: devpulse-codex-project --registry <absolute-path> --store <absolute-path> --project <id> --generation <id> [--mode ask|workspace|read-only]\n\nRequires an existing terminal and a qualified project profile. No setup, arbitrary commands or credential migration are performed.\nThis build keeps standalone support disabled pending live qualification.";
 
 #[derive(Debug)]
 struct Options {
     registry: PathBuf,
+    /// The library's per-project chat folder (`.usr/.ai/projects`).
+    store: PathBuf,
     project: ProjectId,
     generation: ProfileGeneration,
     mode: PermissionMode,
 }
 
 fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Option<Options>, String> {
-    let args: Vec<_> = args.into_iter().take(9).collect();
-    if args.len() > 8
+    let args: Vec<_> = args.into_iter().take(11).collect();
+    if args.len() > 10
         || args
             .iter()
             .any(|arg| arg.as_encoded_bytes().len() > 32 * 1024)
     {
-        return Err("The named project entry accepts at most four bounded options".into());
+        return Err("The named project entry accepts at most five bounded options".into());
     }
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
         return Ok(None);
     }
     let mut registry = None;
+    let mut store = None;
     let mut project = None;
     let mut generation = None;
     let mut mode = None;
@@ -48,6 +51,17 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Option<Options>, St
                     return Err("The registry path must be absolute and contain no '..'".into());
                 }
                 registry = Some(path);
+            }
+            Some("--store") if store.is_none() => {
+                let path = PathBuf::from(value);
+                if !path.is_absolute()
+                    || path
+                        .components()
+                        .any(|part| matches!(part, std::path::Component::ParentDir))
+                {
+                    return Err("The store path must be absolute and contain no '..'".into());
+                }
+                store = Some(path);
             }
             Some("--project") if project.is_none() => {
                 project = Some(ProjectId::parse(text(value)?)?);
@@ -68,6 +82,7 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Option<Options>, St
     }
     Ok(Some(Options {
         registry: registry.ok_or("An existing --registry is required")?,
+        store: store.ok_or("The library's --store is required")?,
         project: project.ok_or("A registered --project identity is required")?,
         generation: generation.ok_or("An existing --generation is required")?,
         mode: mode.unwrap_or(PermissionMode::AskFirst),
@@ -83,6 +98,7 @@ fn text(value: OsString) -> Result<String, String> {
 fn run(options: Options) -> Result<ExitCode, String> {
     let mut process = standalone::open_project(
         &options.registry,
+        &options.store,
         &options.project,
         &options.generation,
         options.mode,
@@ -128,6 +144,8 @@ mod tests {
             "project-one".into(),
             "--generation".into(),
             "generation-one".into(),
+            "--store".into(),
+            std::env::temp_dir().into_os_string(),
         ]
     }
 

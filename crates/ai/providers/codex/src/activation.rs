@@ -1108,7 +1108,7 @@ mod tests {
         let base = temp_dir(&format!("bound-{unique}"));
         let workspace = base.join("workspace");
         fs::create_dir(&workspace).unwrap();
-        let project = Project::create_new(&workspace, "Fixture").unwrap();
+        let project = Project::create_new(&base.join("store"), &workspace, "Fixture").unwrap();
         let registry = Registry::open(&base.join("machine")).unwrap();
         let candidate = CodexProfileCandidate::create_new(&registry, &project).unwrap();
         let lease = Arc::new(candidate.lease().unwrap());
@@ -1190,7 +1190,7 @@ mod tests {
         }
         // Preserve the original marker and prove a replacement cannot authorize
         // another child; this is deliberately disposable fixture data.
-        let marker = project.archive_dir().join("project.json");
+        let marker = project.link_dir().join("project.json");
         let original = fs::read(&marker).unwrap();
         fs::write(base.join("retained-project-marker.json"), original).unwrap();
         fs::write(marker, b"{}").unwrap();

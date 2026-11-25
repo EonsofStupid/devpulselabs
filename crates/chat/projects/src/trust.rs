@@ -123,7 +123,8 @@ mod tests {
     fn nothing_is_trusted_until_the_operator_answers() {
         let root = scratch("unanswered");
         let registry = Registry::open(&root.join("machine")).unwrap();
-        let project = Project::create_new(&work(&root, "work"), "Lesson 12").unwrap();
+        let project =
+            Project::create_new(&root.join("store"), &work(&root, "work"), "Lesson 12").unwrap();
         assert_eq!(registry.trust(project.id(), "codex").unwrap(), None);
         assert!(!Grant::default().allows_start(), "everything starts off");
     }
@@ -132,8 +133,8 @@ mod tests {
     fn a_grant_is_per_project_and_per_ai_and_the_last_answer_wins() {
         let root = scratch("per-project");
         let registry = Registry::open(&root.join("machine")).unwrap();
-        let one = Project::create_new(&work(&root, "one"), "One").unwrap();
-        let two = Project::create_new(&work(&root, "two"), "Two").unwrap();
+        let one = Project::create_new(&root.join("store"), &work(&root, "one"), "One").unwrap();
+        let two = Project::create_new(&root.join("store"), &work(&root, "two"), "Two").unwrap();
         let read = Grant {
             read: true,
             ..Grant::default()
@@ -158,7 +159,8 @@ mod tests {
     fn the_grant_never_lives_in_the_project_folder() {
         let root = scratch("not-in-project");
         let registry = Registry::open(&root.join("machine")).unwrap();
-        let project = Project::create_new(&work(&root, "work"), "Work").unwrap();
+        let project =
+            Project::create_new(&root.join("store"), &work(&root, "work"), "Work").unwrap();
         let grant = Grant {
             read: true,
             change: true,
@@ -187,7 +189,8 @@ mod tests {
     fn a_malformed_ai_id_is_refused() {
         let root = scratch("ai-id");
         let registry = Registry::open(&root.join("machine")).unwrap();
-        let project = Project::create_new(&work(&root, "work"), "Work").unwrap();
+        let project =
+            Project::create_new(&root.join("store"), &work(&root, "work"), "Work").unwrap();
         for bad in ["", "Codex", "../x", "a b"] {
             assert!(registry.trust(project.id(), bad).is_err(), "{bad:?}");
         }

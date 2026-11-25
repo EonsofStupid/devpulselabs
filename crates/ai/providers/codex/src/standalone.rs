@@ -28,6 +28,7 @@ pub const fn is_qualified() -> bool {
 /// Refuses before filesystem discovery or provider probes while unqualified.
 pub fn open_project(
     registry: &Path,
+    store: &Path,
     project: &ProjectId,
     generation: &ProfileGeneration,
     mode: PermissionMode,
@@ -41,7 +42,7 @@ pub fn open_project(
         .into_iter()
         .find(|binding| &binding.id == project)
         .ok_or("This project is not registered on this computer")?
-        .open()?;
+        .open(store)?;
     let candidate = CodexProfileCandidate::open(&registry, &project, generation)?;
     let lease = Arc::new(candidate.lease()?);
     let profile =
@@ -166,6 +167,7 @@ mod tests {
     fn unqualified_entry_refuses_before_registry_or_provider_access() {
         let result = open_project(
             Path::new("missing-registry-must-not-be-created"),
+            Path::new("missing-store-must-not-be-created"),
             &ProjectId::parse("project-fixture").unwrap(),
             &ProfileGeneration::parse("generation-fixture").unwrap(),
             PermissionMode::Workspace,
