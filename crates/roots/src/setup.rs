@@ -108,7 +108,7 @@ pub(crate) fn create_layout(layout: &Layout) -> Result<(), String> {
         &layout.content,
         &layout.assets,
         &layout.userdata,
-        &layout.aidata,
+        &layout.ai,
         &layout.cache,
         &layout.temp,
     ] {

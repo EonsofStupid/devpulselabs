@@ -2537,3 +2537,8 @@ moving every component onto the data-driven engine. The work queue is
 [move and organize](plans/organize-code-and-data.md). The name of the AI
 folder (`.ai`, replacing `.aidata` and R303's `.usr/.ai`) and the order are
 that plan's two open decisions.
+
+> GET THE NOVEMBER 14TH RULING WHY TEH FUCK IS NOT DONE
+
+**Operator ruling 2026-11-25:** the AI folder is `<library>/.usr/.ai/`, as
+ruled on 2026-11-14 (R303). The plan's `.ai` beside `.userdata` is withdrawn.

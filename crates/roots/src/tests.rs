@@ -60,7 +60,7 @@ fn imported_round_trip_has_the_final_layout() {
     assert_eq!(config.last_path, None);
     assert_eq!(layout.content, root.join("library/accounts/me/content"));
     assert_eq!(layout.temp, root.join("library/common/temp"));
-    assert_eq!(layout.aidata, root.join("library/accounts/me/.aidata"));
+    assert_eq!(layout.ai, root.join("library/accounts/me/.usr/.ai"));
     let mut roots = Roots::open(&root, None);
     assert_eq!(roots.layout().unwrap(), layout);
     assert_eq!(roots.ensure_rings().unwrap(), layout);
@@ -1545,4 +1545,46 @@ fn a_requested_move_waits_for_the_next_launch_and_runs_once() {
         .contains("already holds files"));
     assert_eq!(switch::pending(&exe).unwrap(), None);
     assert_eq!(disk::read_config(&exe).unwrap().last_path, Some(to));
+}
+
+#[test]
+fn ai_data_is_carried_once_into_usr_ai_and_the_source_is_untouched() {
+    let root = scratch();
+    let layout = imported(&root);
+    let old = layout.userdata.join("chat");
+    fs::create_dir_all(old.join("library/roles")).unwrap();
+    fs::write(old.join("accounts.db"), b"accounts").unwrap();
+    fs::write(old.join("library/roles/mine.json"), b"{}").unwrap();
+    let before = snapshot(&old);
+
+    let mut roots = Roots::open(&root, None);
+    roots.ensure_rings().unwrap();
+    let new = layout.ai.join("chat");
+    assert_eq!(fs::read(new.join("accounts.db")).unwrap(), b"accounts");
+    assert_eq!(
+        fs::read(new.join("library/roles/mine.json")).unwrap(),
+        b"{}"
+    );
+    assert_eq!(snapshot(&old), before, "the source is only read");
+    assert!(!layout.ai.join("chat.carrying").exists());
+
+    // Once carried, `.usr/.ai` is the truth: a later open never copies over it.
+    fs::write(new.join("accounts.db"), b"newer").unwrap();
+    fs::write(old.join("accounts.db"), b"stale").unwrap();
+    roots.ensure_rings().unwrap();
+    assert_eq!(fs::read(new.join("accounts.db")).unwrap(), b"newer");
+}
+
+#[test]
+fn a_library_without_old_ai_data_just_gets_the_folder() {
+    let root = scratch();
+    let layout = imported(&root);
+    // The reserved folder an older build made: empty, so it goes.
+    let reserved = layout.userdata.parent().unwrap().join(".aidata");
+    fs::create_dir_all(&reserved).unwrap();
+    let mut roots = Roots::open(&root, None);
+    roots.ensure_rings().unwrap();
+    assert!(layout.ai.is_dir());
+    assert!(!layout.ai.join("chat").exists());
+    assert!(!reserved.exists());
 }

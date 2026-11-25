@@ -1,8 +1,7 @@
-# Move and organize: components on one pattern, data in `.userdata` and `.ai`
+# Move and organize: components on one pattern, data in `.userdata` and `.usr/.ai`
 
-**R311 (2026-11-24/25).** **Status:** M1 is built on
-`feat/ls4m-components-structure`; M2–M8 are written out to execute and wait
-for the operator's OK on the two decisions at the end.
+**R311 (2026-11-24/25).** **Status:** M1 landed (#333). M6 is built on
+`feat/m6-usr-ai`. M2–M5, M7 and M8 are written out to execute.
 
 This is the one work queue for the move. It does not restate design that
 already has an owner: component layout is
@@ -14,8 +13,9 @@ already has an owner: component layout is
 
 R311 asks for one fully written plan, the move finished, boring and
 predictable folder patterns, colocated code, errors surfaced by the move and
-then fixed, and no compatibility or legacy code. It also expects `.ai` and
-`.userdata` folders inside the library.
+then fixed, and no compatibility or legacy code. It also expects the AI and
+`.userdata` folders inside the library, and names the 2026-11-14 ruling
+(`<library>/.usr/.ai/`, grouped per project) as the one to carry out.
 
 ## 2. Goal and non-goals
 
@@ -23,7 +23,7 @@ then fixed, and no compatibility or legacy code. It also expects `.ai` and
 - Every slide component lives in one folder named by its id, with the same
   file names, and is painted by the one renderer on real slides.
 - Every byte the app stores lives inside the library, in `.userdata` (app
-  state) or `.ai` (what AI made or learned), grouped per project.
+  state) or `.usr/.ai` (what AI made or learned), grouped per project.
 - The old paths are deleted in the same PR that replaces them.
 
 **Not in this plan:** new components, wider parameters and media slots, your
@@ -42,7 +42,7 @@ Each is its own pass after this one.
 | No `.ai`, `.usr` or `.aidata` folder exists anywhere | `ls`; the code reserves `<library>\.aidata` and creates it empty |
 | AI data is written into `.userdata` today: `chat\accounts.db`, `chat\provider-profiles.db`, `chat\library\`, `profiles\provider-auth-*`, `analytics\`, `cache\imagine\` | `grep userdata_root()` across `crates/` |
 | A project folder keeps its chat archive at `<project>\.devpulse\chat` | `crates/chat/projects/src/lib.rs` |
-| Three names are on record for the AI folder: `.aidata` (storage plan), `.usr/.ai` (ruling 2026-11-14), `.ai` (R311) | the three documents |
+| The AI folder is `.usr/.ai` (ruling 2026-11-14, confirmed 2026-11-25); `.aidata` was the storage plan's earlier name | requirements R303, R311 |
 
 **Assumed, not verified:** that nothing outside this repo reads
 `.userdata\chat` or `.userdata\profiles`; the Linux lane for M1 (only the
@@ -115,25 +115,36 @@ example painted by the renderer.
   common\cache\  common\temp\          regenerable
   accounts\me\
     content\   assets\
-    .userdata\                         app state only: index.db, estate\,
-                                       policies, present-screens.json,
-                                       composer state
-    .ai\
-      providers\accounts.db            was .userdata\chat\accounts.db
-      providers\profiles.db            was .userdata\chat\provider-profiles.db
-      providers\homes\<provider>\      was .userdata\profiles\provider-auth-*
-      library\                         was .userdata\chat\library (roles, rooms)
-      analytics\                       was .userdata\analytics
-      projects\<project-id>\
+    .userdata\                         app state: index.db, estate\,
+                                       policies and settings, profiles\
+                                       (browser and sign-in sessions),
+                                       analytics\, composer state
+    .usr\.ai\
+      chat\accounts.db                 M6: was .userdata\chat\accounts.db
+      chat\provider-profiles.db        M6: was .userdata\chat\provider-profiles.db
+      chat\library\roles\ rooms\      M6: was .userdata\chat\library
+      projects\<project-id>\           M7
         chats\  logs\  context\  media\
 ```
 
-- `cache\imagine` stays under `common\cache` because it is regenerable.
+- `dpl-roots` owns the path: `Layout.ai` and `dpl_roots::ai_root()`. No other
+  crate joins a path under `.userdata` for AI data.
+- **M6 keeps relative paths the same** (`chat/…`), so a caller changes only
+  which root it asks for.
+- **Existing data is carried once, when the library opens** (`ai_carry.rs`):
+  a carried folder that is in `.userdata` and not yet in `.usr/.ai` is copied
+  and checked byte for byte. The source is only read and stays where it was.
+  A failed copy removes what it made and the open reports it. Once carried,
+  `.usr/.ai` is the truth and is never copied over.
+- **Stays in `.userdata` for now, each with its reason:**
+  - `profiles\provider-auth-*`: browser sign-in sessions, shared with the
+    browser engine's profiles; moving one risks a forced sign-in.
+  - `analytics\`: the whole app's signal ledger, and the coach daemon finds
+    it on its own through `USERDATA_ROOT`. It moves with M7's `logs\` if the
+    operator wants the AI part split out.
+  - `cache\imagine`: regenerable.
 - A project folder keeps only `<project>\.devpulse\chat\project.json`, a link
-  to its `projects\<project-id>\` folder in the library.
-- `dpl-roots` owns every path. `Layout.aidata` becomes `Layout.ai`, and
-  `aidata_root()` becomes `ai_root()`. No other crate joins a path under
-  `.userdata` for AI data.
+  to its `projects\<project-id>\` folder in the library (M7).
 
 ## 5. Wiring: the queue
 
@@ -144,17 +155,15 @@ example painted by the renderer.
 | **M3** | Columns | split, compare | their structs and `ui()`s |
 | **M4** | Charts | the eight charts; `chart/` stays shared | their structs and `ui()`s |
 | **M5** | Interactive | checklist, reveal, choice, quiz, cost-meter, predict, drag-match; interaction state moves to `state.rs`, live on the deck and at rest in thumbnails and the editor | their structs and `ui()`s; the `SlideTemplate` trait once nothing implements it |
-| **M6** | `.ai` in the code | `dpl-roots`: `.aidata` to `.ai`, the sub-paths in 4.3 as functions; accounts, profiles, chat library, sign-in homes, analytics and the ledger write under `.ai` | `aidata`, every AI path under `userdata_root()` |
-| **M7** | Chats per project | chats, logs, context and media under `.ai\projects\<id>\`; the project folder keeps only the link | the archive body under `<project>\.devpulse\chat` |
-| **M8** | The operator's move | "Bring in my existing library" and `cargo xtask move-library` also split `.userdata` into `.userdata` and `.ai`; dry run first, then the operator taps **Move it** | reading the repo-root `content\`, `assets\`, `.userdata\` outside the drill seam |
+| **M6** | `.usr/.ai` in the code (built) | `dpl-roots`: `Layout.ai` at `.usr/.ai`, `ai_root()`, the one-time carry; provider accounts, provider profiles and the role and room library write under it | `.aidata`, `aidata_root()`, the three AI paths under `userdata_root()` |
+| **M7** | Chats per project | chats, logs, context and media under `.usr\.ai\projects\<id>\`; the project folder keeps only the link | the archive body under `<project>\.devpulse\chat` |
+| **M8** | The operator's move | "Bring in my existing library" and `cargo xtask move-library` end in this layout (the carry does the split); dry run first, then the operator taps **Move it** | reading the repo-root `content\`, `assets\`, `.userdata\` outside the drill seam |
 
 Order: M1, then M2 to M5, then M6 to M8. M6 does not depend on M2 to M5 and
 can go first if the operator wants the data folders before the components.
 
-**Existing data in M6 and M7.** Pre-release, so there is no fallback read of
-the old place. Each PR carries a one-time mover that runs on the operator's
-tap (never at launch), copies, verifies byte for byte and leaves the old
-files labelled, as `bring_in` already does.
+**Existing data.** Pre-release, so there is no fallback read of the old
+place. M6's carry is the pattern: copy, verify, leave the source untouched.
 
 ## 6. Proof (every milestone)
 
@@ -191,9 +200,19 @@ files labelled, as `bring_in` already does.
   28 compared with origin/main — every one only grew", so all 28 moved
   contracts were still compared.
 
+**M6** (2026-11-25, `feat/m6-usr-ai`):
+- `cargo test -p dpl-roots`: 51 passed, including
+  `ai_data_is_carried_once_into_usr_ai_and_the_source_is_untouched` and
+  `a_library_without_old_ai_data_just_gets_the_folder`.
+- Full `cargo green` passes on Windows.
+- Real exe on a scratch library holding a copy of `.userdataat`
+  (`target/drills/m6-usr-ai`): after one launch `.usr.aiat` holds
+  `accounts.db`, `provider-profiles.db` and their `-wal` files, and the
+  source files hash the same as before the launch.
+
 ## Decisions for the operator
 
-1. **The AI folder's name.** This plan uses `.ai` beside `.userdata`, as
-   R311 says, replacing `.aidata` and the 2026-11-14 `.usr/.ai`. Confirm, or
-   say `.usr/.ai`.
-2. **Order.** Components first (M2 to M5), or data folders first (M6 to M8)?
+1. **Next:** M7 (chats, logs, context and media per project under
+   `.usr\.ai\projects\`), or the components (M2 to M5)?
+2. **Analytics and sign-in sessions** stay in `.userdata` (reasons in 4.3).
+   Say if either should move under `.usr\.ai` too.

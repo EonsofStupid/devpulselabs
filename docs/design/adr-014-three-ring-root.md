@@ -45,7 +45,7 @@ Invalid, missing, mismatched or ambiguous identity never selects another
 library or creates a replacement. Looking for a marker does not write files.
 
 New libraries have `common/{cache,temp}` and
-`accounts/me/{content,assets,.userdata,.aidata}`. The three ring meanings
+`accounts/me/{content,assets,.userdata,.usr/.ai}`. The three ring meanings
 above stay intact; regenerable shared files use `common`. Creation requires
 an explicit first-launch choice and never overwrites a marker or roots file.
 Composer state writes to `.userdata/composer-state.json`; an existing
@@ -55,7 +55,7 @@ Existing operator trees are not automatically changed. The explicit
 `--content-root` / `CONTENT_ROOT` dev and test seams retain sibling ring
 derivation and `ASSETS_ROOT` / `USERDATA_ROOT` overrides, and never persist
 configuration. ST4 owns account switching and the shown, verified migration
-of existing files, including chat/analytics into `.aidata`. ST2 owns automatic
+of existing files, including chat into `.usr/.ai` (done 2026-11-25; analytics stays in `.userdata`). ST2 owns automatic
 polling, live disconnection, reopening long-lived stores and retained edits.
 ST1's stateful resolver alone is not a guarantee of unplug-safe active IO.
 
@@ -84,7 +84,7 @@ R291 ("stored inside the project properly … you let the person decide"):
   plan. The move itself has no command-line form.
 
 ST4 keeps account switching and the split of `.userdata/` into `.userdata/`
-and `.aidata/`.
+and `.usr/.ai/`.
 
 ## Amendment 2026-10-27 — a library that isn't connected (ST2a)
 

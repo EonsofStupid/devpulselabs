@@ -63,13 +63,20 @@ gate follows a contract by its id; a test fails the gate when a folder breaks
 the pattern. Nothing paints differently. The rest is written out in
 [move and organize](plans/organize-code-and-data.md): M2 to M5 put the 22
 hand-painted components on the one renderer (lists, columns, charts,
-interactive), and M6 to M8 put AI data under the library's `.ai` beside
-`.userdata`, per project, and finish the operator's own library move. Two
-decisions wait on the operator: the AI folder's name and the order.
+interactive), and M6 to M8 put AI data under the library's `.usr/.ai` beside
+`.userdata`, per project, and finish the operator's own library move. The next choice is the operator's: M7 or the components.
 
-**Not true yet:** THE checkout still keeps `content`, `assets` and
-`.userdata` at the repo root, with no `library` folder; no `.ai` folder
-exists anywhere; AI data is still written into `.userdata`.
+**`.usr/.ai` exists (M6, the 2026-11-14 ruling).** Every library has
+`.usr/.ai` beside `.userdata`. Provider accounts, provider profiles and the
+operator's roles and rooms are stored under `.usr/.ai/chat`. What was already
+in `.userdata/chat` is copied across once when the library opens, checked byte
+for byte, and the original is left untouched. The empty reserved `.aidata` is
+gone.
+
+**Not true yet:** chats, logs, context and media are not grouped per project
+under `.usr/.ai/projects` (M7); analytics and sign-in sessions are still in
+`.userdata`; THE checkout still keeps `content`, `assets` and `.userdata` at
+the repo root, with no `library` folder (M8, the operator's own move).
 
 **R310 reconciliation landed (audit of 2026-11-24).** Two checkouts had drifted:
 the AH2 plan approved on 2026-11-19 sat uncommitted in THE checkout, while a

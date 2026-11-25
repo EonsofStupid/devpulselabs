@@ -245,7 +245,7 @@ impl Roots {
             &layout.content,
             &layout.assets,
             &layout.userdata,
-            &layout.aidata,
+            &layout.ai,
             &layout.cache,
             &layout.temp,
             &layout.userdata.join("profiles"),
@@ -253,6 +253,12 @@ impl Roots {
             disk::no_symlinks(dir)?;
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
+        // `.aidata` was reserved and never written to; `.usr/.ai` replaced
+        // it. Removing a folder only succeeds when it is empty.
+        if let Some(home) = layout.ai.parent().and_then(Path::parent) {
+            let _ = std::fs::remove_dir(home.join(".aidata"));
+        }
+        crate::ai_carry::carry(&layout)?;
         let readme = layout.userdata.join("README.txt");
         match std::fs::symlink_metadata(&readme) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => disk::create_file(&readme, b"App state: keep this folder. Databases and browser profiles are precious.\nThe library common/cache and common/temp folders are safe to delete when the app is closed.\n")?,
@@ -305,7 +311,7 @@ pub(crate) fn validate_layout(layout: &Layout, account: &AccountId) -> Result<()
         &layout.content,
         &layout.assets,
         &layout.userdata,
-        &layout.aidata,
+        &layout.ai,
         &layout.cache,
         &layout.temp,
         &layout.userdata.join("profiles"),
@@ -344,7 +350,7 @@ impl DrillRoots {
             content: self.content,
             assets: self.assets.unwrap_or_else(|| library.join("assets")),
             userdata: self.userdata.unwrap_or_else(|| library.join(".userdata")),
-            aidata: library.join(".aidata"),
+            ai: library.join(".usr").join(".ai"),
             cache: library.join("common/cache"),
             temp: library.join("common/temp"),
             library,
