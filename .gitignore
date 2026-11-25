@@ -27,3 +27,7 @@ proof-*.png
 
 # chatmirror — local AI session mirrors (never commit: may contain tokens)
 .chat/
+
+# Local machine artifacts (editor tasks, ad-hoc run output)
+/.vscode/
+/out/

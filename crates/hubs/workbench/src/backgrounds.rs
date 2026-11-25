@@ -51,7 +51,7 @@ pub(crate) fn colours() -> Vec<Choice> {
 }
 
 /// What can drift over the top of a colour. These are the refs
-/// `dpl_slides::document` already resolves; an id it does not know degrades
+/// `dpl_slides::render` already resolves; an id it does not know degrades
 /// to no ambience rather than a crash, so this list and that matcher must
 /// agree — `the_ambience_row_is_what_the_renderer_resolves` pins it.
 pub(crate) fn ambiences() -> Vec<Choice> {

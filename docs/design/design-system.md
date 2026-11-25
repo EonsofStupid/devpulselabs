@@ -371,7 +371,8 @@ that slide it has a source of truth."*
 
 ### 4.0 Why it must change — the ground truth
 
-`crates/slides/src/document.rs:309-463`, `render_inner`, is the ONE path every
+`render_inner` (then `crates/slides/src/document.rs:309-463`; since 2026-11-25
+`crates/slides/src/render/stack.rs`) is the ONE path every
 surface renders a document through. Read in full 2026-08-09:
 
 - **Layout is a single centred vertical stack** — `y += heights[i] + gap`
@@ -563,6 +564,34 @@ fidelity budget (§5). No template hand-paints.
 one `Stack` group, proven pixel-identical (§4.2). The W-series hand-painted
 templates are re-expressed as node trees in the §6.3 big-bang pass; each
 migration deletes bespoke paint.
+
+### 4.7 Where a component lives — one folder, fixed file names
+
+Enforced by the `dpl-slides` test `every_component_folder_follows_the_pattern`.
+
+```text
+crates/slides/src/
+  components/
+    mod.rs            one `pub mod <id>;` per folder, alphabetical; nothing else
+    <id>/             the contract id in snake_case (`stat`, `bar_compare`)
+      component.json  the contract: slots, props, variant axes, examples, layout
+      mod.rs          the component's code
+      paint.rs        only when it paints a body of its own (lists, charts)
+      state.rs        only when it is interactive
+  chart/              what the chart components share
+  render/             the one renderer: mod (entry points), stack, background,
+                      refs, template, doc_slide, tests
+  elements/  blocks/  registry.rs  contract.rs  frame.rs  motion.rs
+```
+
+- **The folder name is the contract id.** Layouts and charts share one folder;
+  a component's kind is its contract's `class`, never its path.
+- **No file re-exports another's items.** Callers name the module that
+  defines a thing (`dpl_slides::registry::contract_of`).
+- **Adding a component** is its folder, one line in `components/mod.rs` and
+  one line in `registry::demos`.
+- The `contracts` phase of `cargo green` follows a contract by its `id`, so
+  moving a folder never hides a contract from the only-grows rule.
 
 ---
 

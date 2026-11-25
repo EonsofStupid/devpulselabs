@@ -328,7 +328,7 @@ fn miniature(
         let now = ui.input(|i| i.time);
         let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect));
         inner.set_clip_rect(rect.intersect(ui.clip_rect()));
-        let _ = dpl_slides::document::render_thumbnail(
+        let _ = dpl_slides::render::render_thumbnail(
             &mut inner,
             rect,
             slide,
@@ -873,10 +873,12 @@ impl Lessons {
     ) {
         let fluid = cl::Fluid::of(ui.max_rect());
         let label = card.map_or("this card", |c| c.label.as_str());
-        let Some((slide, contract)) = card
-            .and_then(|c| c.slide.as_ref())
-            .and_then(|slide| Some((slide, dpl_slides::contract_of(slide.component_id())?)))
-        else {
+        let Some((slide, contract)) = card.and_then(|c| c.slide.as_ref()).and_then(|slide| {
+            Some((
+                slide,
+                dpl_slides::registry::contract_of(slide.component_id())?,
+            ))
+        }) else {
             return;
         };
         ui.label(
@@ -1185,7 +1187,7 @@ impl Lessons {
                 let offers = card
                     .slide
                     .as_ref()
-                    .and_then(|s| dpl_slides::contract_of(s.component_id()))
+                    .and_then(|s| dpl_slides::registry::contract_of(s.component_id()))
                     .is_some_and(|c| !c.variant_axes.is_empty());
                 if offers
                     && button(

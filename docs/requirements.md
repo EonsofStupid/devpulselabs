@@ -2522,3 +2522,18 @@ Planning artifact: [provider golden pattern](plans/chat-provider-golden-pattern.
 Source: operator session. Merge and reconcile existing work against freshly
 fetched main before new work. The baseline gate and delivery are specified in
 [main reconciliation](plans/main-reconciliation.md).
+
+### R311 · 2026-11-24
+
+> please review existing code, I am suppose to have a dynamic parts of this that allows me to have the program running in layman.  Once the program is running I should have a vast library of components that are tailored to allow us to have parameters defined so we can easily add videos or images while also creating templates that allow us to later easily code variants
+
+> GET 1 FULLY PLANNED OUT I AM IN PRE-RELESAE AND I AM SO TIRED OF YOU WASTING HOURS NOT GETTING A FULL CHANGE FULLY AUTHORED AND COMMITTED ANF ABSORBEDF GET THE MOVING FULLY DONE AND PLANNED OUT AND ENSURE THAT YOU ARE ESTABLISHING BORING PREDICTABLE PATTERNS AND FOLDER PATTERNS THAT ARE HYPERMODULAR COLOCATED STRUCTURE GET IT PLANNED I AM IN PRE-RELESAES LET ERRORS SURFACE AFTER WE MOVE AND ALIGN SO WE CAN DIRECTLY FIX ALIGNMENT AND IMPORTS NO COMPATIBILKITY OR LEGACY SHOULD EXISTING IN A PRE-RELEASE CODEBASE
+
+> GET THE WORK REVIEWED AND GET IT FULLY PLANNED OUT ON A PLAN i should have .ai .userdata folders inside and you should be writing this fully out to execute so you plan it out and have it fully moved and organized
+
+Source: operator session, 2026-11-24 and 2026-11-25, after the audit and the
+component review. "1" is the first recommendation of that review: finish
+moving every component onto the data-driven engine. The work queue is
+[move and organize](plans/organize-code-and-data.md). The name of the AI
+folder (`.ai`, replacing `.aidata` and R303's `.usr/.ai`) and the order are
+that plan's two open decisions.

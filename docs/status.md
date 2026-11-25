@@ -1,6 +1,6 @@
 ---
-updated: 2026-11-24
-active_lane: chat
+updated: 2026-11-25
+active_lane: organize-code-and-data
 dirty: false
 ---
 
@@ -54,6 +54,22 @@ private repos, so it no longer applies now the repo is public.
 `docs/plans/ci-exe-upload.md`.
 
 ## Now
+
+**Move and organize (R311), M1 landed.** Every slide component is one folder
+named by its contract id under `crates/slides/src/components/`, with fixed
+file names; layouts and charts share it; the renderer is `render/`, one job
+per file; no file in `dpl-slides` re-exports another's items; the contracts
+gate follows a contract by its id; a test fails the gate when a folder breaks
+the pattern. Nothing paints differently. The rest is written out in
+[move and organize](plans/organize-code-and-data.md): M2 to M5 put the 22
+hand-painted components on the one renderer (lists, columns, charts,
+interactive), and M6 to M8 put AI data under the library's `.ai` beside
+`.userdata`, per project, and finish the operator's own library move. Two
+decisions wait on the operator: the AI folder's name and the order.
+
+**Not true yet:** THE checkout still keeps `content`, `assets` and
+`.userdata` at the repo root, with no `library` folder; no `.ai` folder
+exists anywhere; AI data is still written into `.userdata`.
 
 **R310 reconciliation landed (audit of 2026-11-24).** Two checkouts had drifted:
 the AH2 plan approved on 2026-11-19 sat uncommitted in THE checkout, while a
