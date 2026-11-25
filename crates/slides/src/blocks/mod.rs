@@ -18,5 +18,3 @@
 //! the list drift.
 
 pub mod census;
-
-pub use census::{blocks, BlockDemo, BlockId, BlockSpec};

@@ -1,24 +1,21 @@
-//! The slide catalog — elements, blocks, templates, infographics. Ported from
-//! the prior app's `slide-catalog` domain, reauthored for egui with the paint
+//! The slide catalog — elements, blocks and components. Ported from the prior
+//! app's `slide-catalog` domain, reauthored for egui with the paint
 //! vocabulary.
 //!
-//! ## The ladder (carried law)
+//! ## Where things live (`docs/design/design-system.md` §4.7)
 //!
-//! Three rungs, coarse to fine, and the folder names ARE the rungs — the
-//! vocabulary the operator sees on the Library chip row is the vocabulary the
-//! tree spells (DS3).
-//!
-//! - **elements** — atomic, insertable units (eyebrow, badge, stat). Local
+//! - **elements/** — atomic, insertable units (eyebrow, badge, stat). Local
 //!   state from arguments only; an element never reads routes or global state.
-//! - **blocks** — a few elements composed into one reusable chunk. Earned by
+//! - **blocks/** — a few elements composed into one reusable chunk. Earned by
 //!   the promotion rule below, never authored speculatively.
-//! - **templates** — full-slide compositions. One module per template, owning
-//!   its props/demo data and any interaction state. Registered in
-//!   [`registry::demos`] — ONE line per template, and the Library gallery
-//!   renders every registration live (the gallery gate).
-//! - **infographics** — code-authored charts on the [`dpl_vector`] engine,
-//!   960×540 logical space fitted into any stage rect. Registered alongside
-//!   templates, not as a tier of their own.
+//! - **components/** — full-slide compositions, layouts and charts alike. One
+//!   folder per component, named by its contract id, holding its
+//!   `component.json` and its code. Registered in [`registry::demos`] — ONE
+//!   line each, and the Library gallery renders every registration live (the
+//!   gallery gate).
+//! - **chart/** — what the chart components share: a 960×540 logical space
+//!   fitted into any stage rect, and the series tone cycle.
+//! - **render/** — the ONE path that paints a slide document, everywhere.
 //!
 //! ## Doctrine (ported verbatim from the catalog readme)
 //!
@@ -34,16 +31,14 @@
 //!   preview pane and on the 75" kiosk.
 
 pub mod blocks;
+pub mod chart;
+pub mod components;
 pub mod contract;
-pub mod document;
 pub mod elements;
 pub mod frame;
-pub mod infographics;
 pub mod motion;
 pub mod registry;
-pub mod templates;
-
-pub use registry::{components, contract_of, demos, SlideTemplate};
+pub mod render;
 
 /// The two-notch authoring knob. Spacing and type slots only — never color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]

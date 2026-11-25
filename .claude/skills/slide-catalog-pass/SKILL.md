@@ -14,7 +14,8 @@ Precondition: `coldlight-system` foundation gate is green (its ingredients exist
 The original catalog lives at `D:\localdev\review-archive\devpulse labs\src\domains\slide-catalog`
 (READ-ONLY): `elements/` · `frame/` · `infographics/` · `templates/`. Read the
 original `.tsx` for THIS item in-session — never port from memory. The port lives
-in `crates/slides/src/{blocks,infographics,templates}` + seed docs in
+in `crates/slides/src/{blocks,components}` (one folder per component, named by
+its contract id) + seed docs in
 `seeds/slides/<category>/<name>/slide.json`.
 
 ## The two deliverables of every pass

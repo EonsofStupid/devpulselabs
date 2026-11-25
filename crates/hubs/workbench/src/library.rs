@@ -15,7 +15,7 @@
 //! | drawn | code |
 //! |---|---|
 //! | Starters | `seeds/` |
-//! | Layouts | `templates/` + `infographics/` |
+//! | Layouts | `components/` |
 //! | Combos | `blocks/` |
 //! | Pieces | `elements/` |
 //! | Themes | `tokens/traits.json` |
@@ -28,7 +28,7 @@
 use super::SPEC;
 use dpl_coldlight::{self as cl, Tone};
 use dpl_doc::component::{ComponentContract, Entity, TemplateClass};
-use dpl_slides::SlideTemplate;
+use dpl_slides::registry::SlideTemplate;
 use egui::RichText;
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 
@@ -612,7 +612,7 @@ pub(crate) fn templates_gallery(
 /// The ELEMENTS wall — every paint primitive in `dpl_slides::elements` live on
 /// a plate. An element that exists but never shows here cannot exist.
 pub(crate) fn elements_wall(ui: &mut egui::Ui) {
-    use dpl_slides::elements::{elements, ElementCategory};
+    use dpl_slides::elements::census::{elements, ElementCategory};
     ui.label(
         RichText::new(
             "The smallest things everything else is built from, grouped by what \
@@ -666,7 +666,7 @@ pub(crate) fn elements_wall(ui: &mut egui::Ui) {
 /// same honesty the element shelves already use for their unpopulated
 /// categories.
 pub(crate) fn blocks_wall(ui: &mut egui::Ui) {
-    use dpl_slides::blocks::blocks;
+    use dpl_slides::blocks::census::blocks;
     ui.label(
         RichText::new(
             "A few pieces that keep turning up together, saved as one thing you \
@@ -1262,11 +1262,11 @@ mod tests {
     fn elements_and_blocks_are_distinct_shelves() {
         assert_ne!(LibSection::Elements, LibSection::Blocks);
         assert!(
-            !dpl_slides::elements::elements().is_empty(),
+            !dpl_slides::elements::census::elements().is_empty(),
             "the element tier is populated"
         );
         assert!(
-            dpl_slides::blocks::blocks().is_empty(),
+            dpl_slides::blocks::census::blocks().is_empty(),
             "the chunk tier is empty until a composite earns promotion — if this \
              fails, register the block on the Blocks shelf and update this test"
         );
@@ -1298,7 +1298,7 @@ mod tests {
     #[test]
     fn no_piece_speaks_engineering() {
         const CODE_WORDS: [&str; 6] = ["eyebrow", "stat", "badge", "bar", "divider", "media"];
-        for element in dpl_slides::elements::elements() {
+        for element in dpl_slides::elements::census::elements() {
             let spec = element.spec();
             let label = spec.label.to_lowercase();
             for word in CODE_WORDS {

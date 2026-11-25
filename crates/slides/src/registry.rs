@@ -6,12 +6,12 @@
 //! gallery renders that list, so a template that exists but never shows is
 //! impossible (the gallery gate).
 //!
-//! Adding a template: its module (with its `component.json`) under
-//! `templates/` or `infographics/`, then ONE line in [`demos`]. Nothing else
-//! enumerates templates anywhere; [`components`] is derived from it.
+//! Adding a component: its folder under `components/`, named by its contract
+//! id, holding its `component.json` and `mod.rs`; one `pub mod` line in
+//! `components/mod.rs`; then ONE line in [`demos`]. Nothing else enumerates
+//! components anywhere; [`components`] is derived from it.
 
-use crate::infographics;
-use crate::templates;
+use crate::components;
 use dpl_doc::component::ComponentContract;
 
 /// A template's current values in its contract's shape: one key per slot,
@@ -42,37 +42,37 @@ pub trait SlideTemplate: ComponentValues {
 }
 
 /// One live demo instance of EVERY registered template, registry order:
-/// templates first, then the infographic tranche. One line per template.
+/// layouts first, then the charts. One line per component.
 pub fn demos() -> Vec<Box<dyn SlideTemplate>> {
     vec![
-        Box::new(templates::title_card::TitleCard::demo()),
-        Box::new(templates::media_frame::MediaFrame::demo()),
-        Box::new(templates::quote::Quote::demo()),
-        Box::new(templates::section_divider::SectionDivider::demo()),
-        Box::new(templates::agenda::Agenda::demo()),
-        Box::new(templates::big_number::BigNumber::demo()),
-        Box::new(templates::callout_card::CalloutCard::demo()),
-        Box::new(templates::split_panel::SplitPanel::demo()),
-        Box::new(templates::compare_vs::CompareVs::demo()),
-        Box::new(templates::feature_grid::FeatureGrid::demo()),
-        Box::new(templates::timeline::Timeline::demo()),
-        Box::new(templates::checklist::Checklist::demo()),
-        Box::new(templates::reveal_list::RevealList::demo()),
-        Box::new(templates::choice_poll::ChoicePoll::demo()),
-        Box::new(templates::quiz_panel::QuizPanel::demo()),
-        Box::new(templates::stats_grid::StatsGrid::demo()),
-        Box::new(templates::code_block::CodeBlock::demo()),
-        Box::new(templates::cost_meter::CostMeter::demo()),
-        Box::new(templates::predict_rank::PredictRank::demo()),
-        Box::new(templates::drag_match::DragMatch::demo()),
-        Box::new(infographics::donut_share::DonutShare::demo()),
-        Box::new(infographics::gauge_dial::GaugeDial::demo()),
-        Box::new(infographics::radial_progress::RadialProgress::demo()),
-        Box::new(infographics::bar_compare::BarCompare::demo()),
-        Box::new(infographics::line_trend::LineTrend::demo()),
-        Box::new(infographics::probability_bars::ProbabilityBars::demo()),
-        Box::new(infographics::stack_layers::StackLayers::demo()),
-        Box::new(infographics::cost_meter_face::CostMeterFace::demo()),
+        Box::new(components::title::TitleCard::demo()),
+        Box::new(components::media::MediaFrame::demo()),
+        Box::new(components::quote::Quote::demo()),
+        Box::new(components::section::SectionDivider::demo()),
+        Box::new(components::agenda::Agenda::demo()),
+        Box::new(components::stat::BigNumber::demo()),
+        Box::new(components::callout::CalloutCard::demo()),
+        Box::new(components::split::SplitPanel::demo()),
+        Box::new(components::compare::CompareVs::demo()),
+        Box::new(components::features::FeatureGrid::demo()),
+        Box::new(components::timeline::Timeline::demo()),
+        Box::new(components::checklist::Checklist::demo()),
+        Box::new(components::reveal::RevealList::demo()),
+        Box::new(components::choice::ChoicePoll::demo()),
+        Box::new(components::quiz::QuizPanel::demo()),
+        Box::new(components::stats::StatsGrid::demo()),
+        Box::new(components::code::CodeBlock::demo()),
+        Box::new(components::cost_meter::CostMeter::demo()),
+        Box::new(components::predict::PredictRank::demo()),
+        Box::new(components::drag_match::DragMatch::demo()),
+        Box::new(components::donut_share::DonutShare::demo()),
+        Box::new(components::gauge_dial::GaugeDial::demo()),
+        Box::new(components::radial_progress::RadialProgress::demo()),
+        Box::new(components::bar_compare::BarCompare::demo()),
+        Box::new(components::line_trend::LineTrend::demo()),
+        Box::new(components::probability_bars::ProbabilityBars::demo()),
+        Box::new(components::stack_layers::StackLayers::demo()),
+        Box::new(components::cost_meter_face::CostMeterFace::demo()),
     ]
 }
 
@@ -182,6 +182,74 @@ mod tests {
                 .clear();
             }
         }
+    }
+
+    /// The folder pattern (`docs/design/design-system.md` §4.7): under
+    /// `components/` there is `mod.rs` and one folder per component; a
+    /// folder is named by its contract id and holds only the fixed file
+    /// names; `mod.rs` declares exactly those folders, in order.
+    #[test]
+    fn every_component_folder_follows_the_pattern() {
+        const ALLOWED: [&str; 4] = ["component.json", "mod.rs", "paint.rs", "state.rs"];
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/components");
+        let mut folders = Vec::new();
+        for entry in std::fs::read_dir(&root).expect("read components/") {
+            let path = entry.expect("dir entry").path();
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("a UTF-8 name")
+                .to_owned();
+            if path.is_file() {
+                assert_eq!(name, "mod.rs", "components/ holds mod.rs and folders only");
+                continue;
+            }
+            let text = std::fs::read_to_string(path.join("component.json"))
+                .unwrap_or_else(|_| panic!("components/{name} has no component.json"));
+            let id = contract::parse(&text).expect("component.json parses").id;
+            assert_eq!(
+                id.replace('-', "_"),
+                name,
+                "the folder is named by its contract id"
+            );
+            assert!(path.join("mod.rs").is_file(), "components/{name}/mod.rs");
+            for file in std::fs::read_dir(&path).expect("read the component folder") {
+                let file = file.expect("dir entry").file_name();
+                let file = file.to_string_lossy();
+                assert!(
+                    ALLOWED.contains(&file.as_ref()),
+                    "components/{name}/{file} is not one of {ALLOWED:?}"
+                );
+            }
+            folders.push(name);
+        }
+        folders.sort();
+        let listed: Vec<String> = std::fs::read_to_string(root.join("mod.rs"))
+            .expect("components/mod.rs")
+            .lines()
+            .filter(|line| !line.starts_with("//!") && !line.trim().is_empty())
+            .map(|line| {
+                line.strip_prefix("pub mod ")
+                    .and_then(|rest| rest.strip_suffix(';'))
+                    .unwrap_or_else(|| {
+                        panic!("components/mod.rs holds only `pub mod` lines: {line}")
+                    })
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(
+            listed, folders,
+            "components/mod.rs lists every folder, in order"
+        );
+        let registered: BTreeSet<String> = components()
+            .iter()
+            .map(|c| c.id.replace('-', "_"))
+            .collect();
+        assert_eq!(
+            registered,
+            folders.into_iter().collect::<BTreeSet<_>>(),
+            "every folder is registered in demos()"
+        );
     }
 
     /// Every `component.json` on disk passes the JSON Schema AND the rules a

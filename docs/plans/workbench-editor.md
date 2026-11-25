@@ -667,7 +667,7 @@ presets. Both cannot stand.
 ## 3.10 AMENDMENT 2026-08-08 — Commit 2, ground-truthed by reading the files
 
 Every file Commit 2 touches was read in full before this was written:
-`crates/doc/src/lib.rs` (2,065) · `crates/slides/src/document.rs` (706) ·
+`crates/doc/src/lib.rs` (2,065) · `crates/slides/src/render/` (then `document.rs`, 706) ·
 `crates/editor/src/lib.rs` (1,035) · all 8 authored `slide.json` · the one
 authored `theme.json`. **Three things §2.5 and §4 assert are wrong**, and each
 changes the work.

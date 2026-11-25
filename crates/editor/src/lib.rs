@@ -11,7 +11,7 @@
 //! reorder / add / delete blocks are W4b (egui_dnd, RS2).
 
 use dpl_coldlight::{self as cl};
-use dpl_slides::document;
+use dpl_slides::render;
 use egui::{Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, Stroke, StrokeKind, Ui};
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 use std::path::{Path, PathBuf};
@@ -707,7 +707,7 @@ impl Editor {
     /// A picture's values as they show: fit (`cover` / `contain`), frame
     /// colour (a hue id, or none) and entrance.
     fn picture_fields(&self, id: &str) -> Option<(String, Option<String>, String)> {
-        let shown = document::shown(&self.slide, &self.styling);
+        let shown = render::shown(&self.slide, &self.styling);
         let block = shown.block(id)?;
         let style = block.style()?;
         Some((
@@ -929,7 +929,7 @@ impl Editor {
         let map = {
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(stage.shrink(2.0)));
             child.set_clip_rect(stage);
-            document::render_traced(
+            render::render_traced(
                 &mut child,
                 stage.shrink(2.0),
                 &shown,
@@ -1480,7 +1480,7 @@ impl Editor {
                                 let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(rect));
                                 inner.set_clip_rect(rect.intersect(ui.clip_rect()));
                                 // Still frames: the entrance has long played.
-                                let _ = document::render_thumbnail(
+                                let _ = render::render_thumbnail(
                                     &mut inner,
                                     rect,
                                     &spread.preview,
@@ -1533,7 +1533,7 @@ impl Editor {
         }
     }
 
-    fn paint_selection(&self, ui: &Ui, map: &document::RenderMap) {
+    fn paint_selection(&self, ui: &Ui, map: &render::RenderMap) {
         let (rect, tone) = match &self.selection {
             Selection::None => return,
             Selection::Background => (map.background, cl::Tone::Cyan),
@@ -1572,7 +1572,7 @@ impl Editor {
     /// sets this slide's variant (one revision, one Undo); tapping the
     /// layout's default gives the choice back to it.
     fn layout_rows(&mut self, ui: &mut Ui) {
-        let Some(contract) = dpl_slides::contract_of(self.slide.component_id()) else {
+        let Some(contract) = dpl_slides::registry::contract_of(self.slide.component_id()) else {
             return;
         };
         let mut pick: Option<(String, String, bool)> = None;
@@ -1793,7 +1793,7 @@ impl Editor {
         let inner_rect = stage.shrink(1.0);
         let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(inner_rect));
         inner.set_clip_rect(stage.intersect(ui.clip_rect()));
-        let _ = document::render_thumbnail_step(
+        let _ = render::render_thumbnail_step(
             &mut inner,
             inner_rect,
             &self.slide,
@@ -2876,7 +2876,7 @@ impl Editor {
     /// A block's fields RESOLVED through the theme, plus whether font/ink
     /// are slide-level overrides (vs inherited from the show).
     fn text_fields(&self, id: &str) -> Option<TextFields> {
-        let shown = document::shown(&self.slide, &self.styling);
+        let shown = render::shown(&self.slide, &self.styling);
         let block = shown.block(id)?;
         let entity = match block {
             dpl_doc::Block::Quote { .. } => "quote",

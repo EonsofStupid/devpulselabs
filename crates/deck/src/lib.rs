@@ -9,7 +9,7 @@
 //! hatches — the bottom edge-reveal strip and the always-there home dot
 //! ("ALWAYS a way back on a touchscreen").
 //!
-//! Rendering rides the ONE document path (`dpl_slides::document::
+//! Rendering rides the ONE document path (`dpl_slides::render::
 //! render_step`); a slide that fails to load degrades to an honest labeled
 //! plate, never a crash. Ink/annotate is D3; presenter+sync is D4.
 
@@ -18,7 +18,7 @@ pub mod nav;
 
 use dpl_coldlight::{self as cl};
 use dpl_doc::episode::Showing;
-use dpl_slides::document;
+use dpl_slides::render;
 use egui::{Align2, Color32, CornerRadius, FontId, Rect, Sense, Stroke, StrokeKind, Ui};
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 use std::path::Path;
@@ -305,7 +305,7 @@ impl DeckHost {
             Ok(slide) => {
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
                 child.set_clip_rect(rect);
-                let _ = document::render_step(
+                let _ = render::render_step(
                     &mut child,
                     rect,
                     slide,

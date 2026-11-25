@@ -13,7 +13,7 @@
 //! Adding a block, once it has EARNED the rung (recurs in ≥ 2 templates): its
 //! module under `blocks/`, then a spec + demo + ONE line in [`blocks`] here.
 
-use crate::elements::{CostTier, ElementId};
+use crate::elements::census::{CostTier, ElementId};
 use egui::Ui;
 
 /// Block identity — never a bare string (mirrors [`ElementId`] and

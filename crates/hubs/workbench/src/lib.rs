@@ -20,8 +20,8 @@ mod words;
 use author::AuthorSurface;
 use dpl_coldlight::{self as cl, Tone};
 use dpl_hub::{Hub, HubId, HubSpec, Route, SubId, SubRoute};
-use dpl_slides::document::DocSlide;
-use dpl_slides::SlideTemplate;
+use dpl_slides::registry::SlideTemplate;
+use dpl_slides::render::doc_slide::DocSlide;
 use egui::RichText;
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 use library::LibSection;
@@ -262,7 +262,7 @@ impl WorkbenchHub {
         match self.lib_section {
             LibSection::Seeds => self.seeds_wall(ui),
             LibSection::Templates => {
-                let demos = self.demos.get_or_insert_with(dpl_slides::demos);
+                let demos = self.demos.get_or_insert_with(dpl_slides::registry::demos);
                 library::templates_gallery(ui, demos, &mut self.focus);
             }
             LibSection::Blocks => library::blocks_wall(ui),

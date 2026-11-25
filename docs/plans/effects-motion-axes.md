@@ -22,7 +22,7 @@ No opacity, no offset, no scale, no rotation, no direction, no origin.
 **And `Effect::at()` returns a scalar, so every call site invents the motion.**
 
 ```rust
-// crates/slides/src/templates/callout_card/mod.rs:65
+// crates/slides/src/components/callout/mod.rs (then templates/callout_card/mod.rs:65)
 let p     = cl::motion::ENTER_RISE.at(now, t0, 0);
 let alpha = p.clamp(0.0, 1.0);          // this caller decides: opacity
 let lift  = fluid.sp_6() * (1.0 - p);   // this caller decides: y-lift of sp_6

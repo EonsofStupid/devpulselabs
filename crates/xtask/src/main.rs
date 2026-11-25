@@ -28,7 +28,7 @@
 mod baseline;
 
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
@@ -1339,8 +1339,9 @@ fn upgrade_slides(root: Option<&str>) -> Result<(), String> {
 const CONTRACT_ROOT: &str = "crates/slides/src";
 
 /// THE CONTRACTS PHASE (LS1) — a component's contract only grows, so a slide
-/// made with it keeps rendering. Every `component.json` is compared with its
-/// copy on `main`: the same version must mean the same contract, and a
+/// made with it keeps rendering. Every `component.json` is compared with the
+/// contract of the same `id` on `main`, wherever its folder is on either
+/// side: the same version must mean the same contract, and a
 /// raised version must keep every slot, prop, axis and option
 /// (`dpl_doc::component::evolution_problems`, the ONE rule the slides tests
 /// share). A contract new on this branch has nothing to compare and passes
@@ -1348,6 +1349,8 @@ const CONTRACT_ROOT: &str = "crates/slides/src";
 fn contracts_audit() -> Result<(), String> {
     println!("── contracts ─────────────────────────────────");
     let base = contracts_base()?;
+    let before_by_id = contracts_at(&base)?;
+    let mut seen = BTreeSet::new();
     let mut files = Vec::new();
     collect_contracts(Path::new(CONTRACT_ROOT), &mut files);
     files.sort();
@@ -1365,15 +1368,20 @@ fn contracts_audit() -> Result<(), String> {
                 continue;
             }
         };
-        let Some(before_text) = git_show(&base, &rel)? else {
+        seen.insert(after.id.clone());
+        let Some(before) = before_by_id.get(&after.id) else {
             continue;
         };
-        let before = dpl_doc::component::parse(&before_text)
-            .map_err(|e| format!("{rel} on {base} does not parse: {e}"))?;
         compared += 1;
-        for problem in dpl_doc::component::evolution_problems(&before, &after) {
+        for problem in dpl_doc::component::evolution_problems(before, &after) {
             problems.push(format!("{rel} ({}): {problem}", after.id));
         }
+    }
+    // A contract only grows, so one that was on `main` cannot disappear.
+    for id in before_by_id.keys().filter(|id| !seen.contains(*id)) {
+        problems.push(format!(
+            "{id}: on {base} but no component.json declares it now"
+        ));
     }
     if problems.is_empty() {
         println!(
@@ -1439,23 +1447,46 @@ fn contracts_base() -> Result<String, String> {
     }
 }
 
-/// A file's text at `base`, or `None` when it does not exist there.
-fn git_show(base: &str, rel: &str) -> Result<Option<String>, String> {
-    let exists = Command::new("git")
-        .args(["cat-file", "-e", &format!("{base}:{rel}")])
+/// Every contract at `base`, by its `id` — found by listing the tree, so a
+/// folder moved since then still has its contract compared.
+fn contracts_at(
+    base: &str,
+) -> Result<BTreeMap<String, dpl_doc::component::ComponentContract>, String> {
+    let listed = Command::new("git")
+        .args(["ls-tree", "-r", "--name-only", base, "--", CONTRACT_ROOT])
         .output()
         .map_err(|e| format!("contracts: cannot run git: {e}"))?;
-    if !exists.status.success() {
-        return Ok(None);
+    if !listed.status.success() {
+        return Err(format!(
+            "contracts: git ls-tree {base} failed: {}",
+            String::from_utf8_lossy(&listed.stderr).trim()
+        ));
     }
+    let mut by_id = BTreeMap::new();
+    for rel in String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .filter(|rel| rel.ends_with("/component.json"))
+    {
+        let contract = dpl_doc::component::parse(&git_show(base, rel)?)
+            .map_err(|e| format!("{rel} on {base} does not parse: {e}"))?;
+        if let Some(twice) = by_id.insert(contract.id.clone(), contract) {
+            return Err(format!(
+                "contracts: {} is declared twice on {base}",
+                twice.id
+            ));
+        }
+    }
+    Ok(by_id)
+}
+
+/// A file's text at `base`.
+fn git_show(base: &str, rel: &str) -> Result<String, String> {
     let shown = Command::new("git")
         .args(["show", &format!("{base}:{rel}")])
         .output()
         .map_err(|e| format!("contracts: cannot run git: {e}"))?;
     if shown.status.success() {
-        String::from_utf8(shown.stdout)
-            .map(Some)
-            .map_err(|e| format!("{rel} on {base} is not UTF-8: {e}"))
+        String::from_utf8(shown.stdout).map_err(|e| format!("{rel} on {base} is not UTF-8: {e}"))
     } else {
         Err(format!(
             "contracts: git show {base}:{rel} failed: {}",

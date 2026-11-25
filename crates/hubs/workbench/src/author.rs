@@ -27,7 +27,7 @@ use crate::containers::{containers, Container, ContainerKind};
 use crate::controls::{control, stacked_control, Weight};
 use crate::words::pretty;
 use dpl_coldlight::{self as cl, Tone};
-use dpl_slides::SlideTemplate;
+use dpl_slides::registry::SlideTemplate;
 use egui::RichText;
 use egui_pilot_ai::{NodeMetadata, PilotId, PilotKey, UiPilotExt};
 
@@ -55,7 +55,7 @@ fn film_tile(
     h: f32,
     label: &str,
     tone: Tone,
-    doc: &mut Option<dpl_slides::document::DocSlide>,
+    doc: &mut Option<dpl_slides::render::doc_slide::DocSlide>,
 ) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::click());
     let style = cl::compose(
@@ -192,7 +192,7 @@ fn live_pane(ui: &mut egui::Ui, ed: &mut CardEditor) {
         let inner_rect = stage.shrink(1.0);
         let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(inner_rect));
         inner.set_clip_rect(stage.intersect(ui.clip_rect()));
-        dpl_slides::document::render_thumbnail(
+        dpl_slides::render::render_thumbnail(
             &mut inner,
             inner_rect,
             ed.editor.slide(),
@@ -310,7 +310,7 @@ fn picture_tab(ui: &mut egui::Ui, ed: &mut CardEditor) {
                 // The same ladder the card uses — locate, paint, or an honest
                 // plate. A record whose file has gone shows as missing here
                 // exactly as it would there.
-                dpl_slides::elements::asset_thumb(&mut inner, rect, &item.slug);
+                dpl_slides::elements::media::asset_thumb(&mut inner, rect, &item.slug);
             }
             let painter = ui.painter().with_clip_rect(clip);
             painter.rect_filled(
@@ -1134,7 +1134,7 @@ pub(crate) struct AuthorSurface {
     /// Seeds loaded from disk once, as real documents. `DocSlide` carries the
     /// clock, so each one animates on its own schedule exactly as it does on
     /// the Library's seeds wall — the same paint path, not a second one.
-    seeds: Vec<(String, dpl_slides::document::DocSlide)>,
+    seeds: Vec<(String, dpl_slides::render::doc_slide::DocSlide)>,
     /// Set after the first frame so the registries are read exactly once.
     loaded: bool,
     /// The open overlay editor, if a card is being edited.
@@ -1179,17 +1179,17 @@ struct Draft {
     /// The card's own document, drawn as a miniature in the strip. `None`
     /// when it will not load — the tile falls back to a labelled plate
     /// rather than showing a blank stage and pretending nothing is wrong.
-    doc: Option<dpl_slides::document::DocSlide>,
+    doc: Option<dpl_slides::render::doc_slide::DocSlide>,
 }
 
 /// Read a draft's document off disk. Called when the card is started and
 /// again whenever its editor closes, because the editor saves as you type
 /// and a strip still showing the old words would be lying.
-fn load_draft_doc(dir: &std::path::Path) -> Option<dpl_slides::document::DocSlide> {
+fn load_draft_doc(dir: &std::path::Path) -> Option<dpl_slides::render::doc_slide::DocSlide> {
     let looks = dpl_doc::Looks::load(&dpl_roots::content_root());
     dpl_doc::load(dir)
         .ok()
-        .map(|slide| dpl_slides::document::DocSlide::new(slide, looks))
+        .map(|slide| dpl_slides::render::doc_slide::DocSlide::new(slide, looks))
 }
 
 /// Give the lesson at `lesson_dir` a use of the library card at `card_dir`,
@@ -1215,8 +1215,8 @@ impl AuthorSurface {
     fn to_build_with(&self) -> usize {
         self.demos.len()
             + self.seeds.len()
-            + dpl_slides::elements::elements().len()
-            + dpl_slides::blocks::blocks().len()
+            + dpl_slides::elements::census::elements().len()
+            + dpl_slides::blocks::census::blocks().len()
             + cl::TRAITS.len()
     }
 
@@ -2711,7 +2711,7 @@ impl AuthorSurface {
             .find(|k| !containers(*k, &root).is_empty())
             .unwrap_or(ContainerKind::Episode);
         self.choose_kind(first);
-        self.demos = dpl_slides::demos();
+        self.demos = dpl_slides::registry::demos();
         let looks = dpl_doc::Looks::load(&dpl_roots::content_root());
         self.seeds = dpl_doc::list_seeds()
             .into_iter()
@@ -2719,7 +2719,7 @@ impl AuthorSurface {
                 dpl_doc::load(&s.dir).ok().map(|slide| {
                     (
                         s.id,
-                        dpl_slides::document::DocSlide::new(slide, looks.clone()),
+                        dpl_slides::render::doc_slide::DocSlide::new(slide, looks.clone()),
                     )
                 })
             })
@@ -2754,7 +2754,7 @@ impl AuthorSurface {
                     }
                 })
                 .collect(),
-            Shelf::Combos => dpl_slides::blocks::blocks()
+            Shelf::Combos => dpl_slides::blocks::census::blocks()
                 .iter()
                 .map(|b| {
                     let spec = b.spec();
@@ -2766,7 +2766,7 @@ impl AuthorSurface {
                     }
                 })
                 .collect(),
-            Shelf::Pieces => dpl_slides::elements::elements()
+            Shelf::Pieces => dpl_slides::elements::census::elements()
                 .iter()
                 .map(|e| {
                     let spec = e.spec();
@@ -2813,7 +2813,7 @@ impl AuthorSurface {
                 }
             }
             Shelf::Combos => {
-                if let Some(b) = dpl_slides::blocks::blocks()
+                if let Some(b) = dpl_slides::blocks::census::blocks()
                     .iter()
                     .find(|b| b.spec().id.0 == item.id)
                 {
@@ -2821,7 +2821,7 @@ impl AuthorSurface {
                 }
             }
             Shelf::Pieces => {
-                if let Some(e) = dpl_slides::elements::elements()
+                if let Some(e) = dpl_slides::elements::census::elements()
                     .iter()
                     .find(|e| e.spec().id.0 == item.id)
                 {
@@ -2907,7 +2907,7 @@ impl AuthorSurface {
     fn mint_draft(&mut self, start: &Start) -> Result<(String, std::path::PathBuf), String> {
         let slide = match start {
             Start::Layout(id) => {
-                let contract = dpl_slides::components()
+                let contract = dpl_slides::registry::components()
                     .into_iter()
                     .find(|contract| contract.id == *id)
                     .ok_or_else(|| format!("no layout {id:?}"))?;
@@ -3833,8 +3833,8 @@ mod dashboard_tests {
         s.load_once();
         let expected = s.demos.len()
             + s.seeds.len()
-            + dpl_slides::elements::elements().len()
-            + dpl_slides::blocks::blocks().len()
+            + dpl_slides::elements::census::elements().len()
+            + dpl_slides::blocks::census::blocks().len()
             + cl::TRAITS.len();
         assert_eq!(s.to_build_with(), expected);
         assert!(expected > 0, "the kit is not empty");
