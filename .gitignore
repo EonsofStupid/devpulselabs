@@ -7,6 +7,7 @@ proof-*.png
 # The three-ring root (ADR-014): working + state rings are operator data.
 /assets/
 /.userdata/
+/.usr/
 # Portable libraries and executable-adjacent machine-specific configuration.
 /library/
 /roots.toml

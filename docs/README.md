@@ -97,7 +97,7 @@ named first and the others are marked **P2**: they merge into it during
 
 [Move and organize](plans/organize-code-and-data.md) (R311) is the one work
 queue for putting every component on one folder pattern and every stored
-byte under the library's `.userdata` and `.ai`.
+byte under the library's `.userdata` and `.usr/.ai`.
 
 The active reconciliation is [main-reconciliation](plans/main-reconciliation.md) (R310).
 [Add any AI through one contract](plans/chat-ah2-any-ai.md) (AH2; R305–R307,

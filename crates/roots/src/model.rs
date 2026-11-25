@@ -166,7 +166,8 @@ pub struct Layout {
     pub content: PathBuf,
     pub assets: PathBuf,
     pub userdata: PathBuf,
-    pub aidata: PathBuf,
+    /// What AI made or learned: `.usr/.ai` (ruled 2026-11-14).
+    pub ai: PathBuf,
     pub cache: PathBuf,
     pub temp: PathBuf,
 }
@@ -179,7 +180,7 @@ impl Layout {
             content: home.join("content"),
             assets: home.join("assets"),
             userdata: home.join(".userdata"),
-            aidata: home.join(".aidata"),
+            ai: home.join(".usr").join(".ai"),
             cache: library.join("common/cache"),
             temp: library.join("common/temp"),
         }

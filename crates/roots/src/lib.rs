@@ -4,6 +4,7 @@
 //! ST1 supplies snapshots and marker checks; ST2a watches for a library that
 //! isn't connected and remembers where it reappears; ST2b owns live IO.
 
+mod ai_carry;
 mod copy;
 mod discovery;
 mod disk;
@@ -547,8 +548,9 @@ pub fn assets_root() -> PathBuf {
 pub fn userdata_root() -> PathBuf {
     connected().userdata
 }
-pub fn aidata_root() -> PathBuf {
-    connected().aidata
+/// What AI made or learned: the library's `.usr/.ai`.
+pub fn ai_root() -> PathBuf {
+    connected().ai
 }
 pub fn cache_root() -> PathBuf {
     connected().cache

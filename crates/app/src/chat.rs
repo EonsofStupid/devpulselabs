@@ -5212,7 +5212,7 @@ fn plain_failure(reason: &str) -> PlainFailure {
 /// Where the operator's own roles and rooms live (R284): one JSON file
 /// each, under `roles/` and `rooms/`.
 fn room_library_root() -> PathBuf {
-    dpl_roots::userdata_root().join("chat").join("library")
+    dpl_roots::ai_root().join("chat").join("library")
 }
 
 /// The built-in library plus every role and room file the operator added.
