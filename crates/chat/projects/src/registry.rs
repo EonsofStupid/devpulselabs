@@ -17,8 +17,8 @@ pub struct Binding {
 impl Binding {
     /// Open this exact identity, not whichever project happens to occupy its
     /// old path after a drive change.
-    pub fn open(&self) -> Result<Project, String> {
-        let project = Project::open(&self.workspace)?;
+    pub fn open(&self, store: &Path) -> Result<Project, String> {
+        let project = Project::open(store, &self.workspace)?;
         if project.id() != &self.id {
             return Err(format!(
                 "{} now holds a different project",
@@ -152,8 +152,10 @@ impl Registry {
             .find(|binding| Some(&binding.id) == state.active.as_ref()))
     }
 
-    pub fn open_active(&self) -> Result<Option<Project>, String> {
-        self.active()?.map(|binding| binding.open()).transpose()
+    pub fn open_active(&self, store: &Path) -> Result<Option<Project>, String> {
+        self.active()?
+            .map(|binding| binding.open(store))
+            .transpose()
     }
 
     /// Change only subsequent activation. Existing Project handles stay bound
@@ -175,7 +177,7 @@ impl Registry {
             .find(|existing| existing.id == binding.id)
         {
             if existing.workspace != binding.workspace
-                && existing.open().is_ok()
+                && existing.open(project.store()).is_ok()
                 && fs::canonicalize(&existing.workspace).ok()
                     != fs::canonicalize(&binding.workspace).ok()
             {

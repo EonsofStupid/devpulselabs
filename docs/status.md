@@ -73,10 +73,20 @@ in `.userdata/chat` is copied across once when the library opens, checked byte
 for byte, and the original is left untouched. The empty reserved `.aidata` is
 gone.
 
-**Not true yet:** chats, logs, context and media are not grouped per project
-under `.usr/.ai/projects` (M7); analytics and sign-in sessions are still in
-`.userdata`; THE checkout still keeps `content`, `assets` and `.userdata` at
-the repo root, with no `library` folder (M8, the operator's own move).
+**Chats per project are in the library (M7).** A project's chats and its
+native Codex sessions are kept at `.usr/.ai/projects/<project id>/`. The
+project folder keeps only the link, `.devpulse/chat/project.json`, and every
+save still checks it. Chats an older build kept in the project folder are
+copied across once, verified, with the original left untouched. A project
+whose chats are in another library is refused in plain words.
+
+**Not true yet:** logs, context and media have no writer yet, so those
+folders are not made; analytics and sign-in sessions are still in
+`.userdata`; the project registry and trust grants stay on this computer by
+ruling (AH1b); THE checkout still keeps `content`, `assets` and `.userdata` at
+the repo root, with no `library` folder (M8, the operator's own move). No real
+project has been set up on this computer, so M7 is proven by tests and not by
+a saved real chat.
 
 **R310 reconciliation landed (audit of 2026-11-24).** Two checkouts had drifted:
 the AH2 plan approved on 2026-11-19 sat uncommitted in THE checkout, while a

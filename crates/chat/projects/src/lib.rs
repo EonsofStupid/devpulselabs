@@ -1,10 +1,16 @@
-//! Project-owned chat storage. No ambient workspace discovery, provider
-//! processes, credentials or UI. Every handle binds a checked marker identity.
+//! Per-project chat storage (R303, ruled 2026-11-14). A project's chats live
+//! in the library, at `<store>/<project id>/`, where the caller passes the
+//! store (`<library>/.usr/.ai/projects`). The project folder keeps only the
+//! link back: `<workspace>/.devpulse/chat/project.json`, its identity marker.
+//!
+//! No ambient workspace or library discovery, provider processes, credentials
+//! or UI. Every handle binds a checked marker identity.
 //!
 //! Saves create immutable, checksummed revisions and a final commit record.
 //! The first revision is full; subsequent revisions store changed JSON leaves.
 //! Interrupted revisions remain intact; corrupted committed data fails closed.
 
+mod carry;
 mod delta;
 mod disk;
 mod journal;
@@ -22,6 +28,10 @@ use std::sync::{Arc, Mutex};
 
 const VERSION: u32 = 1;
 const MARKER: &str = "project.json";
+/// The link a project folder keeps: where its marker sits.
+const LINK: &str = ".devpulse/chat";
+/// The journal of a project's chats and drafts, inside its archive.
+const CHATS: &str = "chats";
 const MAX_MARKER_BYTES: u64 = 4096;
 static IDS: AtomicU64 = AtomicU64::new(0);
 
@@ -108,43 +118,57 @@ fn label(value: &str) -> Result<String, String> {
 #[derive(Debug, Clone)]
 pub struct Project {
     workspace: PathBuf,
+    /// `<workspace>/.devpulse/chat`: the marker, and nothing else.
+    link: PathBuf,
+    /// `<store>/<id>`: the chats, in the library.
     archive: PathBuf,
     marker: Marker,
     expected_revision: Arc<Mutex<Option<u64>>>,
 }
 
 impl Project {
-    /// Create an archive only in an explicitly chosen existing workspace.
-    /// Existing marked archives are opened; existing unmarked data is refused.
-    pub fn create(workspace: &Path, display_name: &str) -> Result<Self, String> {
+    /// Set a project up in an explicitly chosen existing workspace, keeping
+    /// its chats in `store`. An existing marked project is opened; existing
+    /// unmarked data is refused.
+    pub fn create(store: &Path, workspace: &Path, display_name: &str) -> Result<Self, String> {
         label(display_name)?;
         disk::existing_directory(workspace)?;
-        let archive = workspace.join(".devpulse/chat");
-        disk::path(&archive)?;
-        if fs::symlink_metadata(archive.join(MARKER)).is_ok() {
-            return Self::open(workspace);
+        let link = workspace.join(LINK);
+        disk::path(&link)?;
+        if fs::symlink_metadata(link.join(MARKER)).is_ok() {
+            return Self::open(store, workspace);
         }
-        Self::create_new(workspace, display_name)
+        Self::create_new(store, workspace, display_name)
     }
 
-    /// Create a distinct archive for a recovery copy. Unlike `create`, this
+    /// Create a distinct project for a recovery copy. Unlike `create`, this
     /// never opens an existing marker, including another creator's race winner.
-    /// Any existing marked or populated unmarked archive remains untouched.
-    pub fn create_new(workspace: &Path, display_name: &str) -> Result<Self, String> {
+    /// Any existing marked or populated unmarked link remains untouched.
+    pub fn create_new(store: &Path, workspace: &Path, display_name: &str) -> Result<Self, String> {
         let display_name = label(display_name)?;
         disk::existing_directory(workspace)?;
-        let archive = workspace.join(".devpulse/chat");
-        disk::path(&archive)?;
-        disk::empty_or_absent(&archive)?;
-        disk::create_directories(&archive)?;
+        disk::path(store)?;
+        let link = workspace.join(LINK);
+        disk::path(&link)?;
+        disk::empty_or_absent(&link)?;
+        disk::create_directories(&link)?;
         let marker = Marker {
             v: VERSION,
             id: ProjectId::mint()?,
             label: display_name,
         };
-        disk::create_json(&archive.join(MARKER), &marker)?;
+        let archive = store.join(marker.id.as_str());
+        disk::empty_or_absent(&archive)?;
+        disk::create_directories(&archive)?;
+        // The marker is created exclusively, so one creator wins a race; a
+        // loser takes back the empty archive folder it made.
+        if let Err(error) = disk::create_json(&link.join(MARKER), &marker) {
+            let _ = fs::remove_dir(&archive);
+            return Err(error);
+        }
         let project = Self {
             workspace: workspace.to_path_buf(),
+            link,
             archive,
             marker,
             expected_revision: Arc::new(Mutex::new(None)),
@@ -153,19 +177,31 @@ impl Project {
         Ok(project)
     }
 
-    pub fn open(workspace: &Path) -> Result<Self, String> {
+    pub fn open(store: &Path, workspace: &Path) -> Result<Self, String> {
         disk::existing_directory(workspace)?;
-        let archive = workspace.join(".devpulse/chat");
-        disk::existing_directory(&archive)?;
-        let marker: Marker = disk::json(&archive.join(MARKER), MAX_MARKER_BYTES)?;
+        disk::path(store)?;
+        let link = workspace.join(LINK);
+        disk::existing_directory(&link)?;
+        let marker: Marker = disk::json(&link.join(MARKER), MAX_MARKER_BYTES)?;
         if marker.v != VERSION {
             return Err(
                 "This project chat format is not supported by this version of DevPULSE".into(),
             );
         }
         label(&marker.label)?;
+        let archive = store.join(marker.id.as_str());
+        // Chats an older build kept inside the project folder are copied into
+        // the library once; the project folder's copy is left as it was.
+        carry::from_link(&link, store, &archive)?;
+        if !archive.is_dir() {
+            return Err(format!(
+                "The chats of '{}' are not in this library. Open the library they were saved in, or save the current chats as a new project",
+                marker.label
+            ));
+        }
         let project = Self {
             workspace: workspace.to_path_buf(),
+            link,
             archive,
             marker,
             expected_revision: Arc::new(Mutex::new(None)),
@@ -184,14 +220,24 @@ impl Project {
     pub fn workspace(&self) -> &Path {
         &self.workspace
     }
+    /// Where this project's chats are kept, in the library.
     pub fn archive_dir(&self) -> &Path {
         &self.archive
+    }
+    /// The link the project folder keeps: the folder its marker sits in.
+    pub fn link_dir(&self) -> &Path {
+        &self.link
+    }
+    /// The store this project's archive is in.
+    pub fn store(&self) -> &Path {
+        self.archive.parent().unwrap_or(&self.archive)
     }
 
     pub fn verify(&self) -> Result<(), String> {
         disk::existing_directory(&self.workspace)?;
+        disk::existing_directory(&self.link)?;
         disk::existing_directory(&self.archive)?;
-        let marker: Marker = disk::json(&self.archive.join(MARKER), MAX_MARKER_BYTES)?;
+        let marker: Marker = disk::json(&self.link.join(MARKER), MAX_MARKER_BYTES)?;
         if marker != self.marker {
             return Err("The project at this location has changed; reconnect the original project before saving".into());
         }
@@ -209,7 +255,7 @@ impl Project {
             .lock()
             .map_err(|_| "Project revision tracking is unavailable; reopen the project")?;
         self.verify()?;
-        let saved = journal::latest(&self.archive.join("state"))?;
+        let saved = journal::latest(&self.archive.join(CHATS))?;
         *expected = saved.as_ref().map(|(revision, _)| *revision);
         Ok(saved.map(|(_, value)| value))
     }
@@ -225,7 +271,7 @@ impl Project {
         let _lock = disk::lock(&self.archive)?;
         self.verify()?;
         *expected = Some(journal::append(
-            &self.archive.join("state"),
+            &self.archive.join(CHATS),
             state,
             Some(*expected),
         )?);

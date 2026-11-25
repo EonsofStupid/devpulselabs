@@ -10,6 +10,19 @@ fn scratch() -> PathBuf {
     dir
 }
 
+/// One store for the whole test run: archives are keyed by project id, so
+/// tests never meet in it.
+fn store() -> &'static Path {
+    static STORE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    STORE.get_or_init(|| {
+        let dir = std::env::temp_dir()
+            .join("dpl-chat-projects-tests")
+            .join(format!("store-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    })
+}
+
 fn workspace(base: &Path, name: &str) -> PathBuf {
     let dir = base.join(name);
     fs::create_dir(&dir).unwrap();
@@ -26,11 +39,14 @@ fn existing_registry_open_never_creates_or_adopts_a_missing_registry() {
     assert!(Registry::open_existing(&unmarked).is_err());
     assert_eq!(fs::read_dir(&unmarked).unwrap().count(), 0);
     let registry = Registry::open(&missing).unwrap();
-    let project = Project::create_new(&workspace(&base, "project"), "Existing").unwrap();
+    let project = Project::create_new(store(), &workspace(&base, "project"), "Existing").unwrap();
     registry.activate(&project).unwrap();
     let before = fs::read(missing.join("registry.json")).unwrap();
     let opened = Registry::open_existing(&missing).unwrap();
-    assert_eq!(opened.open_active().unwrap().unwrap().id(), project.id());
+    assert_eq!(
+        opened.open_active(store()).unwrap().unwrap().id(),
+        project.id()
+    );
     assert_eq!(fs::read(missing.join("registry.json")).unwrap(), before);
 }
 
@@ -39,8 +55,8 @@ fn project_and_registry_round_trip_isolate_a_b_a_and_restart() {
     let base = scratch();
     let a_dir = workspace(&base, "a");
     let b_dir = workspace(&base, "b");
-    let a = Project::create(&a_dir, "Alpha").unwrap();
-    let b = Project::create(&b_dir, "Beta").unwrap();
+    let a = Project::create(store(), &a_dir, "Alpha").unwrap();
+    let b = Project::create(store(), &b_dir, "Beta").unwrap();
     assert_ne!(a.id(), b.id());
     let registry = Registry::open(&base.join("machine")).unwrap();
     a.save_state(&json!({"draft": "unfinished alpha", "events": ["alpha answer"]}))
@@ -51,18 +67,21 @@ fn project_and_registry_round_trip_isolate_a_b_a_and_restart() {
     // The old handle remains bound to Alpha after activating Beta.
     a.save_state(&json!({"draft": "alpha still writing"}))
         .unwrap();
-    assert_eq!(registry.open_active().unwrap().unwrap().id(), b.id());
+    assert_eq!(registry.open_active(store()).unwrap().unwrap().id(), b.id());
     registry.activate(&a).unwrap();
 
     let restarted = Registry::open(&base.join("machine")).unwrap();
-    let active = restarted.open_active().unwrap().unwrap();
+    let active = restarted.open_active(store()).unwrap().unwrap();
     assert_eq!(active.id(), a.id());
     assert_eq!(
         active.load_state().unwrap(),
         Some(json!({"draft": "alpha still writing"}))
     );
     assert_eq!(
-        Project::open(&b_dir).unwrap().load_state().unwrap(),
+        Project::open(store(), &b_dir)
+            .unwrap()
+            .load_state()
+            .unwrap(),
         Some(json!({"draft": "unfinished beta"}))
     );
     assert_eq!(restarted.list().unwrap().len(), 2);
@@ -71,15 +90,15 @@ fn project_and_registry_round_trip_isolate_a_b_a_and_restart() {
 #[test]
 fn interrupted_revision_and_commit_keep_previous_save_and_are_retained() {
     let base = scratch();
-    let project = Project::create(&base, "Recovery").unwrap();
+    let project = Project::create(store(), &base, "Recovery").unwrap();
     project.save_state(&json!({"draft": "saved"})).unwrap();
-    let state = project.archive_dir().join("state");
+    let state = project.archive_dir().join(CHATS);
     let incomplete = state.join("00000000000000000002.json");
     let partial_commit = state.join("00000000000000000002.commit");
     fs::write(&incomplete, b"{\"v\":1,\"data\":").unwrap();
     fs::write(&partial_commit, b"{\"v\":1").unwrap();
     assert_eq!(
-        Project::open(&base).unwrap().load_state().unwrap(),
+        Project::open(store(), &base).unwrap().load_state().unwrap(),
         Some(json!({"draft": "saved"}))
     );
     project.save_state(&json!({"draft": "retry"})).unwrap();
@@ -95,44 +114,44 @@ fn interrupted_revision_and_commit_keep_previous_save_and_are_retained() {
 #[test]
 fn corrupt_committed_state_is_not_silently_replaced() {
     let base = scratch();
-    let project = Project::create(&base, "Preserved").unwrap();
+    let project = Project::create(store(), &base, "Preserved").unwrap();
     project.save_state(&json!({"draft": "saved"})).unwrap();
     let file = project
         .archive_dir()
-        .join("state/00000000000000000001.json");
+        .join("chats/00000000000000000001.json");
     fs::write(&file, b"damaged").unwrap();
     assert!(project.load_state().is_err());
-    assert!(Project::open(&base).is_err());
+    assert!(Project::open(store(), &base).is_err());
     assert!(project
         .save_state(&json!({"draft": "must not replace"}))
         .is_err());
     assert_eq!(fs::read(file).unwrap(), b"damaged");
     assert!(!project
         .archive_dir()
-        .join("state/00000000000000000002.json")
+        .join("chats/00000000000000000002.json")
         .exists());
 }
 
 #[test]
 fn missing_or_replaced_marker_refuses_save_and_registry_switch() {
     let base = scratch();
-    let a = Project::create(&workspace(&base, "a"), "A").unwrap();
-    let b = Project::create(&workspace(&base, "b"), "B").unwrap();
+    let a = Project::create(store(), &workspace(&base, "a"), "A").unwrap();
+    let b = Project::create(store(), &workspace(&base, "b"), "B").unwrap();
     let registry = Registry::open(&base.join("machine")).unwrap();
     registry.activate(&a).unwrap();
-    let original = fs::read(b.archive_dir().join(MARKER)).unwrap();
+    let original = fs::read(b.link_dir().join(MARKER)).unwrap();
     // Synthetic fixture replacement represents another disk at this path.
     fs::write(
-        b.archive_dir().join(MARKER),
-        fs::read(a.archive_dir().join(MARKER)).unwrap(),
+        b.link_dir().join(MARKER),
+        fs::read(a.link_dir().join(MARKER)).unwrap(),
     )
     .unwrap();
     assert!(b.save_state(&json!("wrong project")).is_err());
     assert!(registry.activate(&b).is_err());
     assert_eq!(registry.active().unwrap().unwrap().id, *a.id());
-    assert!(!b.archive_dir().join("state").exists());
+    assert!(!b.archive_dir().join(CHATS).exists());
 
-    fs::write(b.archive_dir().join(MARKER), original).unwrap();
+    fs::write(b.link_dir().join(MARKER), original).unwrap();
     let parked = base.join("b-parked");
     fs::rename(b.workspace(), &parked).unwrap();
     assert!(b.save_state(&json!("offline")).is_err());
@@ -148,7 +167,7 @@ fn setup_never_adopts_or_overwrites_unmarked_data() {
     let chat = base.join(".devpulse/chat");
     fs::create_dir_all(&chat).unwrap();
     fs::write(chat.join("notes.txt"), "precious").unwrap();
-    assert!(Project::create(&base, "No overwrite").is_err());
+    assert!(Project::create(store(), &base, "No overwrite").is_err());
     assert_eq!(
         fs::read_to_string(chat.join("notes.txt")).unwrap(),
         "precious"
@@ -165,23 +184,22 @@ fn setup_never_adopts_or_overwrites_unmarked_data() {
 #[test]
 fn create_new_refuses_existing_marked_archive_and_preserves_its_state() {
     let base = scratch();
-    let project = Project::create_new(&base, "Original").unwrap();
+    let project = Project::create_new(store(), &base, "Original").unwrap();
     project
         .save_state(&json!({"draft": "original work"}))
         .unwrap();
-    let marker = fs::read(project.archive_dir().join(MARKER)).unwrap();
-    assert!(Project::create_new(&base, "Recovery copy").is_err());
+    let marker = fs::read(project.link_dir().join(MARKER)).unwrap();
+    assert!(Project::create_new(store(), &base, "Recovery copy").is_err());
+    assert_eq!(fs::read(project.link_dir().join(MARKER)).unwrap(), marker);
     assert_eq!(
-        fs::read(project.archive_dir().join(MARKER)).unwrap(),
-        marker
-    );
-    assert_eq!(
-        Project::open(&base).unwrap().load_state().unwrap(),
+        Project::open(store(), &base).unwrap().load_state().unwrap(),
         Some(json!({"draft": "original work"}))
     );
     // Ordinary create keeps its documented open-existing behavior.
     assert_eq!(
-        Project::create(&base, "Ignored new label").unwrap().id(),
+        Project::create(store(), &base, "Ignored new label")
+            .unwrap()
+            .id(),
         project.id()
     );
 }
@@ -193,7 +211,7 @@ fn create_new_refuses_unmarked_content_and_only_one_concurrent_creator_wins() {
     let chat = populated.join(".devpulse/chat");
     fs::create_dir_all(&chat).unwrap();
     fs::write(chat.join("keep.txt"), "existing content").unwrap();
-    assert!(Project::create_new(&populated, "Recovery copy").is_err());
+    assert!(Project::create_new(store(), &populated, "Recovery copy").is_err());
     assert!(!chat.join(MARKER).exists());
     assert_eq!(
         fs::read_to_string(chat.join("keep.txt")).unwrap(),
@@ -208,7 +226,7 @@ fn create_new_refuses_unmarked_content_and_only_one_concurrent_creator_wins() {
             let barrier = Arc::clone(&barrier);
             std::thread::spawn(move || {
                 barrier.wait();
-                Project::create_new(&destination, "Exclusive copy")
+                Project::create_new(store(), &destination, "Exclusive copy")
             })
         })
         .collect();
@@ -218,35 +236,38 @@ fn create_new_refuses_unmarked_content_and_only_one_concurrent_creator_wins() {
         .collect();
     assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
     let winner = results.into_iter().find_map(Result::ok).unwrap();
-    assert_eq!(Project::open(&destination).unwrap().id(), winner.id());
+    assert_eq!(
+        Project::open(store(), &destination).unwrap().id(),
+        winner.id()
+    );
 }
 
 #[test]
 fn future_format_and_invalid_identity_are_rejected_without_writes() {
     let base = scratch();
-    let project = Project::create(&base, "Future").unwrap();
-    let marker = project.archive_dir().join(MARKER);
+    let project = Project::create(store(), &base, "Future").unwrap();
+    let marker = project.link_dir().join(MARKER);
     let mut data: Value = serde_json::from_slice(&fs::read(&marker).unwrap()).unwrap();
     data["v"] = json!(999);
     let bytes = serde_json::to_vec(&data).unwrap();
     fs::write(&marker, &bytes).unwrap();
-    assert!(Project::create(&base, "Cannot replace").is_err());
+    assert!(Project::create(store(), &base, "Cannot replace").is_err());
     assert_eq!(fs::read(&marker).unwrap(), bytes);
     for invalid in ["", "../x", "a/b", "a\\b", "CON", "lpt9", "x.y"] {
         assert!(ProjectId::parse(invalid).is_err(), "{invalid}");
     }
-    assert!(Project::create(Path::new("relative"), "No").is_err());
-    assert!(Project::create(&base.join("../elsewhere"), "No").is_err());
+    assert!(Project::create(store(), Path::new("relative"), "No").is_err());
+    assert!(Project::create(store(), &base.join("../elsewhere"), "No").is_err());
 }
 
 #[test]
 fn unchanged_snapshots_are_deduplicated_and_busy_writer_refuses() {
     let base = scratch();
-    let project = Project::create(&base, "Writer").unwrap();
+    let project = Project::create(store(), &base, "Writer").unwrap();
     project.save_state(&json!({"draft": "same"})).unwrap();
     project.save_state(&json!({"draft": "same"})).unwrap();
     assert_eq!(
-        fs::read_dir(project.archive_dir().join("state"))
+        fs::read_dir(project.archive_dir().join(CHATS))
             .unwrap()
             .count(),
         2
@@ -264,7 +285,7 @@ fn unchanged_snapshots_are_deduplicated_and_busy_writer_refuses() {
 #[test]
 fn registry_rejects_replacement_identity_and_preserves_saved_bindings() {
     let base = scratch();
-    let project = Project::create(&workspace(&base, "workspace"), "Project").unwrap();
+    let project = Project::create(store(), &workspace(&base, "workspace"), "Project").unwrap();
     let machine = base.join("machine");
     let registry = Registry::open(&machine).unwrap();
     registry.activate(&project).unwrap();
@@ -286,23 +307,24 @@ fn registry_rejects_replacement_identity_and_preserves_saved_bindings() {
 #[test]
 fn binding_refuses_same_path_with_a_different_project() {
     let base = scratch();
-    let project = Project::create(&workspace(&base, "workspace"), "Original").unwrap();
+    let project = Project::create(store(), &workspace(&base, "workspace"), "Original").unwrap();
     let registry = Registry::open(&base.join("machine")).unwrap();
     registry.activate(&project).unwrap();
-    let replacement = Project::create(&workspace(&base, "replacement"), "Replacement").unwrap();
+    let replacement =
+        Project::create(store(), &workspace(&base, "replacement"), "Replacement").unwrap();
     fs::write(
-        project.archive_dir().join(MARKER),
-        fs::read(replacement.archive_dir().join(MARKER)).unwrap(),
+        project.link_dir().join(MARKER),
+        fs::read(replacement.link_dir().join(MARKER)).unwrap(),
     )
     .unwrap();
-    assert!(registry.open_active().is_err());
+    assert!(registry.open_active(store()).is_err());
     assert_eq!(registry.active().unwrap().unwrap().id, *project.id());
 }
 
 #[test]
 fn autosave_deltas_store_changed_text_and_array_entries_only() {
     let base = scratch();
-    let project = Project::create(&base, "Deltas").unwrap();
+    let project = Project::create(store(), &base, "Deltas").unwrap();
     let long = "historic message ".repeat(10_000);
     let first =
         json!({"events": [{"text": long}, {"text": "Hello 🦀"}], "draft": "abc", "removed": true});
@@ -312,7 +334,7 @@ fn autosave_deltas_store_changed_text_and_array_entries_only() {
     let delta = fs::read(
         project
             .archive_dir()
-            .join("state/00000000000000000002.json"),
+            .join("chats/00000000000000000002.json"),
     )
     .unwrap();
     assert!(
@@ -320,7 +342,7 @@ fn autosave_deltas_store_changed_text_and_array_entries_only() {
         "a small edit must not duplicate history"
     );
     assert_eq!(
-        Project::open(&base).unwrap().load_state().unwrap(),
+        Project::open(store(), &base).unwrap().load_state().unwrap(),
         Some(second)
     );
     let third = json!({"events": [{"text": long}], "draft": ""});
@@ -332,20 +354,20 @@ fn autosave_deltas_store_changed_text_and_array_entries_only() {
 fn registry_keeps_offline_binding_and_relocates_only_explicitly() {
     let base = scratch();
     let original = workspace(&base, "original");
-    let project = Project::create(&original, "Portable").unwrap();
+    let project = Project::create(store(), &original, "Portable").unwrap();
     project.save_state(&json!({"draft": "carry me"})).unwrap();
     let registry = Registry::open(&base.join("machine")).unwrap();
     registry.activate(&project).unwrap();
     let relocated = base.join("relocated");
     fs::rename(&original, &relocated).unwrap();
-    assert!(registry.open_active().is_err());
+    assert!(registry.open_active(store()).is_err());
     assert_eq!(registry.list().unwrap().len(), 1);
-    let same = Project::open(&relocated).unwrap();
+    let same = Project::open(store(), &relocated).unwrap();
     assert_eq!(same.id(), project.id());
     registry.activate(&same).unwrap();
     assert_eq!(
         registry
-            .open_active()
+            .open_active(store())
             .unwrap()
             .unwrap()
             .load_state()
@@ -353,7 +375,7 @@ fn registry_keeps_offline_binding_and_relocates_only_explicitly() {
         Some(json!({"draft": "carry me"}))
     );
     let marker: Value =
-        serde_json::from_slice(&fs::read(same.archive_dir().join(MARKER)).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(same.link_dir().join(MARKER)).unwrap()).unwrap();
     assert!(
         marker.get("workspace").is_none(),
         "portable metadata must not pin a host path"
@@ -363,15 +385,15 @@ fn registry_keeps_offline_binding_and_relocates_only_explicitly() {
 #[test]
 fn cloned_live_project_identity_does_not_replace_registry_binding() {
     let base = scratch();
-    let original = Project::create(&workspace(&base, "original"), "Original").unwrap();
+    let original = Project::create(store(), &workspace(&base, "original"), "Original").unwrap();
     let cloned_dir = workspace(&base, "cloned");
     fs::create_dir_all(cloned_dir.join(".devpulse/chat")).unwrap();
     fs::copy(
-        original.archive_dir().join(MARKER),
+        original.link_dir().join(MARKER),
         cloned_dir.join(".devpulse/chat/project.json"),
     )
     .unwrap();
-    let clone = Project::open(&cloned_dir).unwrap();
+    let clone = Project::open(store(), &cloned_dir).unwrap();
     let registry = Registry::open(&base.join("machine")).unwrap();
     registry.activate(&original).unwrap();
     assert!(registry.activate(&clone).is_err());
@@ -384,18 +406,18 @@ fn cloned_live_project_identity_does_not_replace_registry_binding() {
 #[test]
 fn missing_marker_and_future_commit_preserve_existing_state() {
     let base = scratch();
-    let project = Project::create(&base, "Identity").unwrap();
+    let project = Project::create(store(), &base, "Identity").unwrap();
     project.save_state(&json!({"draft": "saved"})).unwrap();
-    let marker = project.archive_dir().join(MARKER);
-    let parked = project.archive_dir().join("project.parked.json");
+    let marker = project.link_dir().join(MARKER);
+    let parked = project.link_dir().join("project.parked.json");
     fs::rename(&marker, &parked).unwrap();
     assert!(project.save_state(&json!({"draft": "blocked"})).is_err());
-    assert!(Project::create(&base, "Cannot reinitialize").is_err());
+    assert!(Project::create(store(), &base, "Cannot reinitialize").is_err());
     assert!(!marker.exists());
     fs::rename(&parked, &marker).unwrap();
     let commit = project
         .archive_dir()
-        .join("state/00000000000000000001.commit");
+        .join("chats/00000000000000000001.commit");
     let mut value: Value = serde_json::from_slice(&fs::read(&commit).unwrap()).unwrap();
     value["v"] = json!(999);
     let mut bytes = serde_json::to_vec(&value).unwrap();
@@ -409,7 +431,7 @@ fn missing_marker_and_future_commit_preserve_existing_state() {
 #[test]
 fn corrupt_registry_state_does_not_reset_selection_or_allow_activation() {
     let base = scratch();
-    let project = Project::create(&workspace(&base, "project"), "Project").unwrap();
+    let project = Project::create(store(), &workspace(&base, "project"), "Project").unwrap();
     let machine = base.join("machine");
     let registry = Registry::open(&machine).unwrap();
     registry.activate(&project).unwrap();
@@ -423,8 +445,8 @@ fn corrupt_registry_state_does_not_reset_selection_or_allow_activation() {
 #[test]
 fn independent_project_handles_refuse_stale_saves_but_clones_share_revision() {
     let base = scratch();
-    let first = Project::create(&base, "Concurrent").unwrap();
-    let stale = Project::open(&base).unwrap();
+    let first = Project::create(store(), &base, "Concurrent").unwrap();
+    let stale = Project::open(store(), &base).unwrap();
     first.save_state(&json!({"draft": "first"})).unwrap();
     let edits = json!({"draft": "second instance unsaved edits"});
     let error = stale.save_state(&edits).unwrap_err();
@@ -449,7 +471,7 @@ fn independent_project_handles_refuse_stale_saves_but_clones_share_revision() {
 #[test]
 fn checkpoint_bounds_long_history_and_preserves_superseded_revisions() {
     let base = scratch();
-    let project = Project::create(&base, "Long history").unwrap();
+    let project = Project::create(store(), &base, "Long history").unwrap();
     let history = "earlier conversation ".repeat(13_000);
     let start = std::time::Instant::now();
     for revision in 1..=130 {
@@ -458,7 +480,7 @@ fn checkpoint_bounds_long_history_and_preserves_superseded_revisions() {
             .unwrap();
     }
     let save_duration = start.elapsed();
-    let state = project.archive_dir().join("state");
+    let state = project.archive_dir().join(CHATS);
     for revision in [1, 65, 129] {
         let commit: Value = serde_json::from_slice(
             &fs::read(state.join(format!("{revision:020}.commit"))).unwrap(),
@@ -477,7 +499,11 @@ fn checkpoint_bounds_long_history_and_preserves_superseded_revisions() {
     assert_eq!(fs::read_dir(&state).unwrap().count(), 260);
     let start = std::time::Instant::now();
     assert_eq!(
-        Project::open(&base).unwrap().load_state().unwrap().unwrap()["draft"],
+        Project::open(store(), &base)
+            .unwrap()
+            .load_state()
+            .unwrap()
+            .unwrap()["draft"],
         "revision 130"
     );
     eprintln!("130 saves of 273KiB history: {save_duration:?}; reopen+load: {:?}; disk bytes: {disk_bytes}", start.elapsed());
@@ -500,11 +526,11 @@ fn checkpoint_bounds_long_history_and_preserves_superseded_revisions() {
 #[test]
 fn interrupted_checkpoint_retries_without_clobbering_partial_files() {
     let base = scratch();
-    let project = Project::create(&base, "Checkpoint recovery").unwrap();
+    let project = Project::create(store(), &base, "Checkpoint recovery").unwrap();
     for revision in 1..=64 {
         project.save_state(&json!({"draft": revision})).unwrap();
     }
-    let state = project.archive_dir().join("state");
+    let state = project.archive_dir().join(CHATS);
     let partial = state.join("00000000000000000065.json");
     fs::write(&partial, "partial checkpoint").unwrap();
     fs::write(state.join("00000000000000000065.commit"), "partial commit").unwrap();
@@ -516,7 +542,7 @@ fn interrupted_checkpoint_retries_without_clobbering_partial_files() {
     assert_eq!(commit["checkpoint"], true);
     assert_eq!(fs::read_to_string(partial).unwrap(), "partial checkpoint");
     assert_eq!(
-        Project::open(&base).unwrap().load_state().unwrap(),
+        Project::open(store(), &base).unwrap().load_state().unwrap(),
         Some(json!({"draft": 66}))
     );
 }
@@ -528,11 +554,88 @@ fn symlinked_project_or_state_is_not_followed() {
     let real = workspace(&base, "real");
     let linked = base.join("linked");
     std::os::unix::fs::symlink(&real, &linked).unwrap();
-    assert!(Project::create(&linked, "No link").is_err());
+    assert!(Project::create(store(), &linked, "No link").is_err());
     assert!(!real.join(".devpulse").exists());
-    let project = Project::create(&real, "Real").unwrap();
+    let project = Project::create(store(), &real, "Real").unwrap();
     let outside = workspace(&base, "outside");
-    std::os::unix::fs::symlink(&outside, project.archive_dir().join("state")).unwrap();
+    std::os::unix::fs::symlink(&outside, project.archive_dir().join(CHATS)).unwrap();
     assert!(project.save_state(&json!("no escape")).is_err());
     assert_eq!(fs::read_dir(outside).unwrap().count(), 0);
+}
+
+#[test]
+fn chats_live_in_the_store_and_the_project_folder_keeps_only_the_link() {
+    let base = scratch();
+    let work = workspace(&base, "work");
+    let project = Project::create(store(), &work, "Lesson 12").unwrap();
+    project.save_state(&json!({"draft": "kept"})).unwrap();
+    assert_eq!(project.archive_dir(), store().join(project.id().as_str()));
+    assert!(project.archive_dir().join(CHATS).is_dir());
+    let in_link: Vec<_> = fs::read_dir(work.join(".devpulse/chat"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(
+        in_link,
+        [MARKER],
+        "the project folder holds only its marker"
+    );
+    // Another library has no chats for this project: opening it there is
+    // refused in plain words, and nothing is made.
+    let elsewhere = base.join("another-store");
+    let refusal = Project::open(&elsewhere, &work).unwrap_err();
+    assert!(refusal.contains("not in this library"), "{refusal}");
+    assert!(!elsewhere.join(project.id().as_str()).exists());
+}
+
+#[test]
+fn chats_an_older_build_kept_in_the_project_folder_are_carried_once() {
+    let base = scratch();
+    let work = workspace(&base, "work");
+    // Build the older layout: the marker, the journal and a provider folder
+    // all inside the project folder.
+    let seed = base.join("seed-store");
+    let made = Project::create(&seed, &work, "Old layout").unwrap();
+    made.save_state(&json!({"draft": "from the old place"}))
+        .unwrap();
+    let link = work.join(".devpulse/chat");
+    fs::rename(made.archive_dir().join(CHATS), link.join("state")).unwrap();
+    fs::create_dir_all(link.join("providers/codex")).unwrap();
+    fs::write(link.join("providers/codex/note.txt"), b"native").unwrap();
+    fs::write(link.join("writer.lock"), b"").unwrap();
+    let before: Vec<_> = fs::read_dir(link.join("state"))
+        .unwrap()
+        .map(|entry| fs::read(entry.unwrap().path()).unwrap())
+        .collect();
+
+    let library = base.join("library-store");
+    let project = Project::open(&library, &work).unwrap();
+    assert_eq!(
+        project.load_state().unwrap(),
+        Some(json!({"draft": "from the old place"}))
+    );
+    assert_eq!(
+        fs::read(project.archive_dir().join("providers/codex/note.txt")).unwrap(),
+        b"native"
+    );
+    assert!(!project.archive_dir().join(MARKER).exists());
+    assert!(!project.archive_dir().join("writer.lock").exists());
+    assert!(!library
+        .join(format!("{}.carrying", project.id().as_str()))
+        .exists());
+    let after: Vec<_> = fs::read_dir(link.join("state"))
+        .unwrap()
+        .map(|entry| fs::read(entry.unwrap().path()).unwrap())
+        .collect();
+    assert_eq!(after, before, "the project folder's copy is only read");
+
+    // Once carried, the library is the truth: a later open never copies again.
+    project.save_state(&json!({"draft": "newer"})).unwrap();
+    assert_eq!(
+        Project::open(&library, &work)
+            .unwrap()
+            .load_state()
+            .unwrap(),
+        Some(json!({"draft": "newer"}))
+    );
 }

@@ -7,7 +7,8 @@ fn fixture() -> (PathBuf, Registry, Project) {
     let workspace = base.join("workspace");
     fs::create_dir_all(&workspace).unwrap();
     let registry = Registry::open(&base.join("machine")).unwrap();
-    let project = Project::create_new(&workspace, "Candidate project").unwrap();
+    let project =
+        Project::create_new(&base.join("store"), &workspace, "Candidate project").unwrap();
     (base, registry, project)
 }
 
@@ -185,7 +186,7 @@ fn relocation_waits_for_all_generations_and_preserves_previous_home() {
     let lease = old.lease().unwrap();
     let relocated = base.join("relocated");
     fs::rename(project.workspace(), &relocated).unwrap();
-    let moved = Project::open(&relocated).unwrap();
+    let moved = Project::open(&base.join("store"), &relocated).unwrap();
     assert!(lease.verify().is_err());
     assert!(CodexProfileCandidate::create_new(&registry, &moved).is_err());
     drop(lease);

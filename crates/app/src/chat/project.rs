@@ -19,6 +19,8 @@ pub(super) struct State {
     pub(super) pending_chat_close: Option<ViewportGeneration>,
     pub(super) pending_root_close: bool,
     base: Result<PathBuf, String>,
+    /// The library's per-project chat folder: `.usr/.ai/projects` (R303).
+    store: Result<PathBuf, String>,
     registry: Option<Registry>,
     active: Option<Project>,
     choices: Vec<Binding>,
@@ -91,6 +93,11 @@ impl State {
             } else {
                 Err("Authored fixture".into())
             },
+            store: if enabled {
+                dpl_roots::try_layout().map(|layout| layout.ai.join("projects"))
+            } else {
+                Err("Authored fixture".into())
+            },
             registry: None,
             active: None,
             choices: Vec::new(),
@@ -137,10 +144,12 @@ pub(super) fn boot(state: &mut Shared, ctx: &egui::Context) {
     state.project.boot_pending = false;
     let providers_enabled = state.project.providers_enabled;
     let base = state.project.base.clone();
+    let store = state.project.store.clone();
     state.project.switching = true;
     state.window.set_project_input_locked(true);
     state.project.work(ctx, move || {
         let base = base?;
+        let store = store?;
         match std::fs::symlink_metadata(base.join("registry.json")) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Outcome::Empty(
@@ -154,7 +163,7 @@ pub(super) fn boot(state: &mut Shared, ctx: &egui::Context) {
         }
         let registry = Registry::open(&base)?;
         let choices = registry.list()?;
-        match registry.open_active().and_then(|project| {
+        match registry.open_active(&store).and_then(|project| {
             project
                 .map(|project| prepare(project, providers_enabled))
                 .transpose()
@@ -289,6 +298,7 @@ pub(super) fn request(state: &mut Shared, ctx: &egui::Context, request: Request)
     let old = state.project.active.clone();
     let providers_enabled = state.project.providers_enabled;
     let base = state.project.base.clone();
+    let store = state.project.store.clone();
     let registry = state.project.registry.clone();
     let binding = match &request {
         Request::Select(id) => state
@@ -312,13 +322,16 @@ pub(super) fn request(state: &mut Shared, ctx: &egui::Context, request: Request)
             Some(registry) => registry,
             None => Registry::open(&base?)?,
         };
+        let store = store?;
         let target = match request {
-            Request::Setup { workspace, label } => Project::create(&workspace, &label)?,
-            Request::SaveCopy { workspace, label } => Project::create_new(&workspace, &label)?,
-            Request::Open(workspace) => Project::open(&workspace)?,
+            Request::Setup { workspace, label } => Project::create(&store, &workspace, &label)?,
+            Request::SaveCopy { workspace, label } => {
+                Project::create_new(&store, &workspace, &label)?
+            }
+            Request::Open(workspace) => Project::open(&store, &workspace)?,
             Request::Select(_) => binding
                 .ok_or("The selected project is no longer registered")?
-                .open()?,
+                .open(&store)?,
         };
         let mut prepared = prepare(target, providers_enabled)?;
         // A draft typed before opting in must not vanish at first setup.
@@ -971,7 +984,7 @@ mod tests {
         );
         peer_frames_until(&shared, &ctx, native::busy);
         assert_eq!(
-            Project::open(&workspace)
+            Project::open(&store_of(&workspace), &workspace)
                 .unwrap()
                 .load_state()
                 .unwrap()
@@ -1012,7 +1025,7 @@ mod tests {
         // The pre-load revision still retains local annotations; no event is
         // silently destroyed when the provider snapshot becomes current.
         assert_eq!(
-            Project::open(&workspace)
+            Project::open(&store_of(&workspace), &workspace)
                 .unwrap()
                 .load_state()
                 .unwrap()
@@ -1219,6 +1232,12 @@ mod tests {
         root
     }
 
+    /// The store a test's library would hold: beside its machine folder and
+    /// its workspaces, under the same scratch root.
+    fn store_of(sibling: &Path) -> PathBuf {
+        sibling.parent().unwrap().join("library-projects")
+    }
+
     fn host(base: &Path) -> Shared {
         let fabric = Fabric::new();
         let runtime = ChatRuntime::try_from_registrations([
@@ -1255,6 +1274,7 @@ mod tests {
             .unwrap();
         state.project = State::new(true, false);
         state.project.base = Ok(base.to_owned());
+        state.project.store = Ok(store_of(base));
         state
     }
 
@@ -1316,7 +1336,7 @@ mod tests {
             state.project.worker.is_none()
                 && state.project.saved.as_ref() == state.window.project_archive().ok().as_ref()
         });
-        assert!(Project::open(&workspace)
+        assert!(Project::open(&store_of(&workspace), &workspace)
             .unwrap()
             .load_state()
             .unwrap()
@@ -1356,7 +1376,7 @@ mod tests {
                 .lifecycle,
             WindowLifecycle::Closed
         );
-        let stored = Project::open(&workspace)
+        let stored = Project::open(&store_of(&workspace), &workspace)
             .unwrap()
             .load_state()
             .unwrap()
@@ -1601,7 +1621,7 @@ mod tests {
         draft(&mut state, "common checkpoint");
         save(&mut state, &ctx, true);
         settle(&mut state, &ctx);
-        let other_writer = Project::open(&root.join("A")).unwrap();
+        let other_writer = Project::open(&store_of(&root.join("A")), &root.join("A")).unwrap();
         draft(&mut state, "other window's work");
         let remote = state.window.project_archive().unwrap();
         other_writer.save_state(&remote).unwrap();
@@ -1635,7 +1655,7 @@ mod tests {
         assert_ne!(state.project.active.as_ref().unwrap().id(), &a);
         assert_eq!(draft_text(&state), "my unsaved work");
         assert_eq!(other_writer.load_state().unwrap().unwrap(), remote);
-        assert!(Project::open(&copy)
+        assert!(Project::open(&store_of(&copy), &copy)
             .unwrap()
             .load_state()
             .unwrap()
