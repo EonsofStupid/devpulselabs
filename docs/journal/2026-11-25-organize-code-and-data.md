@@ -19,7 +19,7 @@
 ## Exact next step
 
 BE0 of `docs/plans/backend-postgres.md`: unpack Postgres 18.7 in
-`D:\projects\dptools-depsrtifacts\windows-x86_64\postgres8.7\`, build
+`D:/projects/dptools-deps/artifacts/windows-x86_64/postgres/18.7/`, build
 pgvector 0.8.7 against it, start it on a scratch data folder, run one
 relational and one vector query, stop it, and show the operator the output.
 It is blocked: the session's permission check denied unpacking and running
