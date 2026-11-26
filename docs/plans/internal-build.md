@@ -99,6 +99,20 @@ does anything.
 
 ### 3.6 The backend: Postgres (ruled 2026-11-25)
 
+**Three ways to run, one connection in the code** (ruled 2026-11-25). The
+app holds one backend address and does not care which way it was started:
+
+| Mode | Who starts Postgres | Where the data is |
+|---|---|---|
+| Carried | The app, as its subprocess, from the tool depot | In the library |
+| Service | The computer (Windows service, systemd, launchd), set up by a command in the app | Chosen at setup |
+| Installed | Already running; the app is given its address | Wherever that Postgres keeps it |
+
+Platforms: Windows x64, Linux x64, Linux ARM, macOS. Windows and Linux are
+built and tested today; macOS waits on `mac-parity.md`. The points below
+describe the carried mode, which is built first.
+
+
 - Postgres with the pgvector extension ships in the tool depot and runs as
   a subprocess of the app, like every other helper (R28). Nothing is
   installed on the computer.
@@ -139,6 +153,7 @@ crates/xtask/src/package.rs
 | **IB5** | The Processes tab and the architecture table | Every running helper appears and stops showing when it exits |
 | **BE0** | The inventory row for Postgres and pgvector (source, version, licence, checksum), for the operator's sign-off | The row in `external-reach-inventory.md`, signed off |
 | **BE1** | `crates/backend`: Postgres staged in the depot, started and stopped by the app, data in the library | Start, query, clean stop and restart on a scratch library, on Windows and Linux |
+| **BE1b** | Service and installed modes: one setup command per OS, and connecting to an existing Postgres by address | Each mode starts, answers and survives a restart on Windows and Linux |
 | **BE2** | The relationship tables (project, chat, image, research, bot, provider), filled from the files on disk | Rows match the files; deleting the data folder and rebuilding gives the same rows |
 | **BE3** | Vectors: pgvector tables and search over chats and research | A search returns the right chat on a scratch library |
 | **BE4** | Turso's three databases moved into Postgres, verified, Turso removed | Same library contents before and after; no Turso in the lock file |

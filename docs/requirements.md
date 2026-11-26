@@ -2565,3 +2565,12 @@ decision. The backend is Postgres, run by the app as its own subprocess
 (R28), holding the relationships between projects, chats, images and
 research, and the vectors (R302's "vector storage or vectorDB"). ADR-014's
 sentence rejecting Postgres is withdrawn when the backend lands.
+
+> we allow it to be both portable, as a clear service, installed on the mac, arm, linux, win i mean what the fuck none of my notes make this clear?
+
+**Operator ruling 2026-11-25:** the backend runs three ways, on Windows,
+Linux, macOS and ARM: carried with the app as its subprocess, as a service
+on the computer, or as an installed Postgres the app connects to. R276
+(2026-10-13) had already said the databases are "dedicated subprocesses to be
+running alongside devpulse"; it was recorded with a note that they ran
+in-process and was never acted on.
