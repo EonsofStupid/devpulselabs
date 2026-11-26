@@ -101,6 +101,13 @@ old clone now is. See [reconciliation](plans/main-reconciliation.md) for every
 draft's disposition. No new provider is declared working. R308's inherited
 platform project association remains a documented gap.
 
+**R312 (2026-11-25), drafted, no code:** [internal build](plans/internal-build.md)
+plans an internal and a customer build from one packaging command, saved
+traces of every AI call, the dev panel, and an organizer that files existing
+sessions, images and research by project. Today there is one build, no dev
+panel, and no saved trace. It awaits the operator's OK and a ruling on
+Postgres, which ADR-014 rejected inside the portable app.
+
 **Open from the audit, awaiting the operator's rulings:** one provider doc
 (fold [the appendix](plans/chat-provider-golden-pattern.md) into
 [AH2](plans/chat-ah2-any-ai.md)); the dev panel moved ahead of AH2 (today the

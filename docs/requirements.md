@@ -2542,3 +2542,13 @@ that plan's two open decisions.
 
 **Operator ruling 2026-11-25:** the AI folder is `<library>/.usr/.ai/`, as
 ruled on 2026-11-14 (R303). The plan's `.ai` beside `.userdata` is withdrawn.
+
+### R312 · 2026-11-25
+
+> I am suppose to have a binary that allows me to unzip devpulselabs and run it either as an internal build or a dev customer build.  The internal build was suppose to have clear traces, debugging visuals, devtools, I should be able to have the devtool that helps us get the chat code properly managing the existing subscription sessions so we have machine code that keeps chats properly organized with their projects, any images, research, chats get organized and saved with their project so we have devpulselabs properly helping us keep things organized as we take the time to have the workspaces properly organized our processes properly working clearly defined where we have the engine, and then its processes running the backend/postgres, we should have a clear developer opinionated framework getting established boring predictable file and folder patterns
+
+Source: operator session, 2026-11-25, after R311's M1, M6 and M7 landed.
+Planning artifact: [internal build](plans/internal-build.md). It brings the
+dev panel (DV1 in the 2026-11-14 order) forward. "backend/postgres" is that
+plan's open decision, because ADR-014 rejected a Postgres server inside the
+portable app.
