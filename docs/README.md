@@ -99,6 +99,9 @@ named first and the others are marked **P2**: they merge into it during
 queue for putting every component on one folder pattern and every stored
 byte under the library's `.userdata` and `.usr/.ai`.
 
+[The backbone](plans/backend-postgres.md) (R312) is the plan for Postgres as
+the one backend: its audit, schema, folders and milestones BE0 to BE6.
+
 [Internal build](plans/internal-build.md) (R312, draft) is the plan for the
 internal and customer builds, traces, the dev panel and the organizer.
 

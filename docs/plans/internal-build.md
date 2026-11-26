@@ -1,6 +1,7 @@
 # Internal build — two builds from one zip pattern, with traces and dev tools
 
-**R312 (2026-11-25).** **Status:** draft for the operator's OK. No code yet.
+**R312 (2026-11-25).** **Status:** draft for the operator's OK. No code yet. Built after
+[the backbone](backend-postgres.md).
 Brings forward DV1 (the dev panel) from the 2026-11-14 order, and gives ST4's
 `logs`, `context` and `media` folders their first writers.
 
@@ -97,37 +98,10 @@ does anything.
   CPU, memory, how long it has run.
 - `docs/design/architecture.md` gains one table with the same names.
 
-### 3.6 The backend: Postgres (ruled 2026-11-25)
+### 3.6 The backend
 
-**Three ways to run, one connection in the code** (ruled 2026-11-25). The
-app holds one backend address and does not care which way it was started:
-
-| Mode | Who starts Postgres | Where the data is |
-|---|---|---|
-| Carried | The app, as its subprocess, from the tool depot | In the library |
-| Service | The computer (Windows service, systemd, launchd), set up by a command in the app | Chosen at setup |
-| Installed | Already running; the app is given its address | Wherever that Postgres keeps it |
-
-Platforms: Windows x64, Linux x64, Linux ARM, macOS. Windows and Linux are
-built and tested today; macOS waits on `mac-parity.md`. The points below
-describe the carried mode, which is built first.
-
-
-- Postgres with the pgvector extension ships in the tool depot and runs as
-  a subprocess of the app, like every other helper (R28). Nothing is
-  installed on the computer.
-- Its data folder is `<library>/.usr/.ai/backend/`, so it travels with the
-  library. It listens on this computer only.
-- The app starts it on launch, waits until it answers, and stops it cleanly
-  on exit. A start that fails is shown in plain words; the app does not
-  run half-working.
-- It holds what files cannot: the rows that link a project to its chats,
-  each chat to its images and research, each bot to its provider, and the
-  vectors for search over chats and research.
-- Files stay the truth for content (chat journals, images, documents). The
-  backend is rebuilt from them if it is ever lost.
-- **One truth:** the three Turso databases move into Postgres once, verified,
-  and Turso is then removed. Parquet stays only for the statistics ledger.
+Postgres, planned in full in [the backbone](backend-postgres.md). It is built
+first; this plan's milestones follow BE6.
 
 ### 3.7 Folder pattern
 
@@ -137,8 +111,6 @@ crates/app/src/internal/
   panel/        timeline.rs  prompt.rs  stats.rs  history.rs  processes.rs
   organizer/    sessions.rs  files.rs
 crates/chat/trace/            one crate: the trace type, writer and reader
-crates/backend/               one crate: start, stop, health, migrations, the one connection
-  migrations/                 numbered .sql files, one per change
 crates/xtask/src/package.rs
 ```
 
@@ -151,12 +123,6 @@ crates/xtask/src/package.rs
 | **IB3** | The dev panel: timeline, prompt, stats, history | Captures at 1440×900 and 1100×700 of a real call |
 | **IB4** | The organizer: sessions, then images and research | Existing Codex sessions listed and filed on a scratch library; sources unchanged byte for byte |
 | **IB5** | The Processes tab and the architecture table | Every running helper appears and stops showing when it exits |
-| **BE0** | The inventory row for Postgres and pgvector (source, version, licence, checksum), for the operator's sign-off | The row in `external-reach-inventory.md`, signed off |
-| **BE1** | `crates/backend`: Postgres staged in the depot, started and stopped by the app, data in the library | Start, query, clean stop and restart on a scratch library, on Windows and Linux |
-| **BE1b** | Service and installed modes: one setup command per OS, and connecting to an existing Postgres by address | Each mode starts, answers and survives a restart on Windows and Linux |
-| **BE2** | The relationship tables (project, chat, image, research, bot, provider), filled from the files on disk | Rows match the files; deleting the data folder and rebuilding gives the same rows |
-| **BE3** | Vectors: pgvector tables and search over chats and research | A search returns the right chat on a scratch library |
-| **BE4** | Turso's three databases moved into Postgres, verified, Turso removed | Same library contents before and after; no Turso in the lock file |
 
 ## 5. Rules kept
 
@@ -175,22 +141,13 @@ crates/xtask/src/package.rs
   AI must emit the same steps to appear in the panel.
 - **Vendor session lists differ.** IB4 starts with Codex. An AI whose CLI
   cannot list sessions is shown as "cannot be listed", not guessed.
-- **Postgres on Windows without an installer.** The official binaries run
-  from an unpacked folder. pgvector for Windows has to be built or taken
-  from a trusted build; BE0 settles which, and this is not verified yet.
-- **Zip size.** Postgres adds to the depot, not to the app zip. The exact
-  size is measured in BE1.
 - **This computer has no project registry yet**, so the real-window proof
   needs the operator to set up one project first.
 
 ## 7. Decisions for the operator
 
-1. **Sign off BE0**: bringing Postgres and pgvector binaries into the tool
-   depot is a new outside dependency, so its inventory row needs the
-   operator's sign-off before anything is downloaded.
-2. **Approve this plan.** It is not approved yet.
-
-**Ruled 2026-11-25:** the backend is Postgres (R312).
+1. **Approve this plan.** It is not approved yet. It starts after the
+   backbone lands.
 
 ## 8. Evidence
 

@@ -18,11 +18,12 @@
 
 ## Exact next step
 
-Wait for the operator's answers to the three decisions in
-`docs/plans/internal-build.md` §7 (backend and Postgres, order, approval).
-Then either IB1 (the `internal` feature and `cargo xtask package`) or M2
-(lists on the one renderer: agenda, features, stats, timeline, code, per
-`docs/plans/organize-code-and-data.md` §4.2).
+BE0 of `docs/plans/backend-postgres.md`: unpack Postgres 18.7 in
+`D:\projects\dptools-depsrtifacts\windows-x86_64\postgres8.7\`, build
+pgvector 0.8.7 against it, start it on a scratch data folder, run one
+relational and one vector query, stop it, and show the operator the output.
+It is blocked: the session's permission check denied unpacking and running
+the binaries twice. The operator must allow it or run the unpack. Then BE1.
 
 ## Landmines
 
@@ -38,6 +39,10 @@ Then either IB1 (the `internal` feature and `cargo xtask package`) or M2
 - This computer has no chat project registry
   (`%LOCALAPPDATA%\DevPULSE\chat`), so M7 is proven by tests only.
 - A ruling in `requirements.md` is carried out, never asked again.
+- The Bash working folder can reset to the retired checkout after a `cd`
+  outside the repo. Start every command with `cd /d/projects/devpulselabs`.
+- "Postgres is essential" was not a yes to a download. Ask for outside
+  downloads in so many words and wait for the word yes.
 
 ## Verify commands
 

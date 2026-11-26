@@ -101,14 +101,14 @@ old clone now is. See [reconciliation](plans/main-reconciliation.md) for every
 draft's disposition. No new provider is declared working. R308's inherited
 platform project association remains a documented gap.
 
-**R312 (2026-11-25), drafted, no code:** [internal build](plans/internal-build.md)
-plans an internal and a customer build from one packaging command, saved
-traces of every AI call, the dev panel, an organizer that files existing
-sessions, images and research by project, and the backend. **Ruled the same
-day: the backend is Postgres with vectors, run as the app's own subprocess.**
-Today there is one build, no dev panel, no saved trace, no database row that
-links a chat to its project, and no vector search. The plan is not approved
-yet, and the Postgres binaries need an inventory sign-off first.
+**R312 (2026-11-25): Postgres is the backbone, built first. No code yet.**
+[The backbone](plans/backend-postgres.md) holds the audit and the full plan,
+BE0 to BE6. Today the app has four stores (Turso in three files, Fjall,
+Parquet, plain files), no foreign key anywhere, and no vector search. Postgres
+18.7 is downloaded to the depot but not unpacked or run: this session's
+permission check stopped that step, so BE0 waits on the operator.
+The [internal build](plans/internal-build.md) (two builds, traces, dev panel,
+organizer) follows the backbone and is not approved yet.
 
 **Open from the audit, awaiting the operator's rulings:** one provider doc
 (fold [the appendix](plans/chat-provider-golden-pattern.md) into
