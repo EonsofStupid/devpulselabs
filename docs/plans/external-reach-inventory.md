@@ -158,6 +158,7 @@ Exact provider paths and link ownership still need qualification.
 | # | Reach | Evidence | Status |
 |---|---|---|---|
 | 65 | Read pinned Open Workflow1.0.3 and Arazzo1.1.0 specification/schema files from their official hosts and vendor schemas for offline local mapping tests | `ui-procedure-mapping-spike.md`; R296 adoption assessment | Authorized as necessary grounding for the operator's execute instruction. Source URLs, hashes and licenses retained with vendored schema data. No runtime fetching, new service, host recording, outbound messages or standards submission. |
+| 66 | PostgreSQL 18.7 Windows x64 binaries from the official download host (`get.enterprisedb.com/postgresql/postgresql-18.7-1-windows-x64-binaries.zip`, 389,515,503 bytes, sha256 `ead0bbc27fb678fa24dcf86b738981323042abd073c744103bf7f3aed23f9a33`, PostgreSQL Licence), and pgvector 0.8.7 source (`github.com/pgvector/pgvector`, PostgreSQL Licence) to be built against it. Runs as a subprocess of the app, listening on this computer only | R312; `internal-build.md` §3.6 | **Awaiting the operator's sign-off.** The zip was downloaded on 2026-11-25 to `D:/projects/dptools-deps/artifacts/windows-x86_64/postgres/18.7/`. It has not been unpacked or run. pgvector has not been downloaded. |
 
 The one-time YAML-to-JSON conversion used the official `nodeca/js-yaml` 4.1.0
 distribution in ignored `target/`; its source and checksum are recorded with the

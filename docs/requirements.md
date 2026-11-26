@@ -2574,3 +2574,11 @@ on the computer, or as an installed Postgres the app connects to. R276
 (2026-10-13) had already said the databases are "dedicated subprocesses to be
 running alongside devpulse"; it was recorded with a note that they ran
 in-process and was never acted on.
+
+Offered content first with Postgres later:
+
+> no its essential postgres is my backbone lessons, projects all should be getting properly grouped research notes etc so i am properly keeping it all grouped in folders and context and vectors and associated
+
+**Operator ruling 2026-11-25:** Postgres is the backbone and is built first.
+Lessons, projects, research and notes are grouped in folders and linked in
+the backend with their context and vectors.
