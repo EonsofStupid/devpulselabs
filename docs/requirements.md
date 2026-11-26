@@ -2550,5 +2550,18 @@ ruled on 2026-11-14 (R303). The plan's `.ai` beside `.userdata` is withdrawn.
 Source: operator session, 2026-11-25, after R311's M1, M6 and M7 landed.
 Planning artifact: [internal build](plans/internal-build.md). It brings the
 dev panel (DV1 in the 2026-11-14 order) forward. "backend/postgres" is that
-plan's open decision, because ADR-014 rejected a Postgres server inside the
-portable app.
+plan's backend section.
+
+Asked what the backend should be, given that ADR-014 kept Postgres out:
+
+> what the fuck why couldnt we run postgres properly like any other application paraquet is limiting is it not do we not now have relationships properly getting estalbished and vector is lost?
+
+> no i never made that decision what the fuck
+
+> i need to fix this
+
+**Operator ruling 2026-11-25:** leaving Postgres out was never the operator's
+decision. The backend is Postgres, run by the app as its own subprocess
+(R28), holding the relationships between projects, chats, images and
+research, and the vectors (R302's "vector storage or vectorDB"). ADR-014's
+sentence rejecting Postgres is withdrawn when the backend lands.

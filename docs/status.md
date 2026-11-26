@@ -103,10 +103,12 @@ platform project association remains a documented gap.
 
 **R312 (2026-11-25), drafted, no code:** [internal build](plans/internal-build.md)
 plans an internal and a customer build from one packaging command, saved
-traces of every AI call, the dev panel, and an organizer that files existing
-sessions, images and research by project. Today there is one build, no dev
-panel, and no saved trace. It awaits the operator's OK and a ruling on
-Postgres, which ADR-014 rejected inside the portable app.
+traces of every AI call, the dev panel, an organizer that files existing
+sessions, images and research by project, and the backend. **Ruled the same
+day: the backend is Postgres with vectors, run as the app's own subprocess.**
+Today there is one build, no dev panel, no saved trace, no database row that
+links a chat to its project, and no vector search. The plan is not approved
+yet, and the Postgres binaries need an inventory sign-off first.
 
 **Open from the audit, awaiting the operator's rulings:** one provider doc
 (fold [the appendix](plans/chat-provider-golden-pattern.md) into

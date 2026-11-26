@@ -28,7 +28,11 @@ Both come from one source tree by one packaging command.
 | Per-project folders | `chats` and `providers/codex` are written (M7). `logs`, `context` and `media` have no writer. | `crates/chat/projects/src/lib.rs` |
 | Existing sessions | The Codex crate has adoption and native-history code. No screen lists a vendor's existing sessions and files them by project. | `crates/ai/providers/codex/src/{adoption,runtime/native_history}.rs` |
 | Processes | The app starts its helpers as subprocesses (ADR-009). No screen or doc lists them in one place. | `docs/design/architecture.md` |
-| Postgres | Not used. ADR-014 chose an embedded database plus Parquet and rejected a Postgres server inside a portable app. | `docs/design/adr-014-three-ring-root.md` |
+| Database | Turso, an embedded SQLite-compatible engine, in three crates: the library index, AI accounts and AI profiles. It has tables with relationships, for the library only. | `crates/index`, `crates/ai/accounts`, `crates/ai/profiles` |
+| Chats | Journal files on disk per project. No database row links a chat to its project, images or research. | `crates/chat/projects` |
+| Parquet | Used only by the signal ledger for statistics. Append-only files with no relationships. | `crates/ledger` |
+| Vector search | None. `crates/vector` draws shapes; it is not a vector database. Nothing stores embeddings. | `crates/vector/src/lib.rs` |
+| Postgres | Not used. A sentence in ADR-014 rejected it; the operator ruled on 2026-11-25 that this was never their decision. | `docs/design/adr-014-three-ring-root.md` |
 
 ## 3. Design
 
@@ -84,14 +88,34 @@ does anything.
   to that project's `media/` or `context/` folder with a small record of
   which chat made it.
 
-### 3.5 Processes, named in one place
+### 3.5 The engine and its processes
 
-- A Processes tab in the dev panel lists the app and every subprocess it
-  started: name, purpose, state, CPU, memory, how long it has run.
+- **The engine** is the app. **Its processes** are the helpers it starts
+  and stops: the backend, each AI's CLI, the Lottie renderer, the coach
+  overlay and ffmpeg.
+- A Processes tab in the dev panel lists each one: name, purpose, state,
+  CPU, memory, how long it has run.
 - `docs/design/architecture.md` gains one table with the same names.
-- The backend is an open decision (§7).
 
-### 3.6 Folder pattern
+### 3.6 The backend: Postgres (ruled 2026-11-25)
+
+- Postgres with the pgvector extension ships in the tool depot and runs as
+  a subprocess of the app, like every other helper (R28). Nothing is
+  installed on the computer.
+- Its data folder is `<library>/.usr/.ai/backend/`, so it travels with the
+  library. It listens on this computer only.
+- The app starts it on launch, waits until it answers, and stops it cleanly
+  on exit. A start that fails is shown in plain words; the app does not
+  run half-working.
+- It holds what files cannot: the rows that link a project to its chats,
+  each chat to its images and research, each bot to its provider, and the
+  vectors for search over chats and research.
+- Files stay the truth for content (chat journals, images, documents). The
+  backend is rebuilt from them if it is ever lost.
+- **One truth:** the three Turso databases move into Postgres once, verified,
+  and Turso is then removed. Parquet stays only for the statistics ledger.
+
+### 3.7 Folder pattern
 
 ```text
 crates/app/src/internal/
@@ -99,6 +123,8 @@ crates/app/src/internal/
   panel/        timeline.rs  prompt.rs  stats.rs  history.rs  processes.rs
   organizer/    sessions.rs  files.rs
 crates/chat/trace/            one crate: the trace type, writer and reader
+crates/backend/               one crate: start, stop, health, migrations, the one connection
+  migrations/                 numbered .sql files, one per change
 crates/xtask/src/package.rs
 ```
 
@@ -111,6 +137,11 @@ crates/xtask/src/package.rs
 | **IB3** | The dev panel: timeline, prompt, stats, history | Captures at 1440×900 and 1100×700 of a real call |
 | **IB4** | The organizer: sessions, then images and research | Existing Codex sessions listed and filed on a scratch library; sources unchanged byte for byte |
 | **IB5** | The Processes tab and the architecture table | Every running helper appears and stops showing when it exits |
+| **BE0** | The inventory row for Postgres and pgvector (source, version, licence, checksum), for the operator's sign-off | The row in `external-reach-inventory.md`, signed off |
+| **BE1** | `crates/backend`: Postgres staged in the depot, started and stopped by the app, data in the library | Start, query, clean stop and restart on a scratch library, on Windows and Linux |
+| **BE2** | The relationship tables (project, chat, image, research, bot, provider), filled from the files on disk | Rows match the files; deleting the data folder and rebuilding gives the same rows |
+| **BE3** | Vectors: pgvector tables and search over chats and research | A search returns the right chat on a scratch library |
+| **BE4** | Turso's three databases moved into Postgres, verified, Turso removed | Same library contents before and after; no Turso in the lock file |
 
 ## 5. Rules kept
 
@@ -129,17 +160,22 @@ crates/xtask/src/package.rs
   AI must emit the same steps to appear in the panel.
 - **Vendor session lists differ.** IB4 starts with Codex. An AI whose CLI
   cannot list sessions is shown as "cannot be listed", not guessed.
+- **Postgres on Windows without an installer.** The official binaries run
+  from an unpacked folder. pgvector for Windows has to be built or taken
+  from a trusted build; BE0 settles which, and this is not verified yet.
+- **Zip size.** Postgres adds to the depot, not to the app zip. The exact
+  size is measured in BE1.
 - **This computer has no project registry yet**, so the real-window proof
   needs the operator to set up one project first.
 
 ## 7. Decisions for the operator
 
-1. **Backend and Postgres.** ADR-014 rejected a Postgres server inside the
-   portable app. Either keep that and name the embedded database as the
-   backend, or add Postgres as a helper process, or treat Postgres as the
-   separate platform's backend that this app connects to.
-2. **Order.** This plan ahead of the components (M2 to M5), or after.
-3. **Approve this plan** so IB1 can start.
+1. **Sign off BE0**: bringing Postgres and pgvector binaries into the tool
+   depot is a new outside dependency, so its inventory row needs the
+   operator's sign-off before anything is downloaded.
+2. **Approve this plan.** It is not approved yet.
+
+**Ruled 2026-11-25:** the backend is Postgres (R312).
 
 ## 8. Evidence
 
