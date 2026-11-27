@@ -2582,3 +2582,10 @@ Offered content first with Postgres later:
 **Operator ruling 2026-11-25:** Postgres is the backbone and is built first.
 Lessons, projects, research and notes are grouped in folders and linked in
 the backend with their context and vectors.
+
+### R313 · 2026-11-27
+
+> I need to have a devtool made that will clearly allow me have UI/quality of life UI that will easily let us parse the code and see the rules, todo, and all of the filepaths to easily copy identify docs, readmes, agent instructions where the UI will clearly have tabs to allow me to see all of these dynamically parsed by habving the devtool built to parse and know the common filenames and folder names and locations for AI regardless if codex, claude, grok, we will have clear tags that will identify provenenance and their AI provider
+
+Source: operator session, 2026-11-27. A dev tool of R312's internal build.
+Planning artifact: [internal build](plans/internal-build.md), §3.8.

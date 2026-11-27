@@ -110,15 +110,120 @@ crates/app/src/internal/
   mod.rs
   panel/        timeline.rs  prompt.rs  stats.rs  history.rs  processes.rs
   organizer/    sessions.rs  files.rs
+  context/      mod.rs  tabs.rs  row.rs  preview.rs   (3.8)
+crates/ai/core/catalog/context-files.json   (3.8 conventions)
+crates/ai/host/src/context.rs               (3.8 scanner)
 crates/chat/trace/            one crate: the trace type, writer and reader
 crates/xtask/src/package.rs
 ```
+
+### 3.8 Code context (R313, internal build only)
+
+A dev window that reads a project and the operator's AI folders and shows,
+in tabs, every rule, to-do, doc, README and agent instruction file. Each one
+is tagged with **which AI it belongs to** and **where it comes from**, with
+its path one click from the clipboard. It is plain code with no AI. It only
+reads, and it never changes or sends a file.
+
+**What it reads (roots).**
+- The platform's current project folder (R308: chat and tools inherit it).
+- This repo, in a dev run.
+- The operator's own AI folders in the home directory: `~/.claude`,
+  `~/.codex`, `~/.gemini`, `~/.grok`, `~/.cursor`, `~/.copilot` and the
+  rest that the conventions name.
+- On this computer, 2026-11-27, the first six exist.
+
+**Conventions are data, not code.**
+- `crates/ai/core/catalog/context-files.json` lists every known file name,
+  glob and folder. Each entry has:
+  - the AI ids that read it (checked against the AI catalog, so a typo fails
+    the gate);
+  - its scope: repo, repo-local (uncommitted), nested, user, or managed;
+  - its kind: instructions, rules, memory, skill, agent, command, hook,
+    settings, MCP or doc;
+  - how to parse it (markdown, `.mdc` frontmatter, TOML, JSON);
+  - the vendor doc URL, and `verified`.
+- Shared files carry every AI that reads them. `AGENTS.md`, for example, is
+  read by Codex, Cursor and others.
+- A new AI or a renamed file is a data edit. Each entry also carries the
+  precedence the vendor documents (for example Codex's `AGENTS.override.md`
+  before `AGENTS.md`, Claude Code's fallback to `AGENTS.md` only when no
+  `CLAUDE.md` exists) and `status: current | legacy`. Windsurf is now Devin
+  Desktop, Kimi CLI is now Kimi Code, and Gemini CLI is being replaced by
+  Antigravity CLI. The data comes from
+  [AI context files](../research/ai-context-files.md): 13 tools, checked
+  against each vendor's docs on 2026-11-27.
+- Files that are not specific to any AI (README, `docs/**`, CHANGELOG,
+  CONTRIBUTING, LICENSE) are tagged **project**.
+
+**Never opened (the deny list, also data, enforced in code).**
+- **Credential files** are listed with a lock tag so the operator knows they
+  are there, and their contents are never read. The list is the research's
+  verified deny-list, for example `~/.claude/.credentials.json`,
+  `~/.codex/auth.json`, `~/.grok/auth.json`, `~/.copilot/providers.json`,
+  `~/.kimi-code/credentials/**`, and `.env*` anywhere. On this computer
+  `~/.claude/.credentials.json`, `~/.codex/secrets` and
+  `~/.codex/.sandbox-secrets` exist.
+- **Settings and MCP files** can hold keys inline (`~/.claude.json`,
+  `~/.codex/config.toml`, `~/.grok/config.toml`, `.mcp.json`). They are
+  listed by path and tags only; their contents are not shown in this
+  milestone.
+- **Session transcripts** (`~/.claude/projects/**/*.jsonl`,
+  `history.jsonl`, `~/.copilot/session-store.db`, …) belong to the history
+  catalog, so this tool counts them and does not open them.
+- A test proves that no deny-listed file is ever opened. A file whose name is
+  unknown and whose path lies under a vendor folder is listed, not parsed.
+
+**Tags on every row.**
+- **AI:** Claude, Codex, Cursor, Gemini, Grok, Copilot, …, read from the
+  catalog's look so the colours match the chat.
+- **Scope:** repo, repo-local, nested (with its folder), user, or managed.
+- **Git:** tracked, untracked or ignored, from one `git ls-files` run (a
+  subprocess; no new dependency). A folder outside git says "not in git".
+- **Convention:** verified, or unverified (from the vendor's docs, not yet
+  seen in use).
+
+**Tabs.**
+| Tab | Shows |
+|---|---|
+| Overview | Counts per tab and per AI, and which AIs have files here. **What each AI reads here**: pick an AI and a folder, and see the files it would load, in its documented order. That is how to see that Claude Code ignores `AGENTS.md` here because `CLAUDE.md` exists |
+| Instructions | `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.github/copilot-instructions.md` and the rest, grouped by AI. Each shows its outline (headings) and its imports (`@path` in CLAUDE.md), resolved and clickable |
+| Rules | Rule files (`.cursor/rules/*.mdc`, `.claude/rules/`, `~/.codex/rules`, …) with their frontmatter (`description`, `globs`, `alwaysApply`); each file's own bullets listed under it |
+| Skills & agents | Skills (`SKILL.md`: name, description), sub-agents, slash commands and hooks, per AI and scope |
+| Settings & MCP | Settings and MCP config files: path and tags only. Values are shown only for keys that are not on the deny list |
+| Memory | Memory files (for example `~/.claude/projects/<project>/memory/*.md`) with their frontmatter description |
+| Docs | READMEs, `docs/**`, plans and ADRs, with title and first heading |
+| To-dos | `TODO`, `FIXME`, `HACK`, `XXX` in code comments, and unchecked `- [ ]` boxes in markdown, each with `path:line` |
+| Paths | Every row above in one sortable, filterable list |
+
+**On every row:**
+- **Copy path**, **Copy relative path** and **Copy as link**
+  (`[name](path#Lline)`);
+- **Open**, in the system's default app;
+- **Show in folder**;
+- a read-only preview.
+
+There is a search box across all tabs, and chips filter by AI, scope, git
+state and kind. Every control has a tooltip, it is built from ColdLight
+components, and it works at 1100×700.
+
+**When it runs.** It scans on open and on Refresh, off the frame loop, on
+one worker, never on a timer. It skips `target/`, `node_modules/` and
+`.git/`, and any file over 1 MB is listed but not parsed.
+
+**Where the code lives.**
+- The conventions data and its types are in `dpl-ai-core`.
+- The scanner is in `dpl-ai-host`, which already reads the machine for
+  presence and histories: a new module `context`.
+- The window is in `crates/app/src/internal/context/`, compiled only into
+  the internal build (3.1).
 
 ## 4. Milestones (one PR each)
 
 | | Milestone | Proves it |
 |---|---|---|
 | **IB1** | The `internal` feature, `cargo xtask package`, the nightly on that command, the build named in the window | Both zips unpack and start on a scratch library; the customer exe holds no dev panel text |
+| **IB1c** | Code context (3.8): conventions data, scanner, the window and its tabs | On this repo and a scratch home: every convention row found and tagged; no deny-listed file opened (test); copy, open and show-in-folder work; captures at 1100×700 and maximized |
 | **IB2** | The trace crate; Codex emits steps; traces saved per chat | A real Codex call writes a trace with the prompt and all timings |
 | **IB3** | The dev panel: timeline, prompt, stats, history | Captures at 1440×900 and 1100×700 of a real call |
 | **IB4** | The organizer: sessions, then images and research | Existing Codex sessions listed and filed on a scratch library; sources unchanged byte for byte |
@@ -148,6 +253,9 @@ crates/xtask/src/package.rs
 
 1. **Approve this plan.** It is not approved yet. It starts after the
    backbone lands.
+2. **Code context (3.8, R313): where it goes in the order.** It needs only
+   IB1's internal build, with no backend and no AI call, so it can land right
+   after IB1 while the backbone's BE0 waits on the operator.
 
 ## 8. Evidence
 
