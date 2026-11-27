@@ -39,8 +39,10 @@ Both come from one source tree by one packaging command.
 
 ### 3.1 Two builds, one packaging command
 
-- The app crate gains one feature, `internal`. All dev code sits behind it,
-  in `crates/app/src/internal/`. The customer build compiles none of it.
+- The app crate gains one feature, `internal`. It only pulls in the
+  devtools family (3.7) and opens its windows; no dev code lives in the app
+  crate. The customer build compiles none of it, and the structure audit
+  fails if any non-`internal` path reaches a devtools crate.
 - `cargo xtask package <internal|customer>` builds the app and its helpers,
   stages the folder, and writes the zip. The nightly workflow calls this
   command, so there is one packaging truth.
@@ -66,7 +68,7 @@ One trace is one AI call from the operator pressing send to the last byte.
 
 ### 3.3 Dev panel (internal build only)
 
-A panel in the chat window, opened from the status bar.
+The `trace` tool (3.7), opened from the status bar or from the chat it traces.
 
 - **Timeline**: the steps of the current call as bars on one time axis.
 - **Prompt**: the text as sent, with the parts labelled (instructions,
@@ -77,8 +79,8 @@ A panel in the chat window, opened from the status bar.
 
 ### 3.4 Sessions and files organizer (internal build first)
 
-Plain code, no AI. It runs on request and shows what it will do before it
-does anything.
+The `organizer` tool (3.7). Plain code, no AI. It runs on request and shows
+what it will do before it does anything.
 
 - **Sessions**: reads each signed-in vendor's own session list through the
   vendor's CLI, matches each session to a project by its working folder,
@@ -94,7 +96,7 @@ does anything.
 - **The engine** is the app. **Its processes** are the helpers it starts
   and stops: the backend, each AI's CLI, the Lottie renderer, the coach
   overlay and ffmpeg.
-- A Processes tab in the dev panel lists each one: name, purpose, state,
+- The `processes` tool (3.7) lists each one: name, purpose, state,
   CPU, memory, how long it has run.
 - `docs/design/architecture.md` gains one table with the same names.
 
@@ -103,18 +105,81 @@ does anything.
 Postgres, planned in full in [the backbone](backend-postgres.md). It is built
 first; this plan's milestones follow BE6.
 
-### 3.7 Folder pattern
+### 3.7 The devtools family: one pattern, repeated for every tool
+
+**Why.** Today dev surfaces are scattered across `coach-overlay`
+("devtools-only"), `chat/testkit`, `desktop-spike`, `xtask` and an app
+feature flag. Families that architecture.md §4 says should be grouped
+(more than about 3 crates) sit flat: `egui-pilot-ai-*` (7), `coach-*` (7),
+`engine-*` (5). Every tool this plan adds (traces, organizer, processes,
+code context) would grow that pile. Instead there is one family, and every
+tool in it has the same shape.
 
 ```text
-crates/app/src/internal/
-  mod.rs
-  panel/        timeline.rs  prompt.rs  stats.rs  history.rs  processes.rs
-  organizer/    sessions.rs  files.rs
-  context/      mod.rs  tabs.rs  row.rs  preview.rs   (3.8)
-crates/ai/core/catalog/context-files.json   (3.8 conventions)
-crates/ai/host/src/context.rs               (3.8 scanner)
-crates/chat/trace/            one crate: the trace type, writer and reader
-crates/xtask/src/package.rs
+crates/devtools/
+  core/            dpl-devtools-core   the tool contract: the dpl.devtool/1 manifest
+                                       type, the registry (census law), the
+                                       read-only file and process access every
+                                       tool uses, and the deny-list check. No egui.
+  ui/              dpl-devtools-ui     the window, tab strip, filter chips, row,
+                                       tag chip, path actions (copy, open, show)
+                                       and preview: ColdLight only, used by every
+                                       tool, owned by none.
+  tools/<id>/      dpl-devtool-<id>    one tool. The SAME files in every tool:
+    Cargo.toml
+    tool.json        dpl.devtool/1: id, label, summary, tabs[], what it reads,
+                     what it writes (most write nothing), which build it ships in
+    data/            the tool's own data files, only if it has any
+    src/lib.rs       doc header (one concern) and registration; nothing else
+    src/model.rs     the tool's types (serde); no egui
+    src/engine.rs    the work (scan, parse, compute); no egui; unit-tested.
+                     It becomes engine/<job>.rs, one job per file, when it
+                     outgrows one file.
+    src/view/mod.rs  the tab switch
+    src/view/<tab>.rs   one file per tab named in tool.json
+```
+
+**Laws (gate-enforced, amended into architecture.md and the structure audit
+in the same commit):**
+- **Orthogonal:**
+  - a tool depends on `devtools-core`, `devtools-ui` and the platform crates
+    whose data it reads; never on another tool;
+  - `engine` and `model` never import egui;
+  - only `view/` paints.
+- **Census:**
+  - `tool.json`'s tabs equal the `src/view/<tab>.rs` files equal the
+    registry;
+  - a tool folder missing a fixed file, or holding an extra one, fails the
+    gate (as components do since R311 M1).
+- **Platform knowledge stays in the platform.** A tool reads platform data;
+  it does not own it. Code context's file conventions are AI knowledge, so
+  they live in the AI catalog (`dpl-ai-core`), where chat can use them too.
+- **Headless as well as on screen.** Every engine's output is serde, so
+  `cargo xtask devtool <id> --json` runs the same engine without a window,
+  for scripts and AI agents. No second implementation.
+- **Same tools, every build kind.**
+  - The internal build opens them from the status bar.
+  - The dev run (`cargo xtask dev`) is an internal build.
+  - The customer build has none.
+
+**The tools this plan adds, all on this pattern:**
+- `code-context` (3.8, R313);
+- `trace` (3.2–3.3, the dev panel);
+- `organizer` (3.4);
+- `processes` (3.5).
+
+The trace *type and writer* stay a platform crate (`crates/chat/trace`),
+because chat writes traces in every build. The *viewer* is the devtool.
+
+**Not in this plan, named so it is not lost:** grouping today's flat families
+(`egui-pilot-ai/*`, `coach/*`, `engine/*`) and deciding whether
+`coach-overlay` and `desktop-spike` join `devtools/`. Each is a pure move,
+its own PR, after the operator's OK, on the R311 rule (move, let errors
+surface, fix imports, no shims).
+
+```text
+crates/xtask/src/package.rs      (3.1)
+crates/xtask/src/devtool.rs      (headless runner)
 ```
 
 ### 3.8 Code context (R313, internal build only)
@@ -212,18 +277,21 @@ one worker, never on a timer. It skips `target/`, `node_modules/` and
 `.git/`, and any file over 1 MB is listed but not parsed.
 
 **Where the code lives.**
-- The conventions data and its types are in `dpl-ai-core`.
-- The scanner is in `dpl-ai-host`, which already reads the machine for
-  presence and histories: a new module `context`.
-- The window is in `crates/app/src/internal/context/`, compiled only into
-  the internal build (3.1).
+- `crates/ai/core/catalog/context-files.json`, with its types in
+  `dpl-ai-core`: the conventions, beside the AI catalog they cite.
+- `crates/devtools/tools/code-context/`, on the 3.7 pattern:
+  - **tabs** `overview`, `instructions`, `rules`, `skills`, `settings`,
+    `memory`, `docs`, `todos`, `paths`;
+  - **engine jobs** `roots`, `walk`, `classify` (conventions → tags),
+    `parse` (headings, frontmatter, imports, to-dos) and `reads` (what each
+    AI loads, in order).
 
 ## 4. Milestones (one PR each)
 
 | | Milestone | Proves it |
 |---|---|---|
 | **IB1** | The `internal` feature, `cargo xtask package`, the nightly on that command, the build named in the window | Both zips unpack and start on a scratch library; the customer exe holds no dev panel text |
-| **IB1c** | Code context (3.8): conventions data, scanner, the window and its tabs | On this repo and a scratch home: every convention row found and tagged; no deny-listed file opened (test); copy, open and show-in-folder work; captures at 1100×700 and maximized |
+| **IB1c** | The devtools family (3.7: `devtools/core`, `devtools/ui`, `dpl.devtool/1`, its audit, `cargo xtask devtool`) and its first tool, code context (3.8) | On this repo and a scratch home: every convention row found and tagged; no deny-listed file opened (test); copy, open and show-in-folder work; captures at 1100×700 and maximized |
 | **IB2** | The trace crate; Codex emits steps; traces saved per chat | A real Codex call writes a trace with the prompt and all timings |
 | **IB3** | The dev panel: timeline, prompt, stats, history | Captures at 1440×900 and 1100×700 of a real call |
 | **IB4** | The organizer: sessions, then images and research | Existing Codex sessions listed and filed on a scratch library; sources unchanged byte for byte |

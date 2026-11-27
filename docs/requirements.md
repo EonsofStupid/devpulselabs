@@ -2589,3 +2589,16 @@ the backend with their context and vectors.
 
 Source: operator session, 2026-11-27. A dev tool of R312's internal build.
 Planning artifact: [internal build](plans/internal-build.md), §3.8.
+
+Asked to approve the code-context plan (internal build §3.8):
+
+> really take am oment to plan this out.  It just needs to be built as part of our custom devtools that are built to scale and grow this project and will work with factory.  THe folder and file patterns where suppose to be boring and predictable repeating over and over hypermodular true orthogoonal we have so many cratest hat are overlapping and flat now make sure you are planning this out to scale and be smart not hardcoding not rushing this
+
+**Operator rulings 2026-11-27:**
+- **Order:** "IB1 then code context now": IB1 (the internal build switch
+  and packaging), then the code-context tool, ahead of the backbone.
+- **Home AI folders:** "Include by default": the operator's home AI
+  folders are read alongside the project, tagged as home, with a chip to hide
+  them.
+- **Plan:** not yet approved. It is re-planned as the first tool of one
+  devtools family (internal build §3.7).
